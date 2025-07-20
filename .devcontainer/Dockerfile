@@ -32,10 +32,6 @@ RUN groupadd --gid 1000 rsvscode \
 USER rsvscode
 WORKDIR /home/rsvscode
 
-# Create symbolic links to ensure python/python3 commands use Python 3.9
-RUN sudo ln -sf /usr/local/bin/python3.9 /usr/local/bin/python \
-    && sudo ln -sf /usr/local/bin/python3.9 /usr/local/bin/python3
-
 # Upgrade pip and install build tools
 RUN python -m pip install --upgrade pip setuptools wheel
 
@@ -44,9 +40,9 @@ ENV PATH="/home/rsvscode/.local/bin:${PATH}"
 
 # Pre-install core scientific packages (community-verified versions for SUAVE 2.5.2)
 RUN pip install --user \
-    numpy>=1.21.6,<1.25.0 \
-    scipy>=1.7.3,<1.11.0 \
-    matplotlib>=3.5.0,<3.8.0
+    "numpy>=1.21.6,<1.25.0" \
+    "scipy>=1.7.3,<1.11.0" \
+    "matplotlib>=3.5.0,<3.8.0"
 
 # Copy and install requirements
 COPY requirements.txt /tmp/requirements.txt
