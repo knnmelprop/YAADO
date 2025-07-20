@@ -1,0 +1,28 @@
+{
+  "name": "SUAVE Tutorial Environment (Git LFS + Codespaces Optimized)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "settings": {
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "python.defaultInterpreterPath": "/usr/local/bin/python",
+    "python.linting.enabled": true,
+    "python.formatting.provider": "black"
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-python.pylint",
+    "ms-toolsai.jupyter",
+    "ms-python.black-formatter"
+  ],
+  "postCreateCommand": "git lfs install && pip install --user -e . && echo 'SUAVE environment with Git LFS ready!'",
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspaces/SUAVE,type=bind,consistency=cached"
+  ]
+}
