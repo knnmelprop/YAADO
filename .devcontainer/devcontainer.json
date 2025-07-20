@@ -21,7 +21,7 @@
       ]
     }
   },
-  "postCreateCommand": "git lfs install && python3.9 -m pip install --user -e . && echo 'SUAVE environment with Git LFS ready!'",
+  "postCreateCommand": "git lfs install --force && python3.9 -m pip install --user -e . && echo 'SUAVE environment with Git LFS ready!'",
   "remoteUser": "rsvscode",
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
