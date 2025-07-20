@@ -22,21 +22,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Create vscode user (GitHub Codespaces standard)
-RUN groupadd --gid 1000 vscode \
-    && useradd --uid 1000 --gid vscode --shell /bin/bash --create-home vscode \
-    && echo "vscode ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/vscode \
-    && chmod 0440 /etc/sudoers.d/vscode
+# Create rsvscode user (to match .devcontainer.json)
+RUN groupadd --gid 1000 rsvscode \
+    && useradd --uid 1000 --gid rsvscode --shell /bin/bash --create-home rsvscode \
+    && echo "rsvscode ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/rsvscode \
+    && chmod 0440 /etc/sudoers.d/rsvscode
 
-# Switch to vscode user
-USER vscode
-WORKDIR /home/vscode
+# Switch to rsvscode user
+USER rsvscode
+WORKDIR /home/rsvscode
+
+# Create symbolic links to ensure python/python3 commands use Python 3.9
+RUN sudo ln -sf /usr/local/bin/python3.9 /usr/local/bin/python \
+    && sudo ln -sf /usr/local/bin/python3.9 /usr/local/bin/python3
 
 # Upgrade pip and install build tools
 RUN python -m pip install --upgrade pip setuptools wheel
 
 # Set Python path for user installations
-ENV PATH="/home/vscode/.local/bin:${PATH}"
+ENV PATH="/home/rsvscode/.local/bin:${PATH}"
 
 # Pre-install core scientific packages (community-verified versions for SUAVE 2.5.2)
 RUN pip install --user \
