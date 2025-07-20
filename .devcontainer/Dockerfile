@@ -38,11 +38,24 @@ RUN python -m pip install --upgrade pip setuptools wheel
 # Set Python path for user installations
 ENV PATH="/home/rsvscode/.local/bin:${PATH}"
 
+# Add ~/.local/lib/python3.9/site-packages to PYTHONPATH
+ENV PYTHONPATH="/home/rsvscode/.local/lib/python3.9/site-packages:${PYTHONPATH}"
+
 # Pre-install core scientific packages (community-verified versions for SUAVE 2.5.2)
 RUN pip install --user \
     "numpy>=1.21.6,<1.25.0" \
     "scipy>=1.7.3,<1.11.0" \
-    "matplotlib>=3.5.0,<3.8.0"
+    "matplotlib>=3.5.0,<3.8.0" \
+    "scikit-learn>=0.24.0" \
+    "plotly"
+
+# Ensure dependencies are available globally for setup.py
+RUN pip install \
+    "numpy>=1.21.6,<1.25.0" \
+    "scipy>=1.7.3,<1.11.0" \
+    "matplotlib>=3.5.0,<3.8.0" \
+    "scikit-learn>=0.24.0" \
+    "plotly"
 
 # Copy and install requirements
 COPY requirements.txt /tmp/requirements.txt
