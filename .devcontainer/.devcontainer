@@ -2,7 +2,7 @@
   "name": "SUAVE Tutorial Environment (Git LFS + Codespaces Optimized)",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": ".."
+    "context": "."
   },
   "settings": {
     "terminal.integrated.defaultProfile.linux": "bash",
@@ -21,8 +21,5 @@
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
-  },
-  "mounts": [
-    "source=${localWorkspaceFolder},target=/workspaces/SUAVE,type=bind,consistency=cached"
-  ]
+  }
 }
