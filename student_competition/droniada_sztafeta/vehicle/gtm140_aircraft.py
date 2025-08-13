@@ -253,7 +253,7 @@ def define_vehicle():
     # ------------------------------------------------------------------
     
     # Fuel tank sized for mission requirements (2.6 kg from perplexity)
-    fuel = SUAVE.Components.Energy.Storages.Fuel_Tank()
+    fuel = SUAVE.Components.Energy.Storages.Fuel_Tanks.Fuel_Tank()
     fuel.origin             = [0.9, 0, 0] * Units.meter  # Behind wing
     fuel.mass_properties.center_of_gravity = [0.9, 0, 0] * Units.meter
     fuel.mass_properties.fuel_mass_when_full = 2.6 * Units.kg
