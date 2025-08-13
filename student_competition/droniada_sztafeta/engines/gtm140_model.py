@@ -15,6 +15,7 @@ Based on JETPOL specifications and performance data
 import SUAVE
 import numpy as np
 from SUAVE.Core import Units
+from SUAVE.Methods.Propulsion.turbofan_sizing import turbofan_sizing
 
 # ----------------------------------------------------------------------
 #   GTM-140 Engine Network Creation
@@ -34,15 +35,16 @@ def create_gtm140_network():
     #   Initialize Network
     # ------------------------------------------------------------------
     
-    # Create a simplified turbojet network for the GTM-140
-    turbojet = SUAVE.Components.Energy.Networks.Turbojet()
+    # Create a turbofan network and configure it as a turbojet (bypass_ratio = 0)
+    turbojet = SUAVE.Components.Energy.Networks.Turbofan()
     turbojet.tag = 'gtm140_turbojet'
     
     # ------------------------------------------------------------------
-    #   Engine Setup
+    #   Engine Setup (Configure as simple turbojet)
     # ------------------------------------------------------------------
     
     turbojet.number_of_engines = 1.0               # Single engine
+    turbojet.bypass_ratio      = 0.0               # No bypass for turbojet
     turbojet.engine_length     = 0.315 * Units.meter  # 315mm from specs
     turbojet.nacelle_diameter  = 0.115 * Units.meter  # 115mm from specs
     turbojet.origin           = [[0.9, 0.0, 0.0]]  # Centerline, behind wing
@@ -56,8 +58,6 @@ def create_gtm140_network():
     
     ram = SUAVE.Components.Energy.Converters.Ram()
     ram.tag = 'ram'
-    
-    # add to the network
     turbojet.append(ram)
     
     # ------------------------------------------------------------------
@@ -66,96 +66,115 @@ def create_gtm140_network():
     
     inlet_nozzle = SUAVE.Components.Energy.Converters.Compression_Nozzle()
     inlet_nozzle.tag = 'inlet_nozzle'
-    
-    # GTM-140 specific inlet characteristics
-    inlet_nozzle.polytropic_efficiency = 0.95      # Small engine efficiency
-    inlet_nozzle.pressure_ratio        = 0.98      # Inlet losses
-    
-    # add to network
+    inlet_nozzle.polytropic_efficiency = 0.95
+    inlet_nozzle.pressure_ratio        = 0.98
     turbojet.append(inlet_nozzle)
     
     # ------------------------------------------------------------------
-    #   Component 3 - Compressor (Single-stage centrifugal)
+    #   Component 3 - Compressor (Single-stage centrifugal for GTM-140)
     # ------------------------------------------------------------------
     
-    compressor = SUAVE.Components.Energy.Converters.Compressor()    
-    compressor.tag = 'compressor'
-    
-    # GTM-140 specifications: pressure ratio 2.8:1
-    compressor.polytropic_efficiency = 0.78        # Small centrifugal compressor
-    compressor.pressure_ratio        = 2.8         # From GTM-140 specs
-    
-    # add to network
-    turbojet.append(compressor)
+    low_pressure_compressor = SUAVE.Components.Energy.Converters.Compressor()    
+    low_pressure_compressor.tag = 'low_pressure_compressor'
+    low_pressure_compressor.polytropic_efficiency = 0.78        # Small centrifugal compressor
+    low_pressure_compressor.pressure_ratio        = 2.8         # From GTM-140 specs
+    turbojet.append(low_pressure_compressor)
     
     # ------------------------------------------------------------------
-    #   Component 4 - Combustor
+    #   Component 4 - High Pressure Compressor (Dummy for turbofan structure)
+    # ------------------------------------------------------------------
+    
+    high_pressure_compressor = SUAVE.Components.Energy.Converters.Compressor()    
+    high_pressure_compressor.tag = 'high_pressure_compressor'
+    high_pressure_compressor.polytropic_efficiency = 0.95
+    high_pressure_compressor.pressure_ratio        = 1.0        # No additional compression
+    turbojet.append(high_pressure_compressor)
+    
+    # ------------------------------------------------------------------
+    #   Component 5 - Fan (Dummy for turbofan structure, no bypass)
+    # ------------------------------------------------------------------
+    
+    fan = SUAVE.Components.Energy.Converters.Fan()   
+    fan.tag = 'fan'
+    fan.polytropic_efficiency = 0.95
+    fan.pressure_ratio        = 1.0                # No fan compression
+    turbojet.append(fan)
+    
+    # ------------------------------------------------------------------
+    #   Component 6 - Combustor
     # ------------------------------------------------------------------
     
     combustor = SUAVE.Components.Energy.Converters.Combustor()   
     combustor.tag = 'combustor'
-    
-    # GTM-140 combustion characteristics
-    combustor.efficiency                = 0.92     # Small engine combustion efficiency
-    combustor.alphac                    = 1.0      # Stoichiometric ratio
+    combustor.efficiency                = 0.92
+    combustor.alphac                    = 1.0
     combustor.turbine_inlet_temperature = 1023.0 * Units.kelvin  # Max EGT from specs
-    combustor.pressure_ratio            = 0.94     # Combustor pressure drop
+    combustor.pressure_ratio            = 0.94
     combustor.fuel_data                 = SUAVE.Attributes.Propellants.Jet_A()
-    
-    # add to network
     turbojet.append(combustor)
     
     # ------------------------------------------------------------------
-    #   Component 5 - Turbine (Single-stage axial)
+    #   Component 7 - High Pressure Turbine
     # ------------------------------------------------------------------
     
-    turbine = SUAVE.Components.Energy.Converters.Turbine()   
-    turbine.tag = 'turbine'
-    
-    # GTM-140 turbine characteristics
-    turbine.mechanical_efficiency = 0.95           # Small turbine efficiency
-    turbine.polytropic_efficiency = 0.85           # Single stage axial turbine
-    
-    # add to network
-    turbojet.append(turbine)
+    high_pressure_turbine = SUAVE.Components.Energy.Converters.Turbine()   
+    high_pressure_turbine.tag = 'high_pressure_turbine'
+    high_pressure_turbine.mechanical_efficiency = 0.95
+    high_pressure_turbine.polytropic_efficiency = 0.85          # Single stage axial turbine
+    turbojet.append(high_pressure_turbine)
     
     # ------------------------------------------------------------------
-    #   Component 6 - Nozzle
+    #   Component 8 - Low Pressure Turbine (Dummy for turbofan structure)
     # ------------------------------------------------------------------
     
-    nozzle = SUAVE.Components.Energy.Converters.Expansion_Nozzle()   
-    nozzle.tag = 'nozzle'
-    
-    # GTM-140 nozzle characteristics
-    nozzle.polytropic_efficiency = 0.92            # Small nozzle efficiency
-    nozzle.pressure_ratio        = 0.98            # Nozzle pressure ratio
-    
-    # add to network
-    turbojet.append(nozzle)
+    low_pressure_turbine = SUAVE.Components.Energy.Converters.Turbine()   
+    low_pressure_turbine.tag = 'low_pressure_turbine'
+    low_pressure_turbine.mechanical_efficiency = 0.95
+    low_pressure_turbine.polytropic_efficiency = 0.95
+    turbojet.append(low_pressure_turbine)
     
     # ------------------------------------------------------------------
-    #   Component 7 - Thrust
+    #   Component 9 - Core Nozzle
+    # ------------------------------------------------------------------
+    
+    core_nozzle = SUAVE.Components.Energy.Converters.Expansion_Nozzle()   
+    core_nozzle.tag = 'core_nozzle'
+    core_nozzle.polytropic_efficiency = 0.92
+    core_nozzle.pressure_ratio        = 0.98
+    turbojet.append(core_nozzle)
+    
+    # ------------------------------------------------------------------
+    #   Component 10 - Fan Nozzle (Dummy for turbofan structure)
+    # ------------------------------------------------------------------
+    
+    fan_nozzle = SUAVE.Components.Energy.Converters.Expansion_Nozzle()   
+    fan_nozzle.tag = 'fan_nozzle'
+    fan_nozzle.polytropic_efficiency = 0.95
+    fan_nozzle.pressure_ratio        = 0.99
+    turbojet.append(fan_nozzle)
+    
+    # ------------------------------------------------------------------
+    #   Component 11 - Thrust
     # ------------------------------------------------------------------
     
     thrust = SUAVE.Components.Energy.Processes.Thrust()       
     thrust.tag = 'compute_thrust'
-    
-    # GTM-140 thrust characteristics
-    thrust.total_design             = 140.0 * Units.N     # Maximum thrust from specs
-    
-    # design sizing conditions (low altitude, subsonic)
-    thrust.design_altitude          = 1000.0 * Units.ft   # Low altitude operation
-    thrust.design_mach_number       = 0.06                # ~20 m/s design speed
-    thrust.design_thrust            = 55.0 * Units.N      # ~40% power for cruise
-    
-    # add to network
+    thrust.total_design             = 140.0 * Units.N       # Maximum thrust from specs
+    thrust.design_altitude          = 1000.0 * Units.ft     # Low altitude operation
+    thrust.design_mach_number       = 0.06                  # ~20 m/s design speed
+    thrust.design_thrust            = 55.0 * Units.N        # ~40% power for cruise
     turbojet.thrust = thrust
     
     # ------------------------------------------------------------------
-    #   Size the Engine
+    #   Size the Engine (Use SUAVE's built-in sizing)
     # ------------------------------------------------------------------
     
-    gtm140_sizing(turbojet)
+    # Use SUAVE's turbofan sizing function
+    altitude = 1000.0 * Units.feet  # Design altitude
+    mach_number = 0.06              # Design Mach number
+    
+    # Simple sizing without custom functions
+    turbofan_sizing(turbojet, mach_number, altitude)
     
     return turbojet
 
@@ -163,45 +182,6 @@ def create_gtm140_network():
 # ----------------------------------------------------------------------
 #   GTM-140 Specific Functions
 # ----------------------------------------------------------------------
-
-def gtm140_sizing(turbojet):
-    """
-    Sizes the GTM-140 turbojet based on design conditions
-    """
-    
-    # Get components
-    ram         = turbojet.ram
-    inlet       = turbojet.inlet_nozzle
-    compressor  = turbojet.compressor
-    combustor   = turbojet.combustor
-    turbine     = turbojet.turbine
-    nozzle      = turbojet.nozzle
-    thrust      = turbojet.thrust
-    
-    # Create sizing segment
-    sizing_segment = SUAVE.Components.Energy.Segments.Segment()
-    
-    # Set design conditions (low altitude, low speed for UAV)
-    sizing_segment.state.conditions.freestream.altitude       = thrust.design_altitude 
-    sizing_segment.state.conditions.freestream.mach_number    = thrust.design_mach_number
-    
-    # Standard atmosphere at 1000 ft
-    sizing_segment.state.conditions.freestream.pressure       = 97717.0 * Units.pascal
-    sizing_segment.state.conditions.freestream.temperature    = 285.0 * Units.kelvin
-    sizing_segment.state.conditions.freestream.density        = sizing_segment.state.conditions.freestream.pressure/(287*sizing_segment.state.conditions.freestream.temperature)
-    sizing_segment.state.conditions.freestream.dynamic_viscosity = 1.79e-05 * Units.pascal * Units.second
-    sizing_segment.state.conditions.freestream.gravity        = 9.80665 * Units.meter/Units.second**2
-    sizing_segment.state.conditions.freestream.isentropic_expansion_factor = 1.4
-    sizing_segment.state.conditions.freestream.specific_heat_at_constant_pressure = 1004.5 * Units.joule/(Units.kg * Units.kelvin)
-    sizing_segment.state.conditions.freestream.speed_of_sound = np.sqrt(sizing_segment.state.conditions.freestream.isentropic_expansion_factor*287*sizing_segment.state.conditions.freestream.temperature)
-    sizing_segment.state.conditions.freestream.velocity       = sizing_segment.state.conditions.freestream.speed_of_sound*thrust.design_mach_number
-    sizing_segment.state.conditions.propulsion.throttle      = 0.4  # 40% throttle for cruise
-    
-    # Size the engine
-    turbojet.engine_sizing_1d(sizing_segment.state)
-    
-    return
-
 
 def get_gtm140_performance_map():
     """
