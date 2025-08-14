@@ -82,7 +82,7 @@ def print_detailed_mission_summary(results):
     total_distance = 0
     total_fuel = 0
     
-    for i, segment in enumerate(results.segments):
+    for i, segment in enumerate(getattr(results.segments, 'values', lambda: results.segments)()):
         print(f"\nSegment {i+1}: {segment.tag}")
         
         if hasattr(segment.conditions.frames.inertial, 'time'):
@@ -142,7 +142,7 @@ def plot_mission_profile(results, plots_dir):
     
     cumulative_time = 0
     
-    for segment in results.segments:
+    for segment in getattr(results.segments, 'values', lambda: results.segments)():
         time = segment.conditions.frames.inertial.time[:, 0] + cumulative_time
         altitude = segment.conditions.freestream.altitude[:, 0]
         speed = segment.conditions.freestream.velocity[:, 0]
@@ -279,7 +279,8 @@ def plot_competition_metrics(results, plots_dir):
     segment_names = []
     segment_durations = []
     
-    for segment in results.segments:
+    cumulative_time = 0.0
+    for segment in getattr(results.segments, 'values', lambda: results.segments)():
         if hasattr(segment.conditions.frames.inertial, 'time'):
             duration = segment.conditions.frames.inertial.time[-1, 0] / 60  # minutes
             segment_durations.append(duration)
@@ -338,7 +339,7 @@ def plot_aircraft_performance(results, plots_dir):
     
     cumulative_time = 0
     
-    for segment in results.segments:
+    for segment in getattr(results.segments, 'values', lambda: results.segments)():
         time = segment.conditions.frames.inertial.time[:, 0] + cumulative_time
         
         # Aerodynamic coefficients
@@ -439,7 +440,7 @@ def plot_fuel_analysis(results, plots_dir):
     
     cumulative_time = 0
     
-    for segment in results.segments:
+    for segment in getattr(results.segments, 'values', lambda: results.segments)():
         time = segment.conditions.frames.inertial.time[:, 0] + cumulative_time
         
         if hasattr(segment.conditions.weights, 'total_mass'):
@@ -512,7 +513,7 @@ def plot_drop_zones_analysis(results, plots_dir):
     
     # Simulate drop zones based on mission segments
     drop_segments = []
-    for segment in results.segments:
+    for segment in getattr(results.segments, 'values', lambda: results.segments)():
         if 'drop' in segment.tag.lower():
             drop_segments.append(segment)
     

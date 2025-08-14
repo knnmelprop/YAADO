@@ -24,12 +24,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from vehicle.gtm140_aircraft import define_vehicle
 from mission.sztafeta_mission import define_mission
-from analysis.competition_analysis import evaluate_mission
+from analysis.competition_analysis import evaluate_mission, setup_competition_analyses
 from plots.competition_plots import post_process
 
 # ----------------------------------------------------------------------
 #   Main
 # ----------------------------------------------------------------------
+
 def main():
     """
     Main function for Droniada Sztafeta aircraft analysis
@@ -48,9 +49,12 @@ def main():
     print(f"   ✓ Wing Area: {vehicle.reference_area:.2f} m²")
     print(f"   ✓ Engine: GTM-140 Turbojet")
     
-    # define the competition mission
+    # set up analyses for mission
+    analyses = setup_competition_analyses(vehicle)
+    
+    # define the competition mission with analyses
     print("\n2. Defining competition mission...")
-    mission = define_mission(vehicle)
+    mission = define_mission(vehicle, analyses)
     print(f"   ✓ Mission: {mission.tag}")
     print(f"   ✓ Segments: {len(mission.segments)}")
     print(f"   ✓ Competition: Droniada Sztafeta")

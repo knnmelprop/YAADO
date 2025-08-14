@@ -89,7 +89,7 @@ def define_vehicle():
     wing.twists.tip              = 0.0 * Units.degrees  # No tip twist
     
     # Position relative to vehicle centerline
-    wing.origin                  = [0.7, 0, 0] * Units.meter  # CG consideration
+    wing.origin                  = [[0.7, 0, 0]] * Units.meter  # CG consideration
     wing.aerodynamic_center      = [0.25, 0, 0] * Units.meter # 25% MAC
     
     wing.vertical                = False
@@ -128,7 +128,7 @@ def define_vehicle():
     wing.twists.tip              = 0.0 * Units.degrees
     
     # Position for stability margin
-    wing.origin                  = [1.4, 0, 0] * Units.meter  # Tail moment arm
+    wing.origin                  = [[1.4, 0, 0]] * Units.meter  # Tail moment arm
     wing.aerodynamic_center      = [0.25, 0, 0] * Units.meter
     
     wing.vertical                = False
@@ -166,7 +166,7 @@ def define_vehicle():
     wing.twists.root             = 0.0 * Units.degrees
     wing.twists.tip              = 0.0 * Units.degrees
     
-    wing.origin                  = [1.4, 0, 0] * Units.meter
+    wing.origin                  = [[1.4, 0, 0]] * Units.meter
     wing.aerodynamic_center      = [0.25, 0, 0] * Units.meter
     
     wing.vertical                = True 
@@ -254,13 +254,12 @@ def define_vehicle():
     
     # Fuel tank sized for mission requirements (2.6 kg from perplexity)
     fuel = SUAVE.Components.Energy.Storages.Fuel_Tanks.Fuel_Tank()
-    fuel.origin             = [0.9, 0, 0] * Units.meter  # Behind wing
-    fuel.mass_properties.center_of_gravity = [0.9, 0, 0] * Units.meter
+    fuel.origin             = [[0.9, 0, 0]] * Units.meter  # Behind wing
+    fuel.mass_properties.center_of_gravity = [[0.9, 0, 0]] * Units.meter
     fuel.mass_properties.fuel_mass_when_full = 2.6 * Units.kg
-    fuel.fuel_selector_ratio = 1.0
-    fuel.fuel               = SUAVE.Attributes.Propellants.Jet_A()
+    fuel.fuel_type          = SUAVE.Attributes.Propellants.Jet_A()
     
-    # add fuel tank to vehicle
+    # add fuel tank to vehicle (simple vehicle-level fuel placeholder)
     vehicle.fuel = fuel
     
     # ------------------------------------------------------------------
@@ -269,9 +268,9 @@ def define_vehicle():
     
     payload_bay = SUAVE.Components.Payloads.Payload()
     payload_bay.tag = 'beacon_drop_system'
-    payload_bay.origin = [0.5, 0, -0.1] * Units.meter  # Below wing
+    payload_bay.origin = [[0.5, 0, -0.1]] * Units.meter  # Below wing
     payload_bay.mass_properties.mass = 1.0 * Units.kg  # 4 beacons + mechanism
-    payload_bay.mass_properties.center_of_gravity = [0.5, 0, -0.1] * Units.meter
+    payload_bay.mass_properties.center_of_gravity = [[0.5, 0, -0.1]] * Units.meter
     
     # add to vehicle
     vehicle.append_component(payload_bay)
