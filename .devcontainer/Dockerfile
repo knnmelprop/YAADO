@@ -1,65 +1,24 @@
-FROM python:3.9-slim
+FROM mcr.microsoft.com/devcontainers/python:3.9
 
-# Set environment variables for better Codespaces compatibility
+# Environment for non-interactive apt
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 
-# Install system dependencies including Git LFS
+# Install system dependencies needed for scientific stack and Git LFS
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    git \
     git-lfs \
-    wget \
-    curl \
-    ca-certificates \
     gfortran \
     liblapack-dev \
     libopenblas-dev \
-    sudo \
-    vim \
     tree \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/* && apt-get clean
 
-# Create rsvscode user (to match .devcontainer.json)
-RUN groupadd --gid 1000 rsvscode \
-    && useradd --uid 1000 --gid rsvscode --shell /bin/bash --create-home rsvscode \
-    && echo "rsvscode ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/rsvscode \
-    && chmod 0440 /etc/sudoers.d/rsvscode
-
-# Switch to rsvscode user
-USER rsvscode
-WORKDIR /home/rsvscode
-
-# Upgrade pip and install build tools
-RUN python -m pip install --upgrade pip setuptools wheel
-
-# Set Python path for user installations
-ENV PATH="/home/rsvscode/.local/bin:${PATH}"
-
-# Add ~/.local/lib/python3.9/site-packages to PYTHONPATH
-ENV PYTHONPATH="/home/rsvscode/.local/lib/python3.9/site-packages:${PYTHONPATH}"
-
-# Pre-install core scientific packages (community-verified versions for SUAVE 2.5.2)
-RUN pip install --user \
-    "numpy>=1.21.6,<1.25.0" \
-    "scipy>=1.7.3,<1.11.0" \
-    "matplotlib>=3.5.0,<3.8.0" \
-    "scikit-learn>=0.24.0" \
-    "plotly"
-
-# Ensure dependencies are available globally for setup.py
-RUN pip install \
-    "numpy>=1.21.6,<1.25.0" \
-    "scipy>=1.7.3,<1.11.0" \
-    "matplotlib>=3.5.0,<3.8.0" \
-    "scikit-learn>=0.24.0" \
-    "plotly"
-
-# Copy and install requirements
+# Upgrade pip toolchain and install Python dependencies globally
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --user -r /tmp/requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    python -m pip install -r /tmp/requirements.txt
 
 # Set up workspace
 WORKDIR /workspaces
