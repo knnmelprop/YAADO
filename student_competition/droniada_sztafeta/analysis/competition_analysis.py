@@ -34,6 +34,10 @@ def evaluate_mission(vehicle, mission):
     
     analyses = setup_competition_analyses(vehicle)
     
+    # Attach analyses to each mission segment
+    for segment in mission.segments.values():
+        segment.analyses.extend(analyses)
+    
     # finalize the mission analyses
     mission.finalize()
     
@@ -43,7 +47,7 @@ def evaluate_mission(vehicle, mission):
     #   Evaluate Mission
     # ------------------------------------------------------------------
     
-    results = mission.evaluate(analyses)
+    results = mission.evaluate()
     
     # ------------------------------------------------------------------
     #   Post-process Competition Metrics
@@ -145,7 +149,7 @@ def calculate_competition_metrics(vehicle, mission, results):
     total_distance = 0.0
     total_fuel_consumed = 0.0
     
-    for segment in results.segments:
+    for segment in results.segments.values():
         if hasattr(segment.conditions.frames.inertial, 'time'):
             segment_time = segment.conditions.frames.inertial.time[-1, 0]
             total_time += segment_time
@@ -184,7 +188,7 @@ def calculate_competition_metrics(vehicle, mission, results):
     
     # Altitude validation (50-60m AGL)
     altitude_violations = 0
-    for segment in results.segments:
+    for segment in results.segments.values():
         if hasattr(segment.conditions.freestream, 'altitude'):
             altitudes = segment.conditions.freestream.altitude[:, 0]
             cruise_altitudes = altitudes[(altitudes > 10) & (altitudes < 100)]  # Filter cruise altitudes

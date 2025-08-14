@@ -20,7 +20,7 @@ from SUAVE.Core import Units
 #   Define Mission
 # ----------------------------------------------------------------------
 
-def define_mission(vehicle):
+def define_mission(vehicle, analyses=None):
     """
     Defines the Droniada Sztafeta competition mission profile
     
@@ -62,7 +62,8 @@ def define_mission(vehicle):
     segment = Segments.Ground.Takeoff(base_segment)
     segment.tag = "takeoff"
     
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
     
     # Takeoff parameters for small UAV
     segment.velocity_start           = 0.0 * Units['m/s']
@@ -80,7 +81,8 @@ def define_mission(vehicle):
     segment = Segments.Climb.Constant_Speed_Constant_Rate(base_segment)
     segment.tag = "climb_to_altitude"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # Climb parameters (from perplexity analysis)
     segment.altitude_start = 0.0 * Units.meter
@@ -98,7 +100,8 @@ def define_mission(vehicle):
     segment = Segments.Cruise.Constant_Speed_Constant_Altitude(base_segment)
     segment.tag = "circuit_1_outbound"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # First 600m circuit leg
     segment.altitude  = 55.0 * Units.meter
@@ -115,7 +118,8 @@ def define_mission(vehicle):
     segment = Segments.Cruise.Constant_Speed_Constant_Altitude_Loiter(base_segment)
     segment.tag = "drop_sequence_1"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # Loiter for precision dropping
     segment.altitude  = 55.0 * Units.meter
@@ -132,7 +136,8 @@ def define_mission(vehicle):
     segment = Segments.Cruise.Constant_Speed_Constant_Altitude(base_segment)
     segment.tag = "circuit_1_return"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # Return to start point
     segment.altitude  = 55.0 * Units.meter
@@ -149,7 +154,8 @@ def define_mission(vehicle):
     segment = Segments.Cruise.Constant_Speed_Constant_Altitude(base_segment)
     segment.tag = "circuit_2_outbound"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # Second 600m circuit leg
     segment.altitude  = 55.0 * Units.meter
@@ -166,7 +172,8 @@ def define_mission(vehicle):
     segment = Segments.Cruise.Constant_Speed_Constant_Altitude_Loiter(base_segment)
     segment.tag = "drop_sequence_2"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # Final beacon drops
     segment.altitude  = 55.0 * Units.meter
@@ -183,7 +190,8 @@ def define_mission(vehicle):
     segment = Segments.Cruise.Constant_Speed_Constant_Altitude(base_segment)
     segment.tag = "circuit_2_return"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # Return to landing pattern
     segment.altitude  = 55.0 * Units.meter
@@ -200,7 +208,8 @@ def define_mission(vehicle):
     segment = Segments.Descent.Constant_Speed_Constant_Rate(base_segment)
     segment.tag = "descent_to_landing"
 
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
 
     # Descent parameters
     segment.altitude_start = 55.0 * Units.meter
@@ -218,7 +227,8 @@ def define_mission(vehicle):
     segment = Segments.Ground.Landing(base_segment)
     segment.tag = "landing"
     
-    segment.analyses.extend(base_segment.analyses)
+    if analyses is not None:
+        segment.analyses.extend(analyses)
     
     # Landing parameters
     segment.velocity_start           = 16.0 * Units['m/s']
@@ -256,7 +266,7 @@ def print_mission_summary(mission):
     total_distance = 0.0
     total_time_estimate = 0.0
     
-    for segment in mission.segments:
+    for segment in mission.segments.values():
         if hasattr(segment, 'distance'):
             total_distance += segment.distance
         
