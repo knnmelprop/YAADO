@@ -34,6 +34,12 @@ VALID_UAV = {
         "sfc_kg_per_Ns": 2.8e-5,
         "mass_kg": 1.2,
         "mach_range": (0.0, 0.8),
+        "mass_flow_kg_per_s": 0.35,
+        "compression_ratio": 2.8,
+        "egt_K": 973.15,
+        "diameter_m": 0.110,
+        "length_m": 0.265,
+        "max_rpm": 120000.0,
     },
 }
 
