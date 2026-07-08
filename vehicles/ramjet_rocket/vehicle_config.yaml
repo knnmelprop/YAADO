@@ -52,4 +52,4 @@ cfd_notes:
 tbd:
   - "stage_1 motor datasheet (Isp, thrust curve, propellant mass) — currently SZACOWANY"
   - "stage_2 ramjet design_mach final decision"
-  - "moments of inertia Ixx/Iyy/Izz from Fusion GUI (not available via API)"
+  - "moments of inertia Ixx/Iyy/Izz — open Fusion 360 Assembly v6, right-click main component → 'Physical Properties', copy Ixx/Iyy/Izz tensor (units: kg*m^2) from GUI panel. Not scriptable via Fusion API."
