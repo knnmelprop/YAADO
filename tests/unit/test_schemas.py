@@ -43,10 +43,21 @@ VALID_ROCKET = {
     "description": "unit-test rocket",
     "stage_1": {
         "type": "solid_rocket",
-        "isp_s": 220.0,
-        "propellant_mass_kg": 15.0,
-        "burn_time_s": 5.0,
-        "thrust_N": 10000.0,
+        "geometry": {
+            "assembly_diameter_m": 0.250,
+            "assembly_diameter_body_m": 0.250,
+            "assembly_diameter_bbox_m": 1.809,
+            "wings_halfspan_est_m": 0.780,
+        },
+        "propulsion": {
+            "isp_vacuum_s": 230.0,
+            "isp_sl_s": 207.0,
+            "thrust_peak_N": 12000.0,
+            "burn_time_s": 6.0,
+            "propellant_mass_kg": 75.0,
+            "propellant_density_kg_m3": 1750.0,
+            "note": "estimate",
+        },
     },
     "stage_2": {
         "type": "ramjet",
@@ -55,8 +66,8 @@ VALID_ROCKET = {
         "combustor_temp_K": 2000.0,
         "nozzle_area_ratio": 4.0,
     },
-    "body": {"length_m": 3.0, "diameter_m": 0.2, "nose_type": "ogive"},
-    "fins": {"count": 4, "span_m": 0.15, "sweep_deg": 45.0},
+    "body": {"length_m": 4.084, "diameter_m": 0.250, "nose_type": "conical"},
+    "fins": {"count": 4, "span_m": 0.6685, "sweep_deg": 0.0},
 }
 
 
@@ -72,7 +83,8 @@ def test_valid_rocket_config() -> None:
     """A physically sensible two-stage rocket config validates."""
     rocket = RocketConfig.model_validate(VALID_ROCKET)
     assert rocket.vehicle_type == "Rocket"
-    assert rocket.stage_1.isp_s == pytest.approx(220.0)
+    assert rocket.stage_1.propulsion.isp_vacuum_s == pytest.approx(230.0)
+    assert rocket.stage_1.geometry.assembly_diameter_m == pytest.approx(0.250)
     assert rocket.stage_2.design_mach == pytest.approx(2.5)
     assert rocket.body.length_m / rocket.body.diameter_m >= 5.0
 
@@ -125,7 +137,17 @@ def test_from_yaml_ramjet_repo_config() -> None:
 
 
 def test_inconsistent_solid_rocket_thrust_rejected() -> None:
-    """thrust_N wildly inconsistent with mdot*Isp*g0 must be rejected."""
-    bad = dict(VALID_ROCKET["stage_1"], thrust_N=500000.0)
+    """SolidRocketConfig thrust_N inconsistent with mdot*Isp*g0 is rejected.
+
+    The standalone SolidRocketConfig retains the thrust-consistency
+    cross-check used as a unit-mistake guard for flat motor definitions.
+    """
+    from src.schemas.vehicle_schema import SolidRocketConfig
+
     with pytest.raises(ValidationError):
-        RocketConfig.model_validate(dict(VALID_ROCKET, stage_1=bad))
+        SolidRocketConfig(
+            isp_s=220.0,
+            propellant_mass_kg=15.0,
+            burn_time_s=5.0,
+            thrust_N=500000.0,
+        )
