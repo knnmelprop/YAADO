@@ -55,6 +55,12 @@ class TurbojetConfig(BaseModel):
         mass_kg: Dry engine mass in kilograms (> 0).
         mach_range: Operational (min, max) Mach numbers, increasing,
             subsonic (max <= 1.0 for a small turbojet).
+        mass_flow_kg_per_s: Optional air/mass flow rate in kg/s (> 0).
+        compression_ratio: Optional compressor pressure ratio (> 1.0).
+        egt_K: Optional exhaust gas temperature in kelvin (> 0).
+        diameter_m: Optional engine diameter in meters (> 0).
+        length_m: Optional engine length in meters (> 0).
+        max_rpm: Optional maximum RPM (> 0).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -65,6 +71,12 @@ class TurbojetConfig(BaseModel):
     sfc_kg_per_Ns: float = Field(..., gt=0.0)
     mass_kg: float = Field(..., gt=0.0)
     mach_range: tuple[float, float]
+    mass_flow_kg_per_s: float | None = Field(default=None, gt=0.0)
+    compression_ratio: float | None = Field(default=None, gt=1.0)
+    egt_K: float | None = Field(default=None, gt=0.0)
+    diameter_m: float | None = Field(default=None, gt=0.0)
+    length_m: float | None = Field(default=None, gt=0.0)
+    max_rpm: float | None = Field(default=None, gt=0.0)
 
     @field_validator("mach_range")
     @classmethod
