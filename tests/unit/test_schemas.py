@@ -34,6 +34,12 @@ VALID_UAV = {
         "sfc_kg_per_Ns": 2.8e-5,
         "mass_kg": 1.2,
         "mach_range": (0.0, 0.8),
+        "mass_flow_kg_per_s": 0.35,
+        "compression_ratio": 2.8,
+        "egt_K": 973.15,
+        "diameter_m": 0.110,
+        "length_m": 0.265,
+        "max_rpm": 120000.0,
     },
 }
 
@@ -52,7 +58,8 @@ VALID_ROCKET = {
         "propulsion": {
             "isp_vacuum_s": 230.0,
             "isp_sl_s": 207.0,
-            "thrust_peak_N": 12000.0,
+            "thrust_peak_N": 29000.0,
+            "thrust_mean_N": 25375.0,
             "burn_time_s": 6.0,
             "propellant_mass_kg": 75.0,
             "propellant_density_kg_m3": 1750.0,
@@ -151,3 +158,42 @@ def test_inconsistent_solid_rocket_thrust_rejected() -> None:
             burn_time_s=5.0,
             thrust_N=500000.0,
         )
+
+
+def test_solid_rocket_propulsion_peak_below_mean_rejected() -> None:
+    """SolidRocketPropulsion rejects thrust_peak_N < thrust_mean_N.
+
+    Regression for the resolved stage-1 inconsistency: a listed
+    thrust_peak_N=12000 was below the impulse-consistent mean of
+    ~25.4 kN, which is physically impossible (peak >= mean always).
+    """
+    from src.schemas.vehicle_schema import SolidRocketPropulsion
+
+    base = dict(VALID_ROCKET["stage_1"]["propulsion"])
+    base["thrust_peak_N"] = 12000.0
+    with pytest.raises(ValidationError):
+        SolidRocketPropulsion.model_validate(base)
+
+
+def test_solid_rocket_propulsion_mean_inconsistent_with_isp_rejected() -> None:
+    """SolidRocketPropulsion rejects thrust_mean_N far from Isp*mdot*g0."""
+    from src.schemas.vehicle_schema import SolidRocketPropulsion
+
+    base = dict(VALID_ROCKET["stage_1"]["propulsion"])
+    base["thrust_peak_N"] = 500000.0
+    base["thrust_mean_N"] = 500000.0
+    with pytest.raises(ValidationError):
+        SolidRocketPropulsion.model_validate(base)
+
+
+def test_solid_rocket_propulsion_valid_peak_and_mean() -> None:
+    """A physically consistent peak/mean pair validates and exposes both."""
+    from src.schemas.vehicle_schema import SolidRocketPropulsion
+
+    propulsion = SolidRocketPropulsion.model_validate(
+        VALID_ROCKET["stage_1"]["propulsion"]
+    )
+    assert propulsion.thrust_peak_N >= propulsion.thrust_mean_N
+    assert propulsion.total_impulse_Ns == pytest.approx(
+        propulsion.thrust_mean_N * propulsion.burn_time_s
+    )
