@@ -215,10 +215,19 @@ class BoosterGeometry(BaseModel):
 class SolidRocketPropulsion(BaseModel):
     """Solid rocket motor performance estimates (booster stage).
 
+    ``thrust_peak_N`` and ``thrust_mean_N`` are independent inputs (as
+    reported by static-test thrust-time curves), not one derived from the
+    other, so both can be sourced directly from a datasheet. They are
+    cross-checked against each other and against Isp for physical
+    consistency (see :meth:`_thrust_peak_not_below_mean` and
+    :meth:`_mean_thrust_consistent_with_isp`).
+
     Attributes:
         isp_vacuum_s: Vacuum specific impulse in seconds.
         isp_sl_s: Sea-level specific impulse in seconds.
         thrust_peak_N: Peak thrust in newtons (> 0).
+        thrust_mean_N: Time-averaged (mean) thrust over the burn in
+            newtons (> 0). Must be <= ``thrust_peak_N``.
         burn_time_s: Burn duration in seconds (> 0).
         propellant_mass_kg: Propellant mass in kilograms (> 0).
         propellant_density_kg_m3: Propellant density in kg/m^3 (> 0).
@@ -230,10 +239,38 @@ class SolidRocketPropulsion(BaseModel):
     isp_vacuum_s: float = Field(..., ge=100.0, le=320.0)
     isp_sl_s: float = Field(..., ge=100.0, le=320.0)
     thrust_peak_N: float = Field(..., gt=0.0)
+    thrust_mean_N: float = Field(..., gt=0.0)
     burn_time_s: float = Field(..., gt=0.0)
     propellant_mass_kg: float = Field(..., gt=0.0)
     propellant_density_kg_m3: float = Field(..., gt=0.0)
     note: str = ""
+
+    @model_validator(mode="after")
+    def _thrust_peak_not_below_mean(self) -> "SolidRocketPropulsion":
+        """Peak thrust can never be below the time-average of a non-negative
+        thrust curve; catches unit mixups or mismatched motor variants."""
+        if self.thrust_peak_N < self.thrust_mean_N:
+            raise ValueError(
+                f"thrust_peak_N={self.thrust_peak_N:.0f} < "
+                f"thrust_mean_N={self.thrust_mean_N:.0f} N: peak thrust "
+                "cannot be below the mean (check units / motor variant)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _mean_thrust_consistent_with_isp(self) -> "SolidRocketPropulsion":
+        """Cross-check: mean thrust vs. impulse-consistent Isp*mdot*g0,
+        within a factor of 2 (loose guard against unit/data mistakes,
+        analogous to :meth:`SolidRocketConfig._thrust_consistent_with_isp`).
+        """
+        g0 = 9.80665
+        thrust_ideal_N = self.isp_sl_s * self.mdot_kg_per_s * g0
+        if not (thrust_ideal_N / 2.0 <= self.thrust_mean_N <= thrust_ideal_N * 2.0):
+            raise ValueError(
+                f"thrust_mean_N={self.thrust_mean_N:.0f} inconsistent with "
+                f"Isp_sl*mdot*g0={thrust_ideal_N:.0f} N (check units)"
+            )
+        return self
 
     @property
     def mdot_kg_per_s(self) -> float:
@@ -242,14 +279,8 @@ class SolidRocketPropulsion(BaseModel):
 
     @property
     def total_impulse_Ns(self) -> float:
-        """Total impulse from mean sea-level Isp ``Isp * m_p * g0`` [N*s]."""
-        g0 = 9.80665
-        return self.isp_sl_s * self.propellant_mass_kg * g0
-
-    @property
-    def thrust_mean_N(self) -> float:
-        """Impulse-consistent mean thrust ``total_impulse / burn_time`` [N]."""
-        return self.total_impulse_Ns / self.burn_time_s
+        """Total impulse from measured mean thrust ``thrust_mean_N * burn_time_s`` [N*s]."""
+        return self.thrust_mean_N * self.burn_time_s
 
 
 class BoosterStage(BaseModel):
