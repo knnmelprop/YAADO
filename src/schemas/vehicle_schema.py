@@ -153,6 +153,10 @@ class BodyConfig(BaseModel):
     length_m: float = Field(..., gt=0.0)
     diameter_m: float = Field(..., gt=0.0)
     nose_type: Literal["ogive", "conical", "hemispherical"] = "ogive"
+    nose_length_m: float | None = Field(default=None, gt=0.0)
+    nose_diameter_m: float | None = Field(default=None, gt=0.0)
+    total_length_m: float | None = Field(default=None, gt=0.0)
+    max_diameter_m: float | None = Field(default=None, gt=0.0)
 
     @model_validator(mode="after")
     def _slenderness(self) -> "BodyConfig":
@@ -178,6 +182,106 @@ class FinConfig(BaseModel):
     count: int = Field(..., ge=3, le=8)
     span_m: float = Field(..., gt=0.0)
     sweep_deg: float = Field(..., ge=0.0, le=75.0)
+    chord_root_m: float | None = Field(default=None, gt=0.0)
+    chord_tip_m: float | None = Field(default=None, ge=0.0)
+
+
+class BoosterGeometry(BaseModel):
+    """As-built geometry of the solid booster assembly (Fusion export).
+
+    The bounding-box diameter is much larger than the body diameter
+    because the PRD-240 reference wings protrude sideways; the aero
+    reference diameter is the body diameter.
+
+    Attributes:
+        assembly_diameter_m: Aerodynamic reference diameter in meters
+            (equal to the body diameter, > 0).
+        assembly_diameter_body_m: Body (airframe) diameter in meters.
+        assembly_diameter_bbox_m: Bounding-box diameter in meters,
+            including protruding wings/fins.
+        wings_halfspan_est_m: Estimated wing half-span in meters,
+            ``(bbox - body) / 2``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    assembly_diameter_m: float = Field(..., gt=0.0)
+    assembly_diameter_body_m: float = Field(..., gt=0.0)
+    assembly_diameter_bbox_m: float = Field(..., gt=0.0)
+    wings_halfspan_est_m: float = Field(..., ge=0.0)
+    booster_length_m: float | None = Field(default=None, gt=0.0)
+
+
+class SolidRocketPropulsion(BaseModel):
+    """Solid rocket motor performance estimates (booster stage).
+
+    Attributes:
+        isp_vacuum_s: Vacuum specific impulse in seconds.
+        isp_sl_s: Sea-level specific impulse in seconds.
+        thrust_peak_N: Peak thrust in newtons (> 0).
+        burn_time_s: Burn duration in seconds (> 0).
+        propellant_mass_kg: Propellant mass in kilograms (> 0).
+        propellant_density_kg_m3: Propellant density in kg/m^3 (> 0).
+        note: Provenance note (e.g. estimate vs. datasheet).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    isp_vacuum_s: float = Field(..., ge=100.0, le=320.0)
+    isp_sl_s: float = Field(..., ge=100.0, le=320.0)
+    thrust_peak_N: float = Field(..., gt=0.0)
+    burn_time_s: float = Field(..., gt=0.0)
+    propellant_mass_kg: float = Field(..., gt=0.0)
+    propellant_density_kg_m3: float = Field(..., gt=0.0)
+    note: str = ""
+
+    @property
+    def mdot_kg_per_s(self) -> float:
+        """Mean mass flow rate ``propellant_mass_kg / burn_time_s`` [kg/s]."""
+        return self.propellant_mass_kg / self.burn_time_s
+
+    @property
+    def total_impulse_Ns(self) -> float:
+        """Total impulse from mean sea-level Isp ``Isp * m_p * g0`` [N*s]."""
+        g0 = 9.80665
+        return self.isp_sl_s * self.propellant_mass_kg * g0
+
+    @property
+    def thrust_mean_N(self) -> float:
+        """Impulse-consistent mean thrust ``total_impulse / burn_time`` [N]."""
+        return self.total_impulse_Ns / self.burn_time_s
+
+
+class BoosterStage(BaseModel):
+    """Solid booster stage: as-built geometry plus motor estimates.
+
+    Attributes:
+        type: Discriminator, always ``"solid_rocket"``.
+        geometry: As-built booster geometry.
+        propulsion: Motor performance estimates.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["solid_rocket"] = "solid_rocket"
+    geometry: BoosterGeometry
+    propulsion: SolidRocketPropulsion
+
+
+class MassProperties(BaseModel):
+    """Vehicle mass properties (from CAD or estimate).
+
+    Attributes:
+        cg_from_nose_m: Longitudinal centre of gravity measured from the
+            nose tip in meters (> 0).
+        cg_source: Provenance of the CG value.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    cg_from_nose_m: float = Field(..., gt=0.0)
+    cg_source: str = ""
+    total_mass_kg: float | None = Field(default=None, gt=0.0)
 
 
 class BaseVehicleConfig(BaseModel):
@@ -260,17 +364,23 @@ class RocketConfig(BaseVehicleConfig):
     """Project B — two-stage rocket: solid booster + ramjet cruise stage.
 
     Attributes:
-        stage_1: Solid rocket booster definition.
+        stage_1: Solid rocket booster stage (geometry + motor estimates).
         stage_2: Ramjet cruise-stage definition.
         body: Axisymmetric body definition.
         fins: Fin set definition.
+        mass_properties: Optional mass properties (CG from nose).
+        cfd_notes: Free-form notes keyed by topic (geometry caveats, etc.).
+        tbd: List of parameters still to be determined.
     """
 
     vehicle_type: Literal["Rocket"] = "Rocket"
-    stage_1: SolidRocketConfig
+    stage_1: BoosterStage
     stage_2: RamjetConfig
     body: BodyConfig
     fins: FinConfig
+    mass_properties: MassProperties | None = None
+    cfd_notes: dict[str, str] = Field(default_factory=dict)
+    tbd: list[str] = Field(default_factory=list)
 
 
 #: Union of all concrete vehicle configs, for type annotations downstream.
