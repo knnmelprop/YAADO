@@ -1,24 +1,228 @@
-# MELprop-IADE | vehicles.ramjet_rocket | v0.1.0
+# MELprop-IADE | vehicles.ramjet_rocket | v0.2.0
+# Source: Fusion Assembly v6 — 9-step MCP extraction, 2026-07-08
+# CORRECTED v2.0: Fusion API zwraca cm (nie mm) — wszystkie wymiary zweryfikowane
+#
+# Os Y = longitudinal (nos → ogon)
+# Os X, Z = poprzeczne (plaszczyzna srednicy)
+#
+# TBD pozostaje: Isp / thrust / burn_time stopnia 1 (R-13 to makieta!)
+# oraz momenty bezwladnosci Ixx/Iyy/Izz
+
 name: "MELprop-Ramjet-Missile"
 vehicle_type: "Rocket"
-description: "Dwustopniowa rakieta: solid booster + ramjet cruise"
-stage_1:
-  type: "solid_rocket"
-  isp_s: 220.0             # TBD — z dokumentacji silnika
-  propellant_mass_kg: 15.0 # TBD
-  burn_time_s: 5.0         # TBD
-  thrust_N: 10000.0        # TBD
-stage_2:
-  type: "ramjet"
-  design_mach: 2.5         # TBD — decyzja projektowa
-  fuel_type: "kerosene"
-  combustor_temp_K: 2000.0
-  nozzle_area_ratio: 4.0
+description: "Dwustopniowa rakieta: solid booster (R-13 mockup) + ramjet cruise"
+fusion_document_id: "IFGLHs6bQyi39OR86Mht2w"
+model_version: "Assembly v6"
+
+# ===========================================================================
+# WYMIARY GLOBALNE
+# ===========================================================================
+structure:
+  total_length_m: 4.377          # ODCZYT | Y bounding box: 437.67 cm
+  total_length_mm: 4377.0
+  max_diameter_m: 0.639          # ODCZYT | X/Z bounding box: 63.87 cm
+  max_diameter_mm: 639.0
+  total_mass_kg: 355.02          # ODCZYT | Fusion Physical Properties
+
+  center_of_gravity:
+    x_m: -0.0013                 # ODCZYT | lateralnie (blisko osi)
+    y_m: 1.6084                  # ODCZYT | 36.7% dlugosci od nosa
+    z_m: 0.0000                  # ODCZYT | osiowosymetryczny
+    cg_fraction_of_length: 0.367
+
+  density_check:
+    bounding_cylinder_volume_m3: 1.402
+    implied_density_kg_m3: 253   # Niskie = wydrążona konstrukcja (zbiorniki, rury)
+    fill_factor_est: 0.07        # ~7% materialu w bounding volume
+    effective_material_density: 3600  # kg/m3 (zgodne ze stalą z pustkami)
+    verdict: "FIZYCZNIE ROZSADNE dla pustej konstrukcji rakietowej"
+
+# ===========================================================================
+# KADLUB (Body of Revolution)
+# ===========================================================================
 body:
-  length_m: 3.0            # TBD
-  diameter_m: 0.2          # TBD
-  nose_type: "ogive"
+  nose_type: "conical"           # OBSERWACJA | inlet_cone: stozkowy spike
+  nose_length_m: 0.293           # ODCZYT | inlet_cone v1: 29.3 cm
+  nose_base_diameter_m: 0.150    # ODCZYT | inlet_cone Body1: 15.0 cm
+
+body_sections:
+  - name: "inlet_cone"
+    role: "conical_spike"
+    length_m: 0.293
+    diameter_m: 0.150
+    material: "Steel"
+    mass_kg: 1.21
+    bodies_count: 4
+    position_y_m: -0.075         # od origin
+
+  - name: "inlet_Mk1"
+    role: "main_inlet"
+    length_m: 0.250
+    diameter_m: 0.250
+    material: "Steel"
+    mass_kg: 1.94
+    bodies_count: 8
+    capture_area_m2: 0.04909     # OBLICZONY | pi*(0.250/2)^2
+
+  - name: "diffuser"
+    role: "subsonic_diffuser"
+    length_m: 0.746
+    diameter_entrance_m: 0.250
+    diameter_exit_m: 0.746
+    expansion_ratio: 2.98
+    material: "Steel"
+    mass_kg: 3.27
+    bodies_count: 19
+
+  - name: "tank_Mk1"
+    role: "combustion_chamber_housing"
+    length_m: 0.560
+    diameter_m: 0.250
+    material: "Steel"
+    mass_kg: 7.58
+    bodies_count: 28
+
+  - name: "flame_holder"
+    role: "flame_stabilizer"
+    length_m: 0.214
+    diameter_m: 0.214
+    material: "Steel"
+    mass_kg: 0.616
+    bodies_count: 63
+    note: "Złożona geometria (63 bodies) — CFD mesh wymaga uproszczenia"
+
+  - name: "front_cover"
+    diameter_m: 0.250
+    material: "Steel"
+    mass_kg: 0.243
+
+  - name: "aft_cover"
+    diameter_m: 0.250
+    material: "Steel"
+    mass_kg: 0.484
+
+# ===========================================================================
+# PŁETWY STABILIZUJĄCE
+# ===========================================================================
 fins:
   count: 4
-  span_m: 0.15             # TBD
-  sweep_deg: 45.0
+  configuration: "cross-mounted"  # 90 deg spacing
+  total_mass_kg: 0.224
+
+  span_m: 0.6685                  # ODCZYT | 66.85 cm
+  span_mm: 668.5
+  chord_root_m: 0.1768            # ODCZYT | 17.68 cm
+  chord_tip_m: 0.1768             # ODCZYT | profil prostokatny
+  taper_ratio: 1.0
+  sweep_le_deg: 0.0               # ODCZYT | prostokatne
+  sweep_te_deg: 0.0
+  profile_type: "rectangular"
+  thickness_max_m: 0.030          # SZACOWANY | ~30 mm
+  material: "Steel"
+  mass_each_kg: 0.056
+  total_fin_area_m2: 0.449        # OBLICZONY | 4 * span * chord
+
+# ===========================================================================
+# DYSZA RAMJETU
+# ===========================================================================
+nozzle:
+  type: "cylindrical"             # UWAGA: brak ekspansji! area_ratio = 1.0
+  length_m: 0.250
+  throat_diameter_m: 0.250
+  exit_diameter_m: 0.250
+  expansion_ratio: 1.0
+  material: "Steel"
+  design_note: "Cylindryczna dysza — WYMAGA przeprojektowania na dyszę Lavala!"
+
+# ===========================================================================
+# NAPĘD STOPIEŃ 1 (Booster)
+# ===========================================================================
+stage_1:
+  type: "solid_rocket"
+  note: "R-13 to MAKIETA — zastąp danymi rzeczywistego silnika!"
+
+  geometry:                       # ODCZYT z Fusion
+    assembly_length_m: 2.089
+    assembly_diameter_m: 1.809    # max z bounding box boooster
+    engine_length_m: 0.656        # R-13 mockup
+    interstage_tube_length_m: 0.127
+    interstage_tube_diameter_m: 0.851
+    interstage_tube_material: "CFRP"
+    interstage_top_length_m: 0.252
+    interstage_top_diameter_m: 0.624
+    propellant_volume_m3: 0.0484  # pistons assembly
+    wings_count: 4                # PRD-240 x4
+  mass_kg: 277.80
+  mass_fraction_of_vehicle: 0.782
+
+  propulsion:                     # TBD — BRAK DANYCH (makieta)
+    isp_s: null
+    propellant_mass_kg: null
+    burn_time_s: null
+    thrust_N: null
+
+# ===========================================================================
+# NAPĘD STOPIEŃ 2 (Ramjet Cruise)
+# ===========================================================================
+stage_2:
+  type: "ramjet"
+  design_mach: 2.5                # TBD — decyzja projektowa
+  fuel_type: "kerosene"
+  combustor_temp_K: 2000.0        # TBD — z analizy cyklu pyCycle
+
+  inlet:
+    type: "axisymmetric"
+    diameter_m: 0.250
+    spike_length_m: 0.293
+    spike_base_diameter_m: 0.150
+    diffuser_exit_diameter_m: 0.746
+    diffuser_expansion_ratio: 2.98
+    capture_area_m2: 0.04909
+
+# ===========================================================================
+# WŁAŚCIWOŚCI MASOWE (summary)
+# ===========================================================================
+mass_properties:
+  total_mass_kg: 355.02
+  ramjet_section_kg: 15.18
+  booster_section_kg: 277.80
+  other_kg: 9.44
+
+  cg_y_m: 1.6084                  # 36.7% od nosa
+  ixx_kg_m2: null                 # TBD — Fusion GUI: Inspect > Physical Properties
+  iyy_kg_m2: null                 # TBD
+  izz_kg_m2: null                 # TBD
+
+# ===========================================================================
+# OSTRZEŻENIA I NOTATKI CFD
+# ===========================================================================
+cfd_notes:
+  external_aero: "READY — geometria zewnętrzna kompletna, osiowosymetryczna"
+  internal_flow: "PARTIAL — inlet+diffuser gotowe; flame_holder wymaga uproszczenia (63 bodies)"
+  scale: "Model 1:1 (nie skalowy) — L=4.38 m, D=0.64 m"
+  mass_caution: "355 kg — dominuje booster 278 kg (stal makieta); masa lotu bedzie inna"
+  nozzle_caution: "Cylindryczna dysza (area_ratio=1.0) — WYMAGA przeprojektowania Laval"
+
+tbd:
+  - "Isp, thrust_N, burn_time_s, propellant_mass_kg — dane rzeczywistego silnika stopnia 1"
+  - "design_mach ramjetu (2.5 = placeholder) — z analizy misji"
+  - "Momenty bezwladnosci Ixx/Iyy/Izz — Fusion GUI: Inspect > Physical Properties"
+  - "Przeprojektowanie dyszy: Laval zamiast cylindrycznej"
+  - "Weryfikacja: czy PRD-240 to plop stabilizujace czy skrzydla nosne?"
+  - "Potwierdzenie srednicy booostera 1.809m vs 0.639m calkowita — czy booster jest szerszy niz kadlub?"
+
+# ===========================================================================
+# LOG KOREKCJI
+# ===========================================================================
+corrections_log:
+  v1_to_v2:
+    - issue: "Fusion API zwraca cm, nie mm — wymiary x10 za małe"
+      fix: "Wszystkie wartosci * 10 (cm→mm) lub /100 (cm→m)"
+    - issue: "Os X brana jako longitudinal"
+      fix: "Os Y = longitudinal (najdluzszy wymiar bounding box)"
+    - issue: "Booster 180mm > Total 123mm (niemozliwe)"
+      fix: "Po korekcji: Booster 2.089m < Total 4.377m ✔"
+  verification:
+    booster_fits: "2.089m < 4.377m ✔"
+    density_ok: "253 kg/m3 — rozsadne dla pustej konstrukcji ✔"
+    cg_ok: "1.608m = 36.7% od nosa — stabilna konfiguracja ✔"
