@@ -22,3 +22,16 @@ Append-only; maintained by the orchestrator.
   described state; log divergences in docs/decision-log.md before Phase 1.
 - Test counts in handoff docs go stale quickly (prompt said 62/66, AGENT_CONTEXT
   said 25, actual 36). Trust only a freshly run pytest.
+
+### Nightly-run lessons (2026-07-08/09)
+- **Subagent artifact recovery:** Subagent runs killed by user interrupts leave
+  no artifacts — always verify expected output files exist before assuming a
+  launched agent completed. Git status + pytest count are the ground truth.
+- **Sonnet delegation model:** Delegating physics phases (inlet, cycle, mission)
+  to sonnet-tier with tightly specified spec + orchestrator-side pytest
+  verification worked reliably (75/75, 80/80 first pass). Document physics
+  intent clearly; let subagents implement numerics.
+- **Doc phase batching:** Combine small doc phases (e.g., tracker update +
+  assumptions confirmation + memory log) into one subagent call to save
+  cold-start overhead. Markdown files have low parsing cost; parallel edits
+  safe if non-overlapping.
