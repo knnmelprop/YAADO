@@ -1,0 +1,65 @@
+{
+  "cp_subsonic_m": 4.127910648942737,
+  "cp_transonic_m": 4.155069078154583,
+  "cg_m": 1.6084,
+  "static_margin_cal": 10.078042595770947,
+  "static_margin_transonic_cal": 10.186676312618333,
+  "fineness_ratio": 17.508,
+  "sm_required_cal": 1.7508,
+  "margin_cal": 8.327242595770947,
+  "cn_alpha_subsonic_per_rad": 68.21326786137367,
+  "cn_alpha_transonic_per_rad": 88.9514978969668,
+  "verdict": "PASS",
+  "geometry": {
+    "d_ref_m": 0.25,
+    "nose_length_m": 0.293,
+    "nose_base_diameter_m": 0.15,
+    "total_length_m": 4.377,
+    "transition_length_m": 0.1,
+    "transition_start_m": 0.293,
+    "fin_count": 4,
+    "fin_span_m": 0.6685,
+    "fin_root_chord_m": 0.1768,
+    "fin_tip_chord_m": 0.1768,
+    "fin_sweep_deg": 0.0,
+    "fin_root_le_x_m": 4.2002,
+    "cg_from_nose_m": 1.6084
+  },
+  "component_breakdown_subsonic": {
+    "nose": {
+      "cn_alpha_per_rad": 0.72,
+      "x_cp_m": 0.136538
+    },
+    "transition": {
+      "cn_alpha_per_rad": 1.28,
+      "x_cp_m": 0.3471666666666666
+    },
+    "fins": {
+      "cn_alpha_per_rad": 66.21326786137367,
+      "x_cp_m": 4.2444
+    }
+  },
+  "component_breakdown_transonic_m1": {
+    "nose": {
+      "cn_alpha_per_rad": 0.72,
+      "x_cp_m": 0.136538
+    },
+    "transition": {
+      "cn_alpha_per_rad": 1.28,
+      "x_cp_m": 0.3471666666666666
+    },
+    "fins": {
+      "cn_alpha_per_rad": 86.9514978969668,
+      "x_cp_m": 4.2444
+    }
+  },
+  "assumptions": [
+    "Nose CP factor 0.466 x L_nose applied to a conical nose per task specification; classical Barrowman value for a true cone is 2/3 x L_nose (0.466 is the tangent-ogive value). Using 0.466 places the nose CP slightly forward, i.e. is a mildly conservative (less stable) choice for this cone.",
+    "Nose-to-body conical transition (shoulder, 0.15 m -> 0.25 m) assumed to start at x = 0.293 m (aft of the nose) and to be 0.100 m long; this length is not present in the Fusion export and is an engineering assumption ('short').",
+    "Fin root leading edge placed at x = L_total - chord_root = 4.2002 m, i.e. fins assumed mounted flush with the aft end of the rocket body (root trailing edge at the base).",
+    "Nose and transition CN_alpha are treated as Mach-invariant (slender-body theory, first order); only the fin CN_alpha receives the Prandtl-Glauert / transonic-bridge / Ackeret compressibility correction (see fin_mach_correction_factor).",
+    "Transonic band (0.8 <= Mach <= 1.2) is bridged by linear interpolation of the fin compressibility factor between its Mach-0.8 subsonic value and its Mach-1.2 supersonic value; no closed-form linear theory exists in this band. This is a low-order engineering estimate, not CFD, and should not be used for final flight-safety sign-off without wind-tunnel or CFD corroboration near Mach 1.",
+    "Body-fin interference uses the Hoerner factor Kfb = 1 + R/(s+R); no fin-fin (cruciform panel-to-panel) interference is modeled."
+  ],
+  "method": "barrowman_subsonic + rogers_transonic_extension"
+}
