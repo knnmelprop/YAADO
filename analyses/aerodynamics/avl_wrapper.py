@@ -11,7 +11,11 @@ drag polar for induced drag.
 from __future__ import annotations
 
 import math
+import re
 import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
 from core.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
 from src.schemas.vehicle_schema import UAVConfig
@@ -129,20 +133,141 @@ class AVLAnalysis(BaseAnalysis):
             raise RuntimeError("AVLAnalysis.execute() called before setup()")
 
         if avl_is_available():
-            # TBD: generate AVL geometry file from config, run subprocess,
-            # parse ST output. Until implemented, fall through to the
-            # analytical method so results stay reproducible.
-            method = "analytical_helmbold (AVL run not yet implemented)"
+            method = "avl_subprocess"
+            try:
+                results = self._execute_avl()
+            except Exception as exc:
+                # AVL run failed; fall back to analytical.
+                method = f"analytical_helmbold (AVL failed: {exc})"
+                results = self._execute_analytical(method)
         else:
             method = "analytical_helmbold"
+            results = self._execute_analytical(method)
 
-        results = self._execute_analytical(method)
         if not self.validate_results(results):
             raise RuntimeError(
                 f"CL_alpha={results['CL_alpha']:.3f} failed analytical "
                 "cross-check (2*pi/(1 + 2/AR) +/- 20%)"
             )
         return results
+
+    def _execute_avl(self) -> AnalysisResults:
+        """Drive AVL via subprocess and parse stability output."""
+        assert self._config is not None
+        wing = self._config.wing
+
+        # Build AVL geometry deck for the wing.
+        deck_text = self._build_avl_wing_deck()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            avl_file = tmppath / "wing.avl"
+            st_file = tmppath / "wing.st"
+
+            avl_file.write_text(deck_text, encoding="utf-8")
+
+            # AVL command script: load geometry, set alpha, run ST analysis.
+            commands = "\n".join(
+                [
+                    f"LOAD {avl_file}",
+                    "OPER",
+                    f"A A {self._alpha_deg}",  # set alpha
+                    "X",  # eXecute run
+                    "ST",  # stability derivatives
+                    f"{st_file}",
+                    "",  # confirm
+                    "",  # exit OPER
+                    "QUIT",
+                ]
+            )
+
+            proc = subprocess.run(
+                ["avl"],
+                input=commands,
+                text=True,
+                capture_output=True,
+                cwd=tmppath,
+                timeout=30,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"AVL failed: {proc.stderr}")
+
+            if not st_file.exists():
+                raise RuntimeError("AVL did not produce ST output file")
+
+            # Parse ST output for CL, CD, CM, CL_alpha.
+            st_text = st_file.read_text(encoding="utf-8")
+            cl_match = re.search(r"CLtot\s*=\s*([-+]?\d+\.\d+)", st_text)
+            cd_match = re.search(r"CDtot\s*=\s*([-+]?\d+\.\d+)", st_text)
+            cm_match = re.search(r"Cmtot\s*=\s*([-+]?\d+\.\d+)", st_text)
+            cl_alpha_match = re.search(r"CLa\s*=\s*([-+]?\d+\.\d+)", st_text)
+
+            if not (cl_match and cl_alpha_match):
+                raise RuntimeError("Could not parse CL/CL_alpha from AVL ST output")
+
+            cl = float(cl_match.group(1))
+            cd = float(cd_match.group(1)) if cd_match else _CD0
+            cm = float(cm_match.group(1)) if cm_match else _CM0
+            cl_alpha = float(cl_alpha_match.group(1))
+
+            return AnalysisResults(
+                name=self.name,
+                fidelity=self.fidelity,
+                data={"CL": cl, "CD": cd, "CL_alpha": cl_alpha, "CM": cm},
+                metadata={
+                    "method": "avl_subprocess",
+                    "mach": self._mach,
+                    "alpha_deg": self._alpha_deg,
+                    "aspect_ratio": wing.aspect_ratio,
+                },
+            )
+
+    def _build_avl_wing_deck(self) -> str:
+        """Build AVL geometry deck for the GTM-140 wing."""
+        assert self._config is not None
+        wing = self._config.wing
+
+        # Reference area and dimensions.
+        s_ref = wing.span_m**2 / wing.aspect_ratio
+        c_ref = s_ref / wing.span_m  # mean aerodynamic chord
+        b_ref = wing.span_m
+
+        # Wing planform geometry (simplified: single trapezoidal panel).
+        c_root = c_ref * 2.0 / (1.0 + wing.taper_ratio)
+        c_tip = c_root * wing.taper_ratio
+        sweep_rad = math.radians(wing.sweep_deg)
+        x_le_tip = c_root * 0.25 + (wing.span_m / 2.0) * math.tan(sweep_rad) - c_tip * 0.25
+
+        deck = "\n".join(
+            [
+                self._config.name,
+                "#Mach",
+                f"{self._mach:.3f}",
+                "#IYsym IZsym Zsym",
+                "0 0 0.0",
+                "#Sref Cref Bref",
+                f"{s_ref:.5f} {c_ref:.4f} {b_ref:.4f}",
+                "#Xref Yref Zref",
+                "0.0 0.0 0.0",
+                "#",
+                "SURFACE",
+                "Wing",
+                "#Nchord Cspace Nspan Sspace",
+                "10 1.0 20 1.0",
+                "YDUPLICATE",
+                "0.0",
+                "ANGLE",
+                "0.0",
+                "SECTION",
+                "#Xle Yle Zle Chord Ainc Nspan Sspace",
+                f"0.0 0.0 0.0 {c_root:.4f} 0.0",
+                f"AIRFOIL {wing.airfoil_root}",
+                "SECTION",
+                f"{x_le_tip:.4f} {wing.span_m / 2.0:.4f} 0.0 {c_tip:.4f} 0.0",
+                f"AIRFOIL {wing.airfoil_tip}",
+            ]
+        )
+        return deck
 
     def _execute_analytical(self, method: str) -> AnalysisResults:
         """Compute coefficients from Helmbold slope + parabolic polar."""
