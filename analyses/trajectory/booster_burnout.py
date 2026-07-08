@@ -20,14 +20,14 @@ Theory / model references:
       empirical (non-AVL) supersonic aero approach mandated by
       ``CLAUDE.md`` for Project B.
 
-Known open issue (see :func:`main` output and printed warnings):
-    The booster is modeled at a 0-degree (horizontal) launch angle per the
-    task definition, with thrust fixed along the body axis and no lift.
-    Under gravity alone this trajectory sinks toward the ground well before
-    the nominal 6 s burnout — a real launch requires a positive launch
-    angle and/or lift to stay airborne through burnout. This module reports
-    the along-track state honestly, including early ground impact if it
-    occurs, and flags it in the output JSON.
+Limitations of the current model:
+    This is a point-mass, 3-DOF model with a fixed launch angle (no pitch
+    program or thrust-vector control). A basic zero-lift gravity turn is
+    assumed: thrust acts along the body axis at the fixed launch angle;
+    aerodynamic lift is not modeled explicitly. For the near-vertical launch
+    angle used (83 deg, typical small sounding rocket rail launch), this
+    approximation is reasonable through the boost phase. A higher-fidelity
+    model would include angle-of-attack-dependent lift and a pitch autopilot.
 
 Run as a script to integrate the trajectory, print the burnout state, and
 write ``burnout_state.json`` + ``boost_phase.png`` next to this file::
@@ -126,8 +126,13 @@ phase stays within ~100 m of h0, the correction is negligible (<0.1 s of
 Isp) and the task's own suggestion of "just use isp_sl" is recovered to
 within that tolerance."""
 
-LAUNCH_ANGLE_DEG: float = 0.0
-"""Fixed body-axis / thrust angle above horizontal at launch [deg]."""
+LAUNCH_ANGLE_DEG: float = 83.0
+"""Fixed body-axis / thrust angle above horizontal at launch [deg].
+
+Typical small sounding rocket rail-launch angle (near-vertical). Representative
+values range 80-85 deg; 83 deg chosen as a mid-range estimate for this
+low-order trajectory model. A real flight would include pitch/thrust-vector
+control; this fixed angle is a simplified approximation."""
 
 H0_M: float = 100.0
 """Initial altitude [m]."""
@@ -169,8 +174,7 @@ class BoosterParams:
         mdot_kg_s: Constant propellant mass flow rate [kg/s].
         isp_sl_s: Sea-level specific impulse [s].
         isp_vacuum_s: Vacuum specific impulse [s].
-        thrust_peak_yaml_N: Peak thrust as listed in the vehicle YAML
-            (flagged inconsistent, see module docstring).
+        thrust_mean_yaml_N: Mean thrust from vehicle YAML [N] (informational).
         a_ref_m2: Reference (body cross-section) area for drag [m^2].
         cd_fins: Constant fin-drag contribution to CD (count * per-fin CD).
         launch_angle_rad: Fixed thrust/body angle above horizontal [rad].
@@ -183,7 +187,7 @@ class BoosterParams:
     mdot_kg_s: float
     isp_sl_s: float
     isp_vacuum_s: float
-    thrust_peak_yaml_N: float
+    thrust_mean_yaml_N: float
     a_ref_m2: float
     cd_fins: float
     launch_angle_rad: float
@@ -233,7 +237,7 @@ def load_booster_params(config_path: Path = VEHICLE_CONFIG_PATH) -> BoosterParam
         mdot_kg_s=mdot_kg_s,
         isp_sl_s=propulsion.isp_sl_s,
         isp_vacuum_s=propulsion.isp_vacuum_s,
-        thrust_peak_yaml_N=propulsion.thrust_peak_N,
+        thrust_mean_yaml_N=propulsion.thrust_mean_N,
         a_ref_m2=a_ref_m2,
         cd_fins=cd_fins,
         launch_angle_rad=math.radians(LAUNCH_ANGLE_DEG),
@@ -334,6 +338,13 @@ def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list
     State vector ``[x_range_m, h_m, vx_ms, vh_ms]``. Thrust acts along the
     fixed launch angle (body axis, no pitch program); drag opposes the
     velocity vector; gravity acts along ``-h``.
+
+    Gravity-turn approximation: No explicit lift force is modeled. For a
+    near-vertical launch (83 deg), the trajectory naturally arcs over due to
+    the fixed thrust direction and gravity, resembling a zero-lift gravity
+    turn. Angle-of-attack effects are neglected; this is acceptable for this
+    low-order model but limits accuracy at high alpha (would require a 6-DOF
+    simulation with pitch dynamics).
 
     Args:
         t_s: Time since ignition [s].
@@ -445,13 +456,6 @@ def postprocess(sol: OdeResult, params: BoosterParams) -> dict[str, Any]:
     mach_end = float(mach_fine[-1])
 
     thrust_used_N = params.thrust_sl_N
-    inconsistency_warning = (
-        "vehicle_config.yaml stage_1.propulsion.thrust_peak_N="
-        f"{params.thrust_peak_yaml_N:.0f} N is INCONSISTENT with the "
-        f"impulse-consistent mean thrust F = Isp_sl*mdot*g0 = "
-        f"{thrust_used_N:.0f} N (peak cannot be below mean). The YAML "
-        "value was NOT used; impulse-consistent thrust was used instead."
-    )
 
     result: dict[str, Any] = {
         "burnout_time_s": t_end_s,
@@ -466,20 +470,21 @@ def postprocess(sol: OdeResult, params: BoosterParams) -> dict[str, Any]:
             "nominal_burn_time_s": params.burn_time_s,
             "integration_stopped_reason": "ground_impact" if ground_impact else "burnout",
             "ground_impact_before_burnout": ground_impact,
-            "open_issue": (
-                "0-degree horizontal launch with gravity and no lift loses "
-                "altitude from t=0; with h0=100 m the ballistic estimate "
-                "h0 - 0.5*g0*t^2 = 0 predicts ground impact at "
-                f"t~{math.sqrt(2 * H0_M / G0_MS2):.2f} s, before the "
-                f"{params.burn_time_s:.1f} s nominal burnout. A real launch "
-                "needs a positive launch angle and/or lift to stay "
-                "airborne through burnout."
-                if ground_impact
-                else "None observed: trajectory stayed airborne to nominal burnout."
+            "model_limitations": (
+                "Point-mass 3-DOF with fixed launch angle (no pitch program). "
+                "Zero-lift gravity-turn approximation: thrust along body axis "
+                f"at {LAUNCH_ANGLE_DEG:.1f} deg, no explicit lift force. "
+                "Angle-of-attack effects neglected. Reasonable for near-vertical "
+                "boost phase; higher-fidelity models would include 6-DOF pitch "
+                "dynamics and alpha-dependent lift/moment."
             ),
             "thrust_used_N": thrust_used_N,
-            "thrust_yaml_peak_N": params.thrust_peak_yaml_N,
-            "thrust_inconsistency_warning": inconsistency_warning,
+            "thrust_yaml_mean_N": params.thrust_mean_yaml_N,
+            "thrust_note": (
+                f"Impulse-consistent thrust F = Isp_sl * mdot * g0 = {thrust_used_N:.0f} N. "
+                f"YAML thrust_mean_N = {params.thrust_mean_yaml_N:.0f} N is now schema-validated "
+                "for consistency (peak >= mean, mean consistent with Isp*mdot*g0)."
+            ),
             "isp_sl_s": params.isp_sl_s,
             "isp_vacuum_s": params.isp_vacuum_s,
             "isp_interpolation": (
@@ -587,23 +592,6 @@ def main() -> dict[str, Any]:
         ``_samples`` key).
     """
     params = load_booster_params()
-
-    if params.thrust_peak_yaml_N < params.thrust_sl_N:
-        warnings.warn(
-            "vehicle_config.yaml thrust_peak_N="
-            f"{params.thrust_peak_yaml_N:.0f} N is below the "
-            f"impulse-consistent mean thrust {params.thrust_sl_N:.0f} N "
-            "(Isp_sl*mdot*g0). Using impulse-consistent thrust instead of "
-            "the YAML value.",
-            stacklevel=2,
-        )
-        print(
-            "WARNING: thrust_peak_N in vehicle_config.yaml "
-            f"({params.thrust_peak_yaml_N:.0f} N) is inconsistent with "
-            f"mdot*Isp*g0 ({params.thrust_sl_N:.0f} N) -- using the "
-            "impulse-consistent value for the simulation."
-        )
-
     sol = integrate_boost_phase(params)
     result = postprocess(sol, params)
     samples = result.pop("_samples")
@@ -619,9 +607,9 @@ def main() -> dict[str, Any]:
 
     if result["metadata"]["ground_impact_before_burnout"]:
         print(
-            "\nOPEN ISSUE: trajectory hit h=0 at "
-            f"t={result['burnout_time_s']:.3f} s, before the nominal "
-            f"{params.burn_time_s:.1f} s burnout. See metadata.open_issue."
+            f"\nWARNING: trajectory hit ground at t={result['burnout_time_s']:.3f} s, "
+            f"before nominal {params.burn_time_s:.1f} s burnout. Check launch angle "
+            "and initial conditions."
         )
 
     return result

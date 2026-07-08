@@ -1,0 +1,58 @@
+{
+  "mission_name": "ramp_two_stage",
+  "burnout_handoff_state": {
+    "time_s": 6.0,
+    "mass_kg": 280.02,
+    "velocity_ms": 413.4954681723758,
+    "velocity_x_ms": 57.3155324117464,
+    "velocity_h_ms": 409.50388513840784,
+    "altitude_m": 1289.3437240001513,
+    "range_m": 167.46366604857533,
+    "mach": 1.2331842209591797,
+    "dynamic_pressure_pa": 92362.73122393899
+  },
+  "segments": [
+    {
+      "name": "boost_stage_1",
+      "segment_type": "boost",
+      "parameters": {
+        "propulsion_type": "solid_rocket",
+        "burn_time_s": 6.0,
+        "initial_mass_kg": 355.02,
+        "final_mass_kg": 280.02,
+        "final_velocity_ms": 413.4954681723758,
+        "final_altitude_m": 1289.3437240001513,
+        "note": "Pre-integrated by analyses.trajectory.booster_burnout; burnout state fed forward"
+      }
+    },
+    {
+      "name": "staging_event",
+      "segment_type": "staging_event",
+      "parameters": {
+        "event_type": "booster_burnout_to_ramjet_ignition",
+        "initial_mass_kg": 280.02,
+        "initial_velocity_ms": 413.4954681723758,
+        "initial_velocity_x_ms": 57.3155324117464,
+        "initial_velocity_h_ms": 409.50388513840784,
+        "initial_altitude_m": 1289.3437240001513,
+        "initial_range_m": 167.46366604857533,
+        "initial_mach": 1.2331842209591797,
+        "coast_time_s": 0.5,
+        "separation_delta_v_ms": 0.0,
+        "note": "Stage-1 burnout -> stage-2 ignition handoff. Coast phase under drag + gravity (not yet integrated; placeholder). Ramjet inlet start and combustor ignition transient not modeled (TBD)."
+      }
+    },
+    {
+      "name": "cruise_stage_2_ramjet",
+      "segment_type": "cruise",
+      "parameters": {
+        "propulsion_type": "ramjet",
+        "design_mach": 2.5,
+        "cruise_altitude_m": 10000.0,
+        "cruise_time_s": 60.0,
+        "fuel_mass_kg": 15.0,
+        "note": "Ramjet cruise at Mach 2.5. Thrust/SFC from pyCycle ramjet_cycle analysis; drag from rocket_empirical_aero. Trajectory integration not yet implemented (TBD). This segment is a design-point placeholder for MDO workflows."
+      }
+    }
+  ]
+}

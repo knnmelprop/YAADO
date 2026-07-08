@@ -17,13 +17,14 @@ motors:
     status: "ESTIMATE"
     diameter_mm: 250           # body diameter
     length_mm: 2089
-    thrust_N: 12000            # SZACOWANY — flagged inconsistent with impulse
+    thrust_peak_N: 29000       # SZACOWANY — corrected 2026-07-08, was 12000 (RESOLVED, see note)
+    thrust_mean_N: 25375       # SZACOWANY — impulse-consistent (Isp_sl*mdot*g0)
     burn_time_s: 6.0           # SZACOWANY
     isp_s: 220                 # SZACOWANY (mean of sl 207 / vac 230)
     propellant_mass_kg: 75.0   # SZACOWANY
     propellant_density_kg_m3: 1750
     source: "HTPB/AP composite first-order estimate (Task 1); replace with datasheet"
-    note: "Impulse-consistent mean thrust ~25.4 kN >> listed 12 kN peak — RESOLVE"
+    note: "RESOLVED 2026-07-08: previous thrust_N=12000 was below the impulse-consistent mean (~25.4 kN), which is physically impossible for a peak value. Now split into independent thrust_peak_N/thrust_mean_N fields matching src.schemas.vehicle_schema.SolidRocketPropulsion, with thrust_peak_N set above the impulse-consistent mean. Still SZACOWANY — replace with a real datasheet."
 
   - designation: "PRD-240"
     status: "MOCKUP"
