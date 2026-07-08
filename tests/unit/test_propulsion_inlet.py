@@ -6,13 +6,20 @@ import math
 import pytest
 
 from analyses.propulsion.inlet_performance import (
+    DEFAULT_N_CONES_M25,
+    ETA_DIFFUSER,
     GAMMA,
+    MULTI_CONE_THETA_DEG_4CONE,
+    MULTI_CONE_THETA_DEG_5CONE,
     InletPerformanceAnalysis,
+    MultiConeInletPerformanceAnalysis,
     isa_atmosphere,
     mil_e_5007_eta_std,
+    multi_cone_recovery_chain,
     normal_shock_mach2,
     normal_shock_total_pressure_ratio,
     oblique_shock_beta_rad,
+    optimize_multi_cone_angles,
     spike_half_angle_rad,
 )
 from core.component_base import FidelityLevel
@@ -104,6 +111,129 @@ def test_inlet_performance_analysis_design_point_mach_2p5() -> None:
     assert results.metadata["verdict"] == "FAIL"
     assert results.metadata["shock_detached"] is False
     assert results["mdot_design_kg_per_s"] == pytest.approx(15.17, abs=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Multi-cone (multi-shock) spike inlet — Phase 1 redesign
+# ---------------------------------------------------------------------------
+
+
+def test_default_n_cones_is_four() -> None:
+    """The Mach-2.5 default is 4 cones — the minimum meeting MIL-E-5007."""
+    assert DEFAULT_N_CONES_M25 == 4
+    analysis = MultiConeInletPerformanceAnalysis()
+    assert analysis._n_cones == 4
+
+
+def test_multi_cone_chain_single_shock_matches_single_cone_relations() -> None:
+    """A 1-element chain must reduce to the classic oblique+normal result."""
+    theta_rad = math.radians(14.358)
+    chain = multi_cone_recovery_chain(2.5, [theta_rad], ETA_DIFFUSER)
+    assert chain["detached"] is False
+    assert chain["eta_inlet"] == pytest.approx(0.6606, abs=0.001)
+
+
+def test_optimize_multi_cone_angles_2cone_cannot_meet_mil_e_5007() -> None:
+    """CONFIRMED physics (Seddon & Goldsmith 1999 Sec 4.3): 2 cones top out
+    at eta ~0.799 at M 2.5 — below the 0.8703 standard. Do not 'fix' this."""
+    _, eta = optimize_multi_cone_angles(2.5, 2)
+    assert eta == pytest.approx(0.799, abs=0.005)
+    assert eta < mil_e_5007_eta_std(2.5)
+
+
+def test_optimize_multi_cone_angles_3cone_cannot_meet_mil_e_5007() -> None:
+    """CONFIRMED physics: 3 cones top out at eta ~0.849 at M 2.5 — FAIL."""
+    _, eta = optimize_multi_cone_angles(2.5, 3)
+    assert eta == pytest.approx(0.849, abs=0.005)
+    assert eta < mil_e_5007_eta_std(2.5)
+
+
+def test_optimize_multi_cone_angles_4cone_meets_mil_e_5007() -> None:
+    """4 optimized cones give eta ~0.874 — a thin PASS margin at M 2.5."""
+    theta_rad, eta = optimize_multi_cone_angles(2.5, 4)
+    assert len(theta_rad) == 4
+    assert eta == pytest.approx(0.8741, abs=0.002)
+    assert eta >= mil_e_5007_eta_std(2.5)
+
+
+def test_optimize_multi_cone_angles_5cone_meets_mil_e_5007() -> None:
+    """5 optimized cones give eta ~0.888 — a comfortable PASS at M 2.5."""
+    theta_rad, eta = optimize_multi_cone_angles(2.5, 5)
+    assert len(theta_rad) == 5
+    assert eta == pytest.approx(0.8883, abs=0.002)
+    assert eta >= mil_e_5007_eta_std(2.5) + 0.01
+
+
+def test_multi_cone_inlet_analysis_design_point_meets_mil_e_5007() -> None:
+    """End-to-end default (4-cone, optimized) design point PASSES MIL-E-5007."""
+    analysis = MultiConeInletPerformanceAnalysis()
+    analysis.setup(mach_design=2.5, altitude_m=10_000.0, n_cones=4)
+    results = analysis.execute()
+
+    assert results.fidelity == FidelityLevel.LEVEL_0
+    assert results["n_cones"] == 4
+    assert results["mach_post_normal"] < 1.0
+    assert results["eta_inlet"] >= results["mil_e_5007_eta_std"]
+    assert results["eta_inlet"] == pytest.approx(0.8741, abs=0.002)
+    assert results.metadata["verdict"] == "PASS"
+    assert results.metadata["shock_detached"] is False
+    # Same freestream/capture as the single-cone analysis -> same mdot.
+    assert results["mdot_design_kg_per_s"] == pytest.approx(15.17, abs=0.05)
+
+
+def test_multi_cone_inlet_analysis_4cone_design() -> None:
+    """Fixed Mach-2.5 4-cone preset (optimize_angles=False) also PASSES."""
+    analysis = MultiConeInletPerformanceAnalysis()
+    analysis.setup(
+        mach_design=2.5, altitude_m=10_000.0, n_cones=4, optimize_angles=False
+    )
+    results = analysis.execute()
+
+    assert results["theta_increments_deg"] == pytest.approx(
+        list(MULTI_CONE_THETA_DEG_4CONE), abs=1e-9
+    )
+    assert results["eta_inlet"] >= results["mil_e_5007_eta_std"]
+    assert results.metadata["verdict"] == "PASS"
+    assert results.metadata["angle_source"] == "fixed_mach_2p5_preset"
+
+
+def test_multi_cone_inlet_analysis_5cone_preset_design() -> None:
+    """Fixed Mach-2.5 5-cone preset gives a comfortable PASS margin."""
+    analysis = MultiConeInletPerformanceAnalysis()
+    analysis.setup(
+        mach_design=2.5, altitude_m=10_000.0, n_cones=5, optimize_angles=False
+    )
+    results = analysis.execute()
+
+    assert results["theta_increments_deg"] == pytest.approx(
+        list(MULTI_CONE_THETA_DEG_5CONE), abs=1e-9
+    )
+    assert results["margin"] >= 0.01
+    assert results.metadata["verdict"] == "PASS"
+
+
+def test_multi_cone_inlet_analysis_rejects_preset_for_2_and_3_cones() -> None:
+    """No fixed presets exist for cone counts that cannot meet MIL-E-5007."""
+    for n_cones in (2, 3):
+        analysis = MultiConeInletPerformanceAnalysis()
+        with pytest.raises(ValueError):
+            analysis.setup(n_cones=n_cones, optimize_angles=False)
+
+
+def test_multi_cone_inlet_analysis_execute_before_setup_raises() -> None:
+    analysis = MultiConeInletPerformanceAnalysis()
+    with pytest.raises(RuntimeError):
+        analysis.execute()
+
+
+def test_multi_cone_inlet_analysis_setup_rejects_bad_inputs() -> None:
+    analysis = MultiConeInletPerformanceAnalysis()
+    with pytest.raises(ValueError):
+        analysis.setup(mach_design=0.8)
+    with pytest.raises(ValueError):
+        analysis.setup(n_cones=0)
+    with pytest.raises(ValueError):
+        analysis.setup(eta_diffuser=0.0)
 
 
 def test_inlet_performance_analysis_mass_flow_scales_with_capture_area() -> None:
