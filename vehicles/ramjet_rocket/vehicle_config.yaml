@@ -1,13 +1,25 @@
-# MELprop-IADE | vehicles.ramjet_rocket | v0.1.0
+# MELprop-IADE | vehicles.ramjet_rocket | v0.2.0
+# Geometry reconciled with Fusion 360 Assembly v6 extraction (CORRECTED, cm->m,
+# Y-axis longitudinal). Full raw extraction: fusion_extraction_v6.yaml (companion).
 name: "MELprop-Ramjet-Missile"
 vehicle_type: "Rocket"
-description: "Dwustopniowa rakieta: solid booster + ramjet cruise"
+description: "Dwustopniowa rakieta: solid booster + ramjet cruise (Fusion Assembly v6)"
 stage_1:
   type: "solid_rocket"
-  isp_s: 220.0             # TBD — z dokumentacji silnika
-  propellant_mass_kg: 15.0 # TBD
-  burn_time_s: 5.0         # TBD
-  thrust_N: 10000.0        # TBD
+  geometry:
+    assembly_diameter_m: 0.250        # aero reference = body diameter
+    assembly_diameter_body_m: 0.250
+    assembly_diameter_bbox_m: 1.809   # booster bbox incl. PRD-240 wings
+    wings_halfspan_est_m: 0.780       # (1.809 - 0.250) / 2
+    booster_length_m: 2.089           # booster assembly (47.7% of rocket)
+  propulsion:
+    isp_vacuum_s: 230                 # SZACOWANY
+    isp_sl_s: 207                     # SZACOWANY
+    thrust_peak_N: 12000              # SZACOWANY
+    burn_time_s: 6.0                  # SZACOWANY
+    propellant_mass_kg: 75.0          # SZACOWANY
+    propellant_density_kg_m3: 1750    # SZACOWANY
+    note: "HTPB/AP composite estimate; R-13 motor is a Fusion mockup — replace with datasheet"
 stage_2:
   type: "ramjet"
   design_mach: 2.5         # TBD — decyzja projektowa
@@ -15,10 +27,28 @@ stage_2:
   combustor_temp_K: 2000.0
   nozzle_area_ratio: 4.0
 body:
-  length_m: 3.0            # TBD
-  diameter_m: 0.2          # TBD
-  nose_type: "ogive"
+  length_m: 4.084          # cylindrical portion = total 4.377 - nose 0.293
+  diameter_m: 0.250        # Fusion-verified body diameter
+  nose_type: "conical"
+  nose_length_m: 0.293
+  nose_diameter_m: 0.150
+  total_length_m: 4.377    # TOTAL rocket length (Fusion, Y-axis)
+  max_diameter_m: 0.639    # max transverse dimension (Fusion bbox)
 fins:
   count: 4
-  span_m: 0.15             # TBD
-  sweep_deg: 45.0
+  span_m: 0.6685           # exposed span of one fin (Fusion)
+  sweep_deg: 0.0           # rectangular planform, LE & TE sweep 0
+  chord_root_m: 0.1768
+  chord_tip_m: 0.1768
+mass_properties:
+  cg_from_nose_m: 1.6084   # Fusion (cm-bug fixed, Y-axis longitudinal); 36.7% L
+  cg_source: "Fusion 360 Assembly v6, verified by component breakdown"
+  total_mass_kg: 355.02    # Fusion physics engine (booster 277.8 + ramjet 15.18 + other)
+cfd_notes:
+  booster_diameter_note: "Body diameter 0.250m; bbox 1.809m includes PRD-240 fins"
+  ramjet_inlet_note: "Axisymmetric conical spike: cone L=0.293m base 0.150m; capture area 0.0491 m^2; diffuser expansion 2.98"
+  length_reconciliation: "Fusion total 4.377m; nose 0.293m is included in total (do not add to body). Task-2 spec listing body cylinder=4.377m double-counts the nose; analyses use total=4.377m, cylinder=4.084m."
+tbd:
+  - "stage_1 motor datasheet (Isp, thrust curve, propellant mass) — currently SZACOWANY"
+  - "stage_2 ramjet design_mach final decision"
+  - "moments of inertia Ixx/Iyy/Izz from Fusion GUI (not available via API)"

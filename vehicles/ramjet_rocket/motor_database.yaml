@@ -1,0 +1,36 @@
+# MELprop-IADE | vehicles.ramjet_rocket.motor_database | v0.1.0
+# Candidate solid rocket motors for the stage-1 booster.
+# All values SI unless the field name says otherwise (…_mm, …_s).
+# Status legend: MOCKUP (geometry only), ESTIMATE (SZACOWANY), DATASHEET (verified).
+motors:
+  - designation: "R-13"
+    status: "MOCKUP"
+    diameter_mm: 1809          # bounding box incl. PRD-240 wings; body ~250 mm
+    length_mm: 2089            # booster assembly length (Fusion v6)
+    thrust_N: null             # TBD — mockup, no performance data
+    burn_time_s: null          # TBD
+    isp_s: null                # TBD
+    propellant_mass_kg: null   # TBD
+    source: "Fusion Assembly v6 'R-13 silnik - makieta' (geometry mockup only)"
+
+  - designation: "Generic-HTPB-Composite"
+    status: "ESTIMATE"
+    diameter_mm: 250           # body diameter
+    length_mm: 2089
+    thrust_N: 12000            # SZACOWANY — flagged inconsistent with impulse
+    burn_time_s: 6.0           # SZACOWANY
+    isp_s: 220                 # SZACOWANY (mean of sl 207 / vac 230)
+    propellant_mass_kg: 75.0   # SZACOWANY
+    propellant_density_kg_m3: 1750
+    source: "HTPB/AP composite first-order estimate (Task 1); replace with datasheet"
+    note: "Impulse-consistent mean thrust ~25.4 kN >> listed 12 kN peak — RESOLVE"
+
+  - designation: "PRD-240"
+    status: "MOCKUP"
+    diameter_mm: 240           # reference wing/control-surface stub
+    length_mm: null            # TBD
+    thrust_N: null
+    burn_time_s: null
+    isp_s: null
+    propellant_mass_kg: null
+    source: "PRD-240 control-surface reference ('Skrzydło PRD-240 x4', Fusion v6)"
