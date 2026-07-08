@@ -1,0 +1,24 @@
+# MELprop-IADE | vehicles.ramjet_rocket | v0.1.0
+name: "MELprop-Ramjet-Missile"
+vehicle_type: "Rocket"
+description: "Dwustopniowa rakieta: solid booster + ramjet cruise"
+stage_1:
+  type: "solid_rocket"
+  isp_s: 220.0             # TBD — z dokumentacji silnika
+  propellant_mass_kg: 15.0 # TBD
+  burn_time_s: 5.0         # TBD
+  thrust_N: 10000.0        # TBD
+stage_2:
+  type: "ramjet"
+  design_mach: 2.5         # TBD — decyzja projektowa
+  fuel_type: "kerosene"
+  combustor_temp_K: 2000.0
+  nozzle_area_ratio: 4.0
+body:
+  length_m: 3.0            # TBD
+  diameter_m: 0.2          # TBD
+  nose_type: "ogive"
+fins:
+  count: 4
+  span_m: 0.15             # TBD
+  sweep_deg: 45.0
