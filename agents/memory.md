@@ -71,3 +71,25 @@ Append-only; maintained by the orchestrator.
   to create, model equations, coefficients, fidelity requirements, tier
   requirement) so the next session can resume Phase 2b directly instead of
   re-deriving it from the original run prompt.
+
+## Night-4 STEP-0 (2026-07-09)
+- Pytest baseline: 118 passed, 0 failed (up from 80 at Night-2 start; Night-3
+  delivered phases 2b/3b/4b/5/6).
+- Working branch: `claude/fervent-albattani-f18spc` (harness-assigned), clean
+  tree, at merge tip of PR #13.
+- PRs merged since Night-3: PR #13 (combustor_nozzle_cycle Grzywka model,
+  staged-mission cruise wiring, movable-spike inlet actuation, stability
+  reconciliation, SU2 config generator) and PR #14 (backlog wave 1: dead-link
+  audit + test docstrings).
+- Stale tracker note: `doc/ramP/analysis_status.md` rows 16–18 still say
+  BLOCKED_BY_BUDGET although PR #13 merged that work — refresh scheduled in
+  Night-4 KROK 8.
+- BLOCKED_BY_HUMAN_REVIEW items: HR-1 fin span 0.6685 m vs Fusion v6
+  (3.4–4.8x reduction), HR-2 Teltik CFD geometry version, HR-3 nozzle
+  area_ratio 4.0 vs CAD 1.0, HR-4 stage-1 motor datasheet (R-13), HR-5
+  Ixx/Iyy/Izz from Fusion GUI, HR-6 max_rpm units decision, HR-7 V3=1474 m/s
+  vs ~1047 m/s (+40.8% delta).
+- Active assumptions: A1–A16 in `docs/assumptions.md` (A18–A20 planned).
+- Night-4 plan: P1-A Barrowman extended sensitivity (sonnet), P1-B V3
+  root-cause (opus), P1-C operational envelope (sonnet), P1-D persistent agent
+  definitions (haiku), then P2-A/B/C/D.
