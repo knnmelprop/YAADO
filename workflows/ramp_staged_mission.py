@@ -647,7 +647,7 @@ def main() -> None:
     Writes the mission profile and burnout handoff state to
     ``staged_mission_profile.json`` in the same directory as this script,
     and a human-readable cruise summary to
-    ``doc/ramP/cruise_summary_night3.md``.
+    ``docs/ramP/cruise_summary_night3.md``.
     """
     this_dir = Path(__file__).resolve().parent
     burnout_json_path = this_dir.parent / "analyses" / "trajectory" / "burnout_state.json"

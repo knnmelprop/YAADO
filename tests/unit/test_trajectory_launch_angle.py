@@ -30,7 +30,7 @@ def test_zero_degree_launch_hits_ground_before_burnout() -> None:
 
     With no vertical thrust component and no lift, gravity pulls the
     vehicle down from h0=100 m before the nominal 6 s burnout (see
-    doc/AGENT_CONTEXT.md Sec. 7 caveat 2).
+    docs/AGENT_CONTEXT.md Sec. 7 caveat 2).
     """
     entry = _sweep_entry_for(0.0)
     assert entry["ground_impact_flag"] is True
