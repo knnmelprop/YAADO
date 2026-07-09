@@ -41,6 +41,7 @@ def test_isa_atmosphere_10km_matches_standard_values() -> None:
 
 
 def test_isa_atmosphere_rejects_negative_altitude() -> None:
+    """isa_atmosphere raises ValueError for negative altitude."""
     with pytest.raises(ValueError):
         isa_atmosphere(-1.0)
 
@@ -74,21 +75,25 @@ def test_normal_shock_total_pressure_ratio_decreases_with_mach() -> None:
 
 
 def test_mil_e_5007_eta_std_subsonic_is_unity() -> None:
+    """mil_e_5007_eta_std returns 1.0 for subsonic Mach."""
     assert mil_e_5007_eta_std(0.8) == 1.0
 
 
 def test_mil_e_5007_eta_std_at_mach_2p5() -> None:
+    """mil_e_5007_eta_std at Mach 2.5 returns ~0.8703, the MIL-E-5007 standard."""
     eta_std = mil_e_5007_eta_std(2.5)
     assert eta_std == pytest.approx(0.8703, abs=0.001)
 
 
 def test_inlet_performance_analysis_execute_before_setup_raises() -> None:
+    """InletPerformanceAnalysis.execute() raises RuntimeError if called before setup()."""
     analysis = InletPerformanceAnalysis()
     with pytest.raises(RuntimeError):
         analysis.execute()
 
 
 def test_inlet_performance_analysis_setup_rejects_subsonic_design_mach() -> None:
+    """InletPerformanceAnalysis.setup() raises ValueError for subsonic design Mach."""
     analysis = InletPerformanceAnalysis()
     with pytest.raises(ValueError):
         analysis.setup(mach_design=0.8)
@@ -221,12 +226,14 @@ def test_multi_cone_inlet_analysis_rejects_preset_for_2_and_3_cones() -> None:
 
 
 def test_multi_cone_inlet_analysis_execute_before_setup_raises() -> None:
+    """MultiConeInletPerformanceAnalysis.execute() raises RuntimeError if called before setup()."""
     analysis = MultiConeInletPerformanceAnalysis()
     with pytest.raises(RuntimeError):
         analysis.execute()
 
 
 def test_multi_cone_inlet_analysis_setup_rejects_bad_inputs() -> None:
+    """MultiConeInletPerformanceAnalysis.setup() rejects subsonic Mach, invalid n_cones, and eta_diffuser <= 0."""
     analysis = MultiConeInletPerformanceAnalysis()
     with pytest.raises(ValueError):
         analysis.setup(mach_design=0.8)
@@ -237,6 +244,7 @@ def test_multi_cone_inlet_analysis_setup_rejects_bad_inputs() -> None:
 
 
 def test_inlet_performance_analysis_mass_flow_scales_with_capture_area() -> None:
+    """Design-point mass flow scales linearly with inlet capture area."""
     analysis = InletPerformanceAnalysis()
     analysis.setup(mach_design=2.5, altitude_m=10_000.0, capture_area_m2=0.1)
     results = analysis.execute()

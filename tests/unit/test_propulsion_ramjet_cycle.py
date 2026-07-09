@@ -38,6 +38,7 @@ def _independent_ideal_closed_form(mach0: float, altitude_m: float, tt4_K: float
 
 
 def test_stagnation_relations_at_zero_mach_are_identity() -> None:
+    """Stagnation temperature and pressure equal static values at Mach 0."""
     assert stagnation_temperature_K(300.0, 0.0, 1.4) == pytest.approx(300.0)
     assert stagnation_pressure_Pa(101325.0, 0.0, 1.4) == pytest.approx(101325.0)
 
@@ -56,28 +57,33 @@ def test_ideal_closed_form_matches_independent_hand_calc() -> None:
 
 
 def test_ideal_closed_form_rejects_non_supersonic_mach() -> None:
+    """ideal_ramjet_closed_form raises ValueError for Mach <= 1."""
     with pytest.raises(ValueError):
         ideal_ramjet_closed_form(0.8, DESIGN_ALTITUDE_M, TT4_DEFAULT_K)
 
 
 def test_ideal_closed_form_rejects_tt4_below_tt0() -> None:
+    """ideal_ramjet_closed_form raises ValueError when combustor temp below stagnation temp."""
     with pytest.raises(ValueError):
         ideal_ramjet_closed_form(MACH_DESIGN, DESIGN_ALTITUDE_M, 100.0)
 
 
 def test_execute_before_setup_raises() -> None:
+    """RamjetCycleAnalysis.execute() raises RuntimeError if called before setup()."""
     analysis = RamjetCycleAnalysis()
     with pytest.raises(RuntimeError):
         analysis.execute()
 
 
 def test_setup_rejects_subsonic_mach() -> None:
+    """RamjetCycleAnalysis.setup() raises ValueError for Mach <= 1."""
     analysis = RamjetCycleAnalysis()
     with pytest.raises(ValueError):
         analysis.setup(mach0=0.9)
 
 
 def test_setup_rejects_tt4_below_recovered_total_temperature() -> None:
+    """RamjetCycleAnalysis.setup() raises ValueError when combustor temp below stagnation temp."""
     analysis = RamjetCycleAnalysis()
     with pytest.raises(ValueError):
         analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M, tt4_K=50.0)
@@ -85,6 +91,7 @@ def test_setup_rejects_tt4_below_recovered_total_temperature() -> None:
 
 @pytest.mark.parametrize("bad_eta_inlet", [0.0, -0.1, 1.5])
 def test_setup_rejects_bad_eta_inlet(bad_eta_inlet: float) -> None:
+    """RamjetCycleAnalysis.setup() raises ValueError for eta_inlet outside (0, 1)."""
     analysis = RamjetCycleAnalysis()
     with pytest.raises(ValueError):
         analysis.setup(eta_inlet=bad_eta_inlet)
@@ -92,6 +99,7 @@ def test_setup_rejects_bad_eta_inlet(bad_eta_inlet: float) -> None:
 
 @pytest.mark.parametrize("bad_pi_b", [0.0, -0.2, 1.2])
 def test_setup_rejects_bad_pi_b(bad_pi_b: float) -> None:
+    """RamjetCycleAnalysis.setup() raises ValueError for pi_b outside (0, 1)."""
     analysis = RamjetCycleAnalysis()
     with pytest.raises(ValueError):
         analysis.setup(pi_b=bad_pi_b)
@@ -99,12 +107,14 @@ def test_setup_rejects_bad_pi_b(bad_pi_b: float) -> None:
 
 @pytest.mark.parametrize("bad_eta_b", [0.0, -0.2, 1.2])
 def test_setup_rejects_bad_eta_b(bad_eta_b: float) -> None:
+    """RamjetCycleAnalysis.setup() raises ValueError for eta_b outside (0, 1)."""
     analysis = RamjetCycleAnalysis()
     with pytest.raises(ValueError):
         analysis.setup(eta_b=bad_eta_b)
 
 
 def test_design_point_fuel_air_ratio_in_expected_range() -> None:
+    """Design-point fuel-to-air ratio falls in (0, 0.068), a reasonable ramjet band."""
     analysis = RamjetCycleAnalysis()
     analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M, tt4_K=TT4_DEFAULT_K)
     results = analysis.execute()
@@ -112,6 +122,7 @@ def test_design_point_fuel_air_ratio_in_expected_range() -> None:
 
 
 def test_design_point_fidelity_is_level_2() -> None:
+    """RamjetCycleAnalysis results are marked as FidelityLevel.LEVEL_2."""
     analysis = RamjetCycleAnalysis()
     analysis.setup()
     results = analysis.execute()
@@ -119,6 +130,7 @@ def test_design_point_fidelity_is_level_2() -> None:
 
 
 def test_design_point_thrust_positive_and_cylindrical_below_matched() -> None:
+    """Matched nozzle thrust exceeds CAD cylindrical nozzle; both positive."""
     analysis = RamjetCycleAnalysis()
     analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M, tt4_K=TT4_DEFAULT_K)
     results = analysis.execute()
@@ -157,6 +169,7 @@ def test_losses_reduce_thrust_and_raise_tsfc_vs_loss_free_reference() -> None:
 
 
 def test_validate_results_passes_on_design_point() -> None:
+    """validate_results() returns True for a valid design-point execution."""
     analysis = RamjetCycleAnalysis()
     analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M, tt4_K=TT4_DEFAULT_K)
     results = analysis.execute()
@@ -173,6 +186,7 @@ def test_eta_inlet_default_matches_four_cone_preset_value() -> None:
 
 
 def test_eta_inlet_override_is_respected() -> None:
+    """setup() applies the user-provided eta_inlet override in results."""
     analysis = RamjetCycleAnalysis()
     analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M, eta_inlet=0.5)
     results = analysis.execute()
@@ -180,6 +194,7 @@ def test_eta_inlet_override_is_respected() -> None:
 
 
 def test_station_table_has_expected_stations() -> None:
+    """Metadata station_table contains all required cycle stations."""
     analysis = RamjetCycleAnalysis()
     analysis.setup()
     results = analysis.execute()
@@ -194,6 +209,7 @@ def test_station_table_has_expected_stations() -> None:
 
 
 def test_mass_flow_positive_and_fuel_less_than_air() -> None:
+    """Design-point mass flows are positive and fuel < air (stoichiometric limit)."""
     analysis = RamjetCycleAnalysis()
     analysis.setup()
     results = analysis.execute()
@@ -202,6 +218,7 @@ def test_mass_flow_positive_and_fuel_less_than_air() -> None:
 
 
 def test_isp_consistent_with_thrust_and_fuel_flow() -> None:
+    """Isp equals thrust / (mdot_fuel * g0), verifying thrust-flow consistency."""
     analysis = RamjetCycleAnalysis()
     analysis.setup()
     results = analysis.execute()
