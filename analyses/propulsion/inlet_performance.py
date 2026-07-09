@@ -586,6 +586,404 @@ class InletPerformanceAnalysis(BaseAnalysis):
         return True
 
 
+# --------------------------------------------------------------------------
+# Multi-cone (multi-shock) spike inlet — Phase 1 redesign
+#
+# A single-cone spike (one oblique + one terminating normal shock) cannot
+# meet MIL-E-5007 at Mach 2.5 (eta ~ 0.66-0.69 vs the 0.8703 standard).
+# Splitting the compression across n successive oblique shocks of
+# increasing cone angle (a multi-cone / "isentropic-approaching" spike,
+# Seddon & Goldsmith, *Intake Aerodynamics*, 2nd ed. 1999, Sec. 4.3;
+# Oswatitsch multi-shock optimum) reduces the total-pressure loss.
+#
+# CONFIRMED PHYSICAL RESULT at M 2.5 with eta_diffuser = 0.92 (wedge
+# approximation, angle-optimized — verified numerically in this module):
+#   n=2 -> eta_inlet ~ 0.799  FAIL   (MIL-E-5007 threshold 0.8703)
+#   n=3 -> eta_inlet ~ 0.849  FAIL
+#   n=4 -> eta_inlet ~ 0.874  PASS (thin margin)
+#   n=5 -> eta_inlet ~ 0.888  PASS (comfortable margin)
+# 2 and 3 cones CANNOT physically meet the standard at this Mach; do not
+# tune the model to make them pass.
+# --------------------------------------------------------------------------
+
+#: Default number of oblique-shock cones for the Mach-2.5 design point —
+#: the minimum count that meets MIL-E-5007 (see table above).
+DEFAULT_N_CONES_M25: int = 4
+
+#: Angle-optimized incremental flow deflections [deg] per oblique shock at
+#: Mach 2.5 (Nelder-Mead optimum of the wedge-approximation shock chain,
+#: this module). Presets exist ONLY for cone counts that can meet
+#: MIL-E-5007 at M 2.5 (4 and 5); 2- and 3-cone presets are deliberately
+#: not defined because those configurations fail the standard (see the
+#: confirmed-result table above).
+MULTI_CONE_THETA_DEG_4CONE: tuple[float, ...] = (7.61, 8.45, 9.32, 9.64)
+MULTI_CONE_THETA_DEG_5CONE: tuple[float, ...] = (6.23, 6.79, 7.39, 7.93, 7.85)
+
+#: Preset lookup by cone count (only MIL-E-5007-capable counts at M 2.5).
+MULTI_CONE_THETA_PRESETS_DEG: dict[int, tuple[float, ...]] = {
+    4: MULTI_CONE_THETA_DEG_4CONE,
+    5: MULTI_CONE_THETA_DEG_5CONE,
+}
+
+
+def multi_cone_recovery_chain(
+    mach1: float,
+    theta_increments_rad: list[float] | tuple[float, ...],
+    eta_diffuser: float,
+    gamma: float = GAMMA,
+) -> dict[str, Any]:
+    """Run an n-oblique-shock + terminal-normal-shock recovery chain.
+
+    Each entry of ``theta_increments_rad`` is the ADDITIONAL flow
+    deflection introduced by the corresponding cone segment (wedge
+    theta-beta-Mach approximation per stage, as in
+    :func:`inlet_recovery_chain`). After the last oblique shock a single
+    terminating normal shock brings the flow subsonic (skipped if the
+    flow is already subsonic), then ``eta_diffuser`` is applied.
+
+    If at any stage the local oblique shock is detached (theta_i exceeds
+    theta_max at the local Mach) or the local flow is already subsonic,
+    the remaining oblique stages are abandoned and a single normal shock
+    at the current Mach is substituted — a conservative fallback flagged
+    via ``detached``.
+
+    References:
+        Seddon & Goldsmith, *Intake Aerodynamics*, 2nd ed., 1999,
+        Sec. 4.3 (multi-shock external-compression intakes);
+        Oswatitsch, NACA TM 1140 (multi-shock optimum);
+        Anderson, *Modern Compressible Flow*, 3rd ed., Ch. 3-4.
+
+    Args:
+        mach1: Freestream Mach number (must be > 1).
+        theta_increments_rad: Incremental deflection per oblique shock [rad].
+        eta_diffuser: Assumed subsonic-diffuser total-pressure efficiency.
+        gamma: Ratio of specific heats.
+
+    Returns:
+        Dict with ``beta_rad_per_shock``, ``mach_per_stage`` (freestream
+        + post each oblique shock), ``pressure_recovery_per_shock``,
+        ``pressure_recovery_oblique_total``, ``mach_pre_normal``,
+        ``mach_post_normal``, ``pressure_recovery_normal``, ``eta_inlet``
+        and ``detached``.
+    """
+    mach = mach1
+    pr_total = 1.0
+    detached = False
+    beta_rad_per_shock: list[float] = []
+    mach_per_stage: list[float] = [mach1]
+    pr_per_shock: list[float] = []
+
+    for theta_rad in theta_increments_rad:
+        beta_rad = (
+            oblique_shock_beta_rad(mach, theta_rad, gamma, weak=True)
+            if mach > 1.0
+            else None
+        )
+        if beta_rad is None:
+            detached = True
+            break
+        m1n = mach * math.sin(beta_rad)
+        pr_shock = normal_shock_total_pressure_ratio(m1n, gamma)
+        mach = normal_shock_mach2(m1n, gamma) / math.sin(beta_rad - theta_rad)
+        beta_rad_per_shock.append(beta_rad)
+        pr_per_shock.append(pr_shock)
+        mach_per_stage.append(mach)
+        pr_total *= pr_shock
+
+    mach_pre_normal = mach
+    if mach_pre_normal > 1.0:
+        mach_post_normal = normal_shock_mach2(mach_pre_normal, gamma)
+        pr_normal = normal_shock_total_pressure_ratio(mach_pre_normal, gamma)
+    else:
+        mach_post_normal = mach_pre_normal
+        pr_normal = 1.0
+
+    eta_inlet = pr_total * pr_normal * eta_diffuser
+
+    return {
+        "beta_rad_per_shock": beta_rad_per_shock,
+        "mach_per_stage": mach_per_stage,
+        "pressure_recovery_per_shock": pr_per_shock,
+        "pressure_recovery_oblique_total": pr_total,
+        "mach_pre_normal": mach_pre_normal,
+        "mach_post_normal": mach_post_normal,
+        "pressure_recovery_normal": pr_normal,
+        "eta_inlet": eta_inlet,
+        "detached": detached,
+    }
+
+
+def optimize_multi_cone_angles(
+    mach1: float,
+    n_cones: int,
+    eta_diffuser: float = ETA_DIFFUSER,
+    gamma: float = GAMMA,
+) -> tuple[list[float], float]:
+    """Optimize the incremental cone deflections for maximum recovery.
+
+    Maximizes ``eta_inlet`` of :func:`multi_cone_recovery_chain` over the
+    n incremental deflection angles (Nelder-Mead from several seeds; the
+    optimum approaches the Oswatitsch equal-normal-Mach criterion).
+
+    Args:
+        mach1: Freestream Mach number (must be > 1).
+        n_cones: Number of oblique-shock cone segments (>= 1).
+        eta_diffuser: Assumed subsonic-diffuser total-pressure efficiency.
+        gamma: Ratio of specific heats.
+
+    Returns:
+        Tuple ``(theta_increments_rad, eta_inlet)`` at the optimum.
+
+    Raises:
+        ValueError: If mach1 <= 1 or n_cones < 1.
+    """
+    if mach1 <= 1.0:
+        raise ValueError(f"mach1 must be > 1, got {mach1}")
+    if n_cones < 1:
+        raise ValueError(f"n_cones must be >= 1, got {n_cones}")
+
+    from scipy.optimize import minimize
+
+    def objective(theta_rad: Any) -> float:
+        chain = multi_cone_recovery_chain(mach1, list(theta_rad), eta_diffuser, gamma)
+        if chain["detached"] or any(t <= 0.0 for t in theta_rad):
+            return 0.0
+        return -chain["eta_inlet"]
+
+    best_theta: list[float] | None = None
+    best_eta = -1.0
+    for seed_deg in (6.0, 8.0, 10.0):
+        result = minimize(
+            objective,
+            [math.radians(seed_deg)] * n_cones,
+            method="Nelder-Mead",
+            options={"xatol": 1e-6, "fatol": 1e-10, "maxiter": 20000, "maxfev": 20000},
+        )
+        eta = -float(result.fun)
+        if eta > best_eta:
+            best_eta = eta
+            best_theta = [float(t) for t in result.x]
+
+    assert best_theta is not None  # n_cones >= 1 guarantees at least one seed run
+    return best_theta, best_eta
+
+
+class MultiConeInletPerformanceAnalysis(BaseAnalysis):
+    """Multi-cone (multi-shock) supersonic spike inlet performance analysis.
+
+    Phase-1 redesign of the single-cone spike: n successive oblique
+    shocks + one terminating normal shock + subsonic diffuser (see
+    :func:`multi_cone_recovery_chain`). Defaults to
+    ``DEFAULT_N_CONES_M25`` (4) cones — the minimum count meeting
+    MIL-E-5007 at Mach 2.5.
+
+    Example:
+        >>> analysis = MultiConeInletPerformanceAnalysis()
+        >>> analysis.setup(mach_design=2.5, altitude_m=10_000.0)
+        >>> results = analysis.execute()
+        >>> results["eta_inlet"] >= results["mil_e_5007_eta_std"]  # doctest: +SKIP
+    """
+
+    fidelity = FidelityLevel.LEVEL_0
+
+    def __init__(
+        self,
+        name: str = "multi_cone_inlet_performance",
+        n_cones: int = DEFAULT_N_CONES_M25,
+    ) -> None:
+        super().__init__(name)
+        self._mach_design = MACH_DESIGN
+        self._altitude_m = DESIGN_ALTITUDE_M
+        self._n_cones = n_cones
+        self._capture_area_m2 = CAPTURE_AREA_M2
+        self._eta_diffuser = ETA_DIFFUSER
+        self._optimize_angles = True
+
+    def setup(
+        self,
+        mach_design: float = MACH_DESIGN,
+        altitude_m: float = DESIGN_ALTITUDE_M,
+        n_cones: int = DEFAULT_N_CONES_M25,
+        capture_area_m2: float = CAPTURE_AREA_M2,
+        eta_diffuser: float = ETA_DIFFUSER,
+        optimize_angles: bool = True,
+    ) -> None:
+        """Bind the analysis to a design point and cone count.
+
+        Args:
+            mach_design: Design (cruise) freestream Mach number (> 1).
+            altitude_m: Design/cruise altitude [m], ISA.
+            n_cones: Number of oblique-shock cone segments (>= 1).
+            capture_area_m2: Inlet capture (cowl) area [m^2].
+            eta_diffuser: Assumed subsonic-diffuser total-pressure
+                efficiency (0-1].
+            optimize_angles: If True, optimize the cone angles at the
+                design Mach. If False, use the fixed Mach-2.5 presets —
+                available only for n_cones in
+                ``MULTI_CONE_THETA_PRESETS_DEG`` (4 and 5; 2- and 3-cone
+                presets are deliberately undefined because those counts
+                cannot meet MIL-E-5007 at M 2.5).
+
+        Raises:
+            ValueError: If mach_design <= 1, n_cones < 1, eta_diffuser
+                outside (0, 1], or optimize_angles=False with a cone
+                count that has no preset.
+        """
+        if mach_design <= 1.0:
+            raise ValueError(f"mach_design must be > 1, got {mach_design}")
+        if n_cones < 1:
+            raise ValueError(f"n_cones must be >= 1, got {n_cones}")
+        if not (0.0 < eta_diffuser <= 1.0):
+            raise ValueError(f"eta_diffuser must be in (0, 1], got {eta_diffuser}")
+        if not optimize_angles and n_cones not in MULTI_CONE_THETA_PRESETS_DEG:
+            raise ValueError(
+                f"No fixed-angle preset for n_cones={n_cones}; presets exist "
+                f"only for {sorted(MULTI_CONE_THETA_PRESETS_DEG)} (the counts "
+                "able to meet MIL-E-5007 at M 2.5). Use optimize_angles=True."
+            )
+
+        self._mach_design = mach_design
+        self._altitude_m = altitude_m
+        self._n_cones = n_cones
+        self._capture_area_m2 = capture_area_m2
+        self._eta_diffuser = eta_diffuser
+        self._optimize_angles = optimize_angles
+        self._is_setup = True
+
+    def execute(self) -> AnalysisResults:
+        """Run the multi-shock chain at the design point.
+
+        Returns:
+            AnalysisResults with per-shock angles/recoveries, total
+            pressure recovery, mass flow and MIL-E-5007 comparison.
+
+        Raises:
+            RuntimeError: If called before :meth:`setup`.
+        """
+        if not self._is_setup:
+            raise RuntimeError(
+                "MultiConeInletPerformanceAnalysis.execute() called before setup()"
+            )
+
+        if self._optimize_angles:
+            theta_rad, _ = optimize_multi_cone_angles(
+                self._mach_design, self._n_cones, self._eta_diffuser
+            )
+            angle_source = "optimized_at_design_mach"
+        else:
+            preset_deg = MULTI_CONE_THETA_PRESETS_DEG[self._n_cones]
+            theta_rad = [math.radians(t) for t in preset_deg]
+            angle_source = "fixed_mach_2p5_preset"
+
+        atmosphere = isa_atmosphere(self._altitude_m)
+        velocity_m_s = self._mach_design * atmosphere.speed_of_sound_m_s
+        mdot_kg_s = atmosphere.density_kg_m3 * velocity_m_s * self._capture_area_m2
+
+        chain = multi_cone_recovery_chain(
+            self._mach_design, theta_rad, self._eta_diffuser
+        )
+        eta_std = mil_e_5007_eta_std(self._mach_design)
+        margin = chain["eta_inlet"] - eta_std
+        verdict = "PASS" if margin >= 0.0 else "FAIL"
+
+        data = {
+            "n_cones": self._n_cones,
+            "theta_increments_deg": [math.degrees(t) for t in theta_rad],
+            "cone_half_angles_deg": [
+                math.degrees(sum(theta_rad[: i + 1])) for i in range(len(theta_rad))
+            ],
+            "shock_angles_beta_deg": [
+                math.degrees(b) for b in chain["beta_rad_per_shock"]
+            ],
+            "mach_per_stage": chain["mach_per_stage"],
+            "pressure_recovery_per_shock": chain["pressure_recovery_per_shock"],
+            "pressure_recovery_oblique_total": chain["pressure_recovery_oblique_total"],
+            "mach_pre_normal": chain["mach_pre_normal"],
+            "mach_post_normal": chain["mach_post_normal"],
+            "pressure_recovery_normal": chain["pressure_recovery_normal"],
+            "eta_inlet": chain["eta_inlet"],
+            "eta_diffuser": self._eta_diffuser,
+            "mil_e_5007_eta_std": eta_std,
+            "margin": margin,
+            "capture_area_m2": self._capture_area_m2,
+            "mdot_design_kg_per_s": mdot_kg_s,
+            "design_altitude_m": self._altitude_m,
+            "mach_design": self._mach_design,
+        }
+        metadata = {
+            "verdict": verdict,
+            "shock_detached": chain["detached"],
+            "angle_source": angle_source,
+            "freestream": {
+                "mach": self._mach_design,
+                "altitude_m": self._altitude_m,
+                "temperature_K": atmosphere.temperature_K,
+                "pressure_Pa": atmosphere.pressure_Pa,
+                "density_kg_m3": atmosphere.density_kg_m3,
+                "speed_of_sound_m_s": atmosphere.speed_of_sound_m_s,
+                "velocity_m_s": velocity_m_s,
+            },
+            "assumptions": [
+                "Each oblique stage uses the 2-D wedge theta-beta-Mach "
+                "relation for its incremental deflection — a conservative "
+                "low-order stand-in for the axisymmetric Taylor-Maccoll "
+                "multi-cone solution (see single-cone module notes).",
+                "Diffuser total-pressure efficiency eta_diffuser is an "
+                "assumed placeholder pending duct-loss/CFD data.",
+                "Full mass-flow capture assumed at the design Mach "
+                "(no spillage).",
+                "CONFIRMED at M 2.5 (Seddon & Goldsmith 1999 Sec 4.3 "
+                "context; verified numerically here): 2 and 3 cones "
+                "cannot meet MIL-E-5007 (eta ~0.799 / ~0.849 vs 0.8703); "
+                "4 cones pass thinly (~0.874), 5 comfortably (~0.888).",
+            ],
+        }
+
+        results = AnalysisResults(
+            name=self.name, fidelity=self.fidelity, data=data, metadata=metadata
+        )
+        if not self.validate_results(results):
+            raise RuntimeError(
+                f"Multi-cone inlet results failed physical validation: {results.data}"
+            )
+        return results
+
+    def validate_results(self, results: AnalysisResults) -> bool:
+        """Sanity-check the multi-shock chain results.
+
+        Checks: 0 < eta_inlet <= eta_diffuser, post-normal-shock flow is
+        subsonic, per-stage Mach strictly decreasing, and per-shock
+        recoveries each in (0, 1].
+
+        Args:
+            results: Results to validate.
+
+        Returns:
+            True if all physical sanity checks pass.
+        """
+        required = {
+            "eta_inlet",
+            "eta_diffuser",
+            "mach_post_normal",
+            "mach_per_stage",
+            "pressure_recovery_per_shock",
+        }
+        if not required.issubset(results.data):
+            return False
+        if not (0.0 < results["eta_inlet"] <= results["eta_diffuser"] + 1e-9):
+            return False
+        if not (results["mach_post_normal"] < 1.0):
+            return False
+        stages = results["mach_per_stage"]
+        if any(m2 >= m1 for m1, m2 in zip(stages, stages[1:])):
+            return False
+        if any(
+            not (0.0 < pr <= 1.0) for pr in results["pressure_recovery_per_shock"]
+        ):
+            return False
+        return True
+
+
 def sweep_eta_inlet(
     mach_range: list[float],
     cone_length_m: float = SPIKE_CONE_LENGTH_M,
@@ -679,6 +1077,20 @@ def main() -> None:
     results = analysis.execute()
     output = _build_output_dict(results)
 
+    multi_analysis = MultiConeInletPerformanceAnalysis()
+    multi_analysis.setup(
+        mach_design=MACH_DESIGN,
+        altitude_m=DESIGN_ALTITUDE_M,
+        n_cones=DEFAULT_N_CONES_M25,
+        optimize_angles=False,
+    )
+    multi_results = multi_analysis.execute()
+    output["multi_cone_redesign"] = dict(multi_results.data)
+    output["multi_cone_redesign"]["verdict"] = multi_results.metadata["verdict"]
+    output["multi_cone_redesign"]["angle_source"] = multi_results.metadata[
+        "angle_source"
+    ]
+
     module_dir = Path(__file__).resolve().parent
     json_path = module_dir / "inlet_results.json"
     png_path = module_dir / "inlet_recovery.png"
@@ -705,6 +1117,13 @@ def main() -> None:
     print(f"Capture area: {output['capture_area_m2']:.5f} m^2")
     print(f"mdot (design): {output['mdot_design_kg_per_s']:.4f} kg/s")
     print(f"Freestream: {output['freestream']}")
+
+    mc = output["multi_cone_redesign"]
+    print(f"\n=== Multi-cone redesign ({mc['n_cones']} cones, {mc['angle_source']}) ===")
+    print(f"Cone half-angles: {[round(a, 2) for a in mc['cone_half_angles_deg']]} deg")
+    print(f"eta_inlet: {mc['eta_inlet']:.4f}")
+    print(f"Margin vs MIL-E-5007: {mc['margin']:+.4f}")
+    print(f"Verdict: {mc['verdict']}")
     print(f"\nJSON written to: {json_path}")
     print(f"Plot written to: {png_path}")
 
