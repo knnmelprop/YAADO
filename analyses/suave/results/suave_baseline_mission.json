@@ -1,0 +1,36 @@
+{
+  "mission_type": "ramp_suave_baseline_0D_fallback",
+  "segments": [
+    {
+      "name": "boost_stage_1",
+      "duration_s": 6.0,
+      "range_m": 167.46366604857533,
+      "mach_start": 0.0,
+      "mach_end": 1.2331842209591797,
+      "altitude_m": 1289.3437240001513,
+      "thrust_N": 25374.706875,
+      "drag_N": 1804.470296807639
+    },
+    {
+      "name": "cruise_stage_2_ramjet",
+      "duration_s": 60.0,
+      "range_m": 47464.01780559669,
+      "mach_start": 2.5,
+      "mach_end": 2.5,
+      "altitude_m": 6000.0,
+      "thrust_N": 19107.352487726544,
+      "drag_N": 3546.3356928511203,
+      "mdot_fuel_kg_s": 1.1034085625261307,
+      "fuel_burn_kg": 66.20451375156784
+    }
+  ],
+  "total_range_m": 47631.48147164527,
+  "notes": [
+    "0D fallback mission integrator (SUAVE not importable in this container -- see _probe_suave_available).",
+    "Cruise segment reuses analyses.mission.operational_envelope's exact Th2/drag pipeline (Night-3 / P1-C grid point at Mach 2.5 / 6000 m ISA).",
+    "cruise_duration_s=60.0 s is a SZACOWANY fixed placeholder: vehicles/ramjet_rocket/vehicle_config.yaml stage_2 has no fuel_mass_kg field, so cruise duration cannot be derived from a real fuel budget yet.",
+    "CD0=0.35 zero-lift drag coefficient is SZACOWANY (no CFD drag polar across the Mach/altitude grid yet; single CFD reference point only, see operational_envelope module docstring).",
+    "Boost segment thrust/drag: impulse-consistent sea-level thrust (Isp_sl*mdot*g0) and the booster's own step-CD(Mach)+fin-CD drag model, both evaluated at the burnout_state.json handoff state.",
+    "Staging event (booster separation -> ramjet ignition) is NOT modeled as a third segment here (out of this baseline's scope; see workflows.ramp_staged_mission for the staging-event placeholder)."
+  ]
+}
