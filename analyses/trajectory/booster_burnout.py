@@ -176,7 +176,7 @@ Note: these sweep angles are all below the module's own operating default
 of ``LAUNCH_ANGLE_DEG = 83.0`` (a near-vertical rail-launch angle). The
 sweep is retained for the requested low-angle sensitivity study (e.g. to
 characterize the shallow-launch-angle non-viability documented in
-``doc/AGENT_CONTEXT.md`` Sec. 7 caveat 2); it does not change the default
+``docs/AGENT_CONTEXT.md`` Sec. 7 caveat 2); it does not change the default
 used by :func:`main`'s nominal run, which stays at 83 deg."""
 
 

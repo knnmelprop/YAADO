@@ -12,7 +12,7 @@ the Barrowman/DATCOM-style empirical drag estimates used elsewhere.
 
 IMPORTANT -- this module only *writes* SU2 configuration text files. It
 never invokes ``su2_CFD``, ``gmsh``, or any other external binary: none
-of those are installed in this environment (see ``doc/AGENT_CONTEXT.md``
+of those are installed in this environment (see ``docs/AGENT_CONTEXT.md``
 Section 3). Every generated file carries a ``# TO RUN: su2_CFD
 <file>.cfg`` comment so a human (or a future CI job with SU2 installed)
 knows how to actually execute it, plus the ``MESH_FILENAME`` a
