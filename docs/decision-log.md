@@ -63,3 +63,28 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
 **Budget adjustment:** Forced mid-run switch to sonnet/haiku subagents for phases 5–7 (Fable lead retained phases 1, 4 for physics hold) to stay within token limits. Test-driven: no red commits.
 
 **Propagation:** Full handoff via updated AGENT_CONTEXT.md, this report, and annotated assumptions register. Next session: human review of fin/nozzle geometry, obtain motor datasheet + Fusion inertia tensor.
+
+---
+
+## 2026-07-09 — Night-2 run (RamP-Fable, cut at 80% budget guard)
+
+- **STEP-0 verification:** tree clean and synced with `origin`, full suite
+  **80/80 tests green**, PR #12 confirmed open/draft/mergeable-clean at start,
+  Night-1 report present and consulted before acting.
+- **Phase 0b key finding:** `stability_margin_report.md` compares Barrowman
+  (analytical) vs Teltik 2024 CFD stability margins. Teltik CP values (1.85 m
+  @ Ma1.5, 0.92 m @ Ma2.5) imply SM **+0.97 cal @ Ma1.5** but
+  **−2.75 cal @ Ma2.5** — a **sign flip at the cruise condition** relative to
+  Barrowman's +8.99 cal. The two-methods stability gate **FAILS**. This
+  elevates the standing "fin span suspect" item to **urgent team review**.
+- **Phase 1b audit:** inlet completeness audit **PASSED** (4-cone default
+  wired correctly at both `__init__` and `setup`, eta margin +0.0037 vs
+  MIL-E-5007, no dangling 2-/3-cone references, JSON verdict PASS).
+- **Budget guard fired at 80%** of the usage window during Phase 2b
+  (combustor+nozzle Grzywka model), while the subagent was still in read-only
+  exploration — **no files were written**. Phases 2b/3b/4b are therefore
+  **blocked_by_budget** with a clean checkpoint: no partial/dangling files,
+  suite still 80/80 green. Full resume spec logged in
+  `doc/ramP/analysis_status.md`.
+- **PR #12** continues as the single open PR for this workstream; Night-2
+  doc commits were pushed onto it rather than opening a new PR.
