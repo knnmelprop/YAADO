@@ -6,13 +6,17 @@ import math
 import pytest
 
 from analyses.propulsion.inlet_performance import (
+    DEFAULT_INLET_ACTUATION,
     DEFAULT_N_CONES_M25,
     ETA_DIFFUSER,
     GAMMA,
+    MACH_SPIKE_DESIGN,
     MULTI_CONE_THETA_DEG_4CONE,
     MULTI_CONE_THETA_DEG_5CONE,
     InletPerformanceAnalysis,
+    MovableInletActuation,
     MultiConeInletPerformanceAnalysis,
+    compute_transition_sequence,
     isa_atmosphere,
     mil_e_5007_eta_std,
     multi_cone_recovery_chain,
@@ -241,6 +245,121 @@ def test_multi_cone_inlet_analysis_setup_rejects_bad_inputs() -> None:
         analysis.setup(n_cones=0)
     with pytest.raises(ValueError):
         analysis.setup(eta_diffuser=0.0)
+
+
+# ---------------------------------------------------------------------------
+# Movable (translating-centerbody) spike inlet — actuation model (Phase 4b)
+# ---------------------------------------------------------------------------
+
+
+def test_movable_inlet_actuation_todo_physical_params_are_flagged() -> None:
+    """All four actuation fields are TODO_PHYSICAL_PARAM placeholders — assert
+    they are clearly flagged with a documented range in metadata (we have no
+    ground truth for their magnitudes, only that they must be marked)."""
+    meta = DEFAULT_INLET_ACTUATION.metadata()
+    todo = meta["todo_physical_params"]
+    for field in (
+        "screw_lead_mm",
+        "motor_torque_Nm",
+        "cone_travel_mm",
+        "transition_time_s",
+    ):
+        assert field in todo
+        assert todo[field].startswith("TODO_PHYSICAL_PARAM")
+        assert "typical" in todo[field]
+        # The field is still present with a (placeholder) numeric value.
+        assert isinstance(meta[field], float)
+    assert "No Grzywka MATLAB actuator data" in meta["source"]
+
+
+def test_movable_inlet_actuation_defaults_within_documented_ranges() -> None:
+    """Placeholder defaults sit inside the documented typical ranges (this
+    checks the defaults are self-consistent, NOT that they are 'correct')."""
+    a = DEFAULT_INLET_ACTUATION
+    assert 1.0 <= a.screw_lead_mm <= 10.0
+    assert 0.1 <= a.motor_torque_Nm <= 2.0
+    assert 30.0 <= a.cone_travel_mm <= 90.0
+    assert 1.0 <= a.transition_time_s <= 10.0
+    assert a.slew_rate_mm_s == pytest.approx(
+        a.cone_travel_mm / a.transition_time_s
+    )
+
+
+def test_cone_position_for_mach_endpoints_and_clamp() -> None:
+    """Position schedule pins 0 mm at retracted Mach and full stroke at design
+    Mach, and clamps above the design Mach."""
+    a = MovableInletActuation()
+    assert a.cone_position_for_mach(0.0) == pytest.approx(0.0)
+    assert a.cone_position_for_mach(MACH_SPIKE_DESIGN) == pytest.approx(
+        a.cone_travel_mm
+    )
+    # Beyond the design Mach the stroke is clamped, not extrapolated.
+    assert a.cone_position_for_mach(3.5) == pytest.approx(a.cone_travel_mm)
+
+
+def test_transition_sequence_startup_m0_to_m25() -> None:
+    """Startup/acceleration M0 -> M2.5: monotonically INCREASING position from
+    0 mm to full stroke, starting at t=0 and ending at the full-stroke time."""
+    a = MovableInletActuation()
+    seq = compute_transition_sequence(0.0, 2.5, velocity_m_s=0.0, altitude_m=0.0)
+
+    times = [t for t, _ in seq]
+    positions = [p for _, p in seq]
+
+    # Correct start/end times.
+    assert times[0] == pytest.approx(0.0)
+    assert times[-1] == pytest.approx(a.transition_time_s)  # full stroke
+    # Correct start/end positions.
+    assert positions[0] == pytest.approx(0.0)
+    assert positions[-1] == pytest.approx(a.cone_travel_mm)
+    # Monotonic (non-decreasing) position and strictly increasing time.
+    assert all(p2 >= p1 for p1, p2 in zip(positions, positions[1:]))
+    assert all(t2 > t1 for t1, t2 in zip(times, times[1:]))
+    # Every sampled position stays within the stroke limits.
+    assert all(0.0 <= p <= a.cone_travel_mm + 1e-9 for p in positions)
+
+
+def test_transition_sequence_shutdown_m25_to_m0() -> None:
+    """Shutdown/deceleration M2.5 -> M0: monotonically DECREASING position from
+    full stroke back to 0 mm, over the same full-stroke duration."""
+    a = MovableInletActuation()
+    seq = compute_transition_sequence(2.5, 0.0, velocity_m_s=740.0, altitude_m=10_000.0)
+
+    times = [t for t, _ in seq]
+    positions = [p for _, p in seq]
+
+    assert times[0] == pytest.approx(0.0)
+    assert times[-1] == pytest.approx(a.transition_time_s)
+    assert positions[0] == pytest.approx(a.cone_travel_mm)
+    assert positions[-1] == pytest.approx(0.0)
+    # Monotonic (non-increasing) position.
+    assert all(p2 <= p1 for p1, p2 in zip(positions, positions[1:]))
+    assert all(0.0 <= p <= a.cone_travel_mm + 1e-9 for p in positions)
+
+
+def test_transition_sequence_zero_move_returns_single_sample() -> None:
+    """A no-op transition (identical Mach) returns one (0.0, position) point."""
+    seq = compute_transition_sequence(2.5, 2.5, velocity_m_s=740.0, altitude_m=10_000.0)
+    assert len(seq) == 1
+    assert seq[0][0] == pytest.approx(0.0)
+    assert seq[0][1] == pytest.approx(DEFAULT_INLET_ACTUATION.cone_travel_mm)
+
+
+def test_transition_sequence_partial_move_duration_scales_with_delta() -> None:
+    """A half-stroke move (M0 -> M1.25) takes half the full-stroke time."""
+    a = MovableInletActuation()
+    seq = compute_transition_sequence(
+        0.0, MACH_SPIKE_DESIGN / 2.0, velocity_m_s=370.0, altitude_m=5000.0
+    )
+    assert seq[-1][0] == pytest.approx(a.transition_time_s / 2.0)
+    assert seq[-1][1] == pytest.approx(a.cone_travel_mm / 2.0)
+
+
+def test_transition_sequence_rejects_bad_inputs() -> None:
+    with pytest.raises(ValueError):
+        compute_transition_sequence(0.0, 2.5, 0.0, 0.0, n_samples=1)
+    with pytest.raises(ValueError):
+        compute_transition_sequence(-0.5, 2.5, 0.0, 0.0)
 
 
 def test_inlet_performance_analysis_mass_flow_scales_with_capture_area() -> None:

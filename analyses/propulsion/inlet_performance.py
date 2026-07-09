@@ -1,4 +1,4 @@
-# MELprop-IADE | analyses.propulsion.inlet_performance | v0.1.0
+# MELprop-IADE | analyses.propulsion.inlet_performance | v0.2.0
 """Low-order axisymmetric conical-spike inlet performance analysis.
 
 Models the Project B stage-2 ramjet intake (Fusion Assembly v6: conical
@@ -982,6 +982,252 @@ class MultiConeInletPerformanceAnalysis(BaseAnalysis):
         ):
             return False
         return True
+
+
+# --------------------------------------------------------------------------
+# Movable (translating-centerbody) spike inlet — actuation model
+#
+# The stage-2 ramjet uses a MOVABLE conical spike: as the vehicle
+# accelerates through the supersonic range the oblique-shock angle beta
+# grows shallower with Mach (see oblique_shock_beta_rad), so the shock
+# foot walks off the cowl lip unless the centerbody is TRANSLATED axially
+# to reposition it. This is standard supersonic variable-geometry-inlet
+# practice — the same physical idea as the translating spikes of the
+# SR-71 and F-15/F-16-class inlets (Seddon & Goldsmith, *Intake
+# Aerodynamics*, 2nd ed. 1999, Ch. 6 "Variable geometry"; Anderson,
+# *Modern Compressible Flow*, 3rd ed., Ch. 4 on the beta(M) dependence
+# that motivates the translation schedule).
+#
+# This section models the ACTUATION HARDWARE and the TRANSITION SEQUENCE
+# (cone position vs time as the vehicle changes Mach), NOT the shock
+# aerodynamics itself (that is the oblique/normal/multi-cone chain above).
+# It mirrors combustor_nozzle_cycle.py's dynamic-geometry-vs-flight-
+# condition style: the commanded cone position is a function of the
+# flight state, recorded against (Mach, V, H) rather than hard-coded.
+#
+# NO Grzywka MATLAB actuator data exists in this repo (confirmed:
+# docs/assumptions.md notes the Grzywka MATLAB model itself is not
+# vendored — only its derived loss coefficients A13 are; the Fusion v6
+# inlet_cone_spike block carries geometry only, no actuation fields). The
+# four actuation parameters below are therefore TODO_PHYSICAL_PARAM
+# placeholders set to the CENTRE of a documented typical range for a
+# small (sub-1 kg centerbody) supersonic-spike linear actuator of this
+# ~0.29 m cone scale; each range and its analogous-hardware reasoning is
+# given in MovableInletActuation. They must be replaced with real
+# actuator/CAD data before any control-loop or mass-budget use.
+# --------------------------------------------------------------------------
+
+#: Freestream Mach at which the spike is fully RETRACTED (subsonic /
+#: pre-start reference position, cone_position = 0 mm). Below start the
+#: inlet has no oblique-shock system to position, so this is the stow datum.
+MACH_SPIKE_RETRACTED: float = 0.0
+
+#: Freestream Mach at which the spike is fully EXTENDED (design cruise
+#: shock-on-lip position, cone_position = cone_travel_mm). Ties the stroke
+#: endpoints to the Mach-2.5 design point (MACH_DESIGN).
+MACH_SPIKE_DESIGN: float = MACH_DESIGN
+
+
+@dataclass
+class MovableInletActuation:
+    """Actuation parameters for the translating-centerbody spike inlet.
+
+    Kinematic / hardware description of the linear actuator that
+    translates the conical spike to keep the oblique-shock system on the
+    cowl lip across the supersonic Mach range. All four fields are
+    ``TODO_PHYSICAL_PARAM`` placeholders (no Grzywka MATLAB actuator data
+    is vendored in this repo — see the section banner above): each default
+    is the centre of a documented typical range for a small supersonic-
+    spike linear actuator sized to this ~0.293 m / sub-1 kg steel
+    centerbody, NOT a measured or CAD-sourced value.
+
+    TODO_PHYSICAL_PARAM ranges and analogous-hardware reasoning:
+
+    * ``screw_lead_mm`` — axial travel per screw revolution. Compact
+      ball-/lead-screw linear actuators of this class run leads of about
+      1-10 mm/rev (low leads trade speed for holding load / positioning
+      resolution; e.g. common 2 mm and 5 mm-lead miniature ball screws).
+      Typical range **1-10 mm/rev**; default 2.0 (fine-positioning end,
+      favouring shock-position accuracy over slew speed).
+    * ``motor_torque_Nm`` — actuator/motor output torque. A sub-1 kg
+      centerbody with modest supersonic pressure loads is within the
+      band of a NEMA-17-to-NEMA-23-class stepper or small BLDC/servo
+      (~0.1-2 N*m continuous; NEMA-17 ~0.4 N*m, NEMA-23 ~1-2 N*m).
+      Typical range **0.1-2 N*m**; default 0.5.
+    * ``cone_travel_mm`` — total axial stroke. Translating spikes
+      reposition the shock foot over a stroke that is roughly 10-30% of
+      the cone length; for the 293 mm Fusion v6 spike that is about
+      30-90 mm. Typical range **30-90 mm**; default 50 (~17% of cone
+      length).
+    * ``transition_time_s`` — time for one full stroke. Variable-geometry
+      inlet actuators complete full travel in of order 1-10 s (small
+      electric linear actuators run ~5-25 mm/s, i.e. a 50 mm stroke in
+      ~2-10 s) — fast enough to track boost-phase acceleration without
+      the inertia of a heavy hydraulic ram. Typical range **1-10 s**;
+      default 3.0. Sets the constant slew rate
+      ``cone_travel_mm / transition_time_s``.
+
+    Attributes:
+        screw_lead_mm: Linear-actuator screw lead [mm/rev].
+        motor_torque_Nm: Actuator output torque [N*m].
+        cone_travel_mm: Total axial stroke of the centerbody [mm].
+        transition_time_s: Time to traverse a full ``cone_travel_mm``
+            stroke [s].
+    """
+
+    #: TODO_PHYSICAL_PARAM — typical range 1-10 mm/rev (see class docstring).
+    screw_lead_mm: float = 2.0
+    #: TODO_PHYSICAL_PARAM — typical range 0.1-2 N*m (see class docstring).
+    motor_torque_Nm: float = 0.5
+    #: TODO_PHYSICAL_PARAM — typical range 30-90 mm (see class docstring).
+    cone_travel_mm: float = 50.0
+    #: TODO_PHYSICAL_PARAM — typical range 1-10 s (see class docstring).
+    transition_time_s: float = 3.0
+
+    @property
+    def slew_rate_mm_s(self) -> float:
+        """Constant actuator slew rate [mm/s] = stroke / full-stroke time.
+
+        Returns:
+            Linear translation speed of the centerbody [mm/s].
+        """
+        return self.cone_travel_mm / self.transition_time_s
+
+    def cone_position_for_mach(self, mach: float) -> float:
+        """Commanded cone position for a given freestream Mach number.
+
+        Linear schedule between the retracted datum (``MACH_SPIKE_RETRACTED``
+        -> 0 mm) and the design shock-on-lip position (``MACH_SPIKE_DESIGN``
+        -> ``cone_travel_mm``), clamped to the stroke limits outside that
+        band. A monotone map is the correct low-order behaviour: the
+        oblique-shock angle falls monotonically with Mach, so the
+        translation required to hold the shock on the lip is monotone in
+        Mach too. (A trajectory- or beta-scheduled non-linear map is a
+        deliberate future refinement; not warranted at this fidelity.)
+
+        Args:
+            mach: Freestream Mach number (>= 0).
+
+        Returns:
+            Commanded axial cone position [mm], in ``[0, cone_travel_mm]``.
+        """
+        span = MACH_SPIKE_DESIGN - MACH_SPIKE_RETRACTED
+        frac = (mach - MACH_SPIKE_RETRACTED) / span
+        frac = min(1.0, max(0.0, frac))
+        return frac * self.cone_travel_mm
+
+    def metadata(self) -> dict[str, Any]:
+        """Actuation parameters plus TODO_PHYSICAL_PARAM provenance.
+
+        Returns:
+            Dict of the four actuation fields, the derived slew rate, and
+            a ``todo_physical_params`` list naming every field that is a
+            placeholder (with its documented typical range) so downstream
+            consumers can assert the values are flagged rather than trust
+            their magnitudes.
+        """
+        return {
+            "screw_lead_mm": self.screw_lead_mm,
+            "motor_torque_Nm": self.motor_torque_Nm,
+            "cone_travel_mm": self.cone_travel_mm,
+            "transition_time_s": self.transition_time_s,
+            "slew_rate_mm_s": self.slew_rate_mm_s,
+            "todo_physical_params": {
+                "screw_lead_mm": "TODO_PHYSICAL_PARAM; typical 1-10 mm/rev",
+                "motor_torque_Nm": "TODO_PHYSICAL_PARAM; typical 0.1-2 N*m",
+                "cone_travel_mm": "TODO_PHYSICAL_PARAM; typical 30-90 mm",
+                "transition_time_s": "TODO_PHYSICAL_PARAM; typical 1-10 s",
+            },
+            "source": (
+                "No Grzywka MATLAB actuator data in repo; defaults are the "
+                "centre of documented typical small-spike-actuator ranges "
+                "(see MovableInletActuation docstring). Replace with real "
+                "actuator / CAD data before control-loop or mass-budget use."
+            ),
+        }
+
+
+#: Default actuation set used when no explicit MovableInletActuation is
+#: supplied (all fields TODO_PHYSICAL_PARAM — see the class docstring).
+DEFAULT_INLET_ACTUATION: MovableInletActuation = MovableInletActuation()
+
+
+def compute_transition_sequence(
+    mach_current: float,
+    mach_target: float,
+    velocity_m_s: float,
+    altitude_m: float,
+    actuation: MovableInletActuation = DEFAULT_INLET_ACTUATION,
+    n_samples: int = 11,
+) -> list[tuple[float, float]]:
+    """Time history of the cone translation for a Mach transition.
+
+    Builds the ``(time_s, cone_position_mm)`` schedule that moves the
+    centerbody from its current-Mach position to its target-Mach position
+    using a **constant-velocity (linear) profile** at the actuator slew
+    rate ``cone_travel_mm / transition_time_s``. A linear profile is
+    chosen deliberately over a trapezoidal one: a lead-screw driven at a
+    fixed motor speed IS a constant-velocity actuator, the accel/decel
+    ramps of a trapezoidal profile need a jerk/accel limit we have no data
+    for (all four actuation params are TODO_PHYSICAL_PARAM), and the extra
+    complexity buys nothing at this fidelity. Both a full-stroke transition
+    (M0 -> M2.5, startup) and a partial one take time proportional to the
+    position delta, so the duration is
+    ``|dx| / cone_travel_mm * transition_time_s``.
+
+    Mirrors combustor_nozzle_cycle.py's dynamic-geometry-vs-flight-
+    condition style: the endpoint positions come from
+    :meth:`MovableInletActuation.cone_position_for_mach` (a function of
+    Mach, which sets the shock geometry). ``velocity_m_s`` and
+    ``altitude_m`` are the flight-condition context at which the
+    transition is commanded and are accepted for interface parity with the
+    (V, H)-keyed dynamic-geometry convention; at this L0 kinematic
+    fidelity they do not alter the timing (a V/H-dependent slew schedule
+    is a documented future refinement).
+
+    Args:
+        mach_current: Freestream Mach at the start of the transition (>= 0).
+        mach_target: Freestream Mach at the end of the transition (>= 0).
+        velocity_m_s: Freestream velocity at command time [m/s] (context).
+        altitude_m: Flight altitude at command time [m] (context).
+        actuation: Actuation hardware description. Defaults to
+            ``DEFAULT_INLET_ACTUATION`` (all fields TODO_PHYSICAL_PARAM).
+        n_samples: Number of evenly-spaced time samples, including both
+            endpoints (>= 2).
+
+    Returns:
+        List of ``(time_s, cone_position_mm)`` tuples, ordered by time
+        from 0.0 to the transition duration. Cone position varies
+        monotonically from the current-Mach to the target-Mach position.
+        A zero-length move (identical positions) returns a single
+        ``[(0.0, position)]`` sample.
+
+    Raises:
+        ValueError: If ``n_samples < 2`` or either Mach is negative.
+    """
+    if n_samples < 2:
+        raise ValueError(f"n_samples must be >= 2, got {n_samples}")
+    if mach_current < 0.0 or mach_target < 0.0:
+        raise ValueError(
+            f"Mach numbers must be >= 0, got current={mach_current}, "
+            f"target={mach_target}"
+        )
+
+    pos_start_mm = actuation.cone_position_for_mach(mach_current)
+    pos_end_mm = actuation.cone_position_for_mach(mach_target)
+    delta_mm = pos_end_mm - pos_start_mm
+
+    if delta_mm == 0.0:
+        return [(0.0, pos_start_mm)]
+
+    duration_s = abs(delta_mm) / actuation.slew_rate_mm_s
+    sequence: list[tuple[float, float]] = []
+    for i in range(n_samples):
+        frac = i / (n_samples - 1)
+        time_s = frac * duration_s
+        position_mm = pos_start_mm + frac * delta_mm
+        sequence.append((time_s, position_mm))
+    return sequence
 
 
 def sweep_eta_inlet(
