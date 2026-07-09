@@ -29,5 +29,6 @@
     "atmosphere_model": "ISA troposphere (ICAO Doc 7488 manual formula), T=288.15-0.0065*h [K], p=101325*(T/288.15)^5.2559 [Pa], rho=p/(287.05*T) [kg/m^3], altitude clamped to >= 0",
     "cd_model": "CD_body: 0.20 (M<0.8) / 0.35 (0.8<=M<1.5, transonic) / 0.25 (M>=1.5); step function, not smoothed. CD_fins = fin_count * 0.012 (per-fin wave drag estimate), constant. CD_total = CD_body + CD_fins.",
     "integrator": "scipy.integrate.solve_ivp, RK45, rtol=1e-08, atol=1e-10, dense_output=True, terminal ground-impact event (h=0, decreasing)"
-  }
+  },
+  "recommended_launch_angle_deg": 5.0
 }
