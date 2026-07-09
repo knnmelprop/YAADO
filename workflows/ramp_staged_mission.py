@@ -7,11 +7,26 @@ segments from solid-booster ignition through ramjet cruise. The mission
 includes a staging event that propagates the booster burnout state (mass,
 velocity, altitude) as initial conditions for the ramjet cruise segment.
 
+The ramjet-cruise design point (segment 3, ``cruise_stage_2_ramjet``) is
+computed from
+:class:`analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis`
+(the Grzywka station 1-2-21-3 combustor/nozzle cycle). Its three thrust
+scenarios -- ``Thi`` (ideal), ``Th1`` (combustor loss only) and ``Th2``
+(real, combustor + nozzle losses) -- are never collapsed to a single
+number: each is propagated through its own cruise-time/range derivation
+and preserved under the cruise segment's ``thrust_scenarios`` parameter,
+with ``Th2`` (most conservative) also mirrored at the top level as the
+mission's nominal design point.
+
 Theory / model references:
     - Staging dynamics: Sutton & Biblarz, *Rocket Propulsion Elements*, ch. 4
       (stage separation, momentum balance, coast phase).
     - Mission segment sequencing: SUAVE mission structure, adapted to a
       solver-agnostic builder pattern per CLAUDE.md architecture.
+    - Ramjet cruise cycle: Grzywka, *Analiza numeryczna komory spalania i
+      dyszy silnika strumieniowego*, Politechnika Warszawska, 2022, Sec.
+      6.2.2 (three-thrust decomposition), via
+      :mod:`analyses.propulsion.combustor_nozzle_cycle`.
 
 Run as a script to print the mission profile and booster-burnout handoff state::
 
@@ -152,13 +167,19 @@ def build_ramp_staged_mission(burnout_state: BurnoutState) -> list[MissionSegmen
     )
 
     # Segment 3: Ramjet cruise (stage-2) — quasi-steady design point.
-    # Thrust/TSFC/mdot_fuel are computed from the L2 1-D ramjet cycle model
-    # (analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis) at the design
-    # condition (Mach 2.5, 10,000 m ISA). This is still NOT a trajectory
-    # ODE integration (fuel depletion, drag, and altitude/velocity coupling
-    # over time remain TBD); it is a single quasi-steady operating point
-    # used to derive a first-order cruise_time_s / cruise_range_m estimate
-    # from the SZACOWANY 15 kg fuel load.
+    # Thrust/TSFC/Isp/mdot_fuel are computed from the L2 1-D Grzywka
+    # combustor+nozzle cycle model
+    # (analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis)
+    # at the design condition (Mach 2.5, 10,000 m ISA), for EACH of the
+    # three Grzywka thrust scenarios (Thi ideal / Th1 combustor-loss-only /
+    # Th2 real — see _THRUST_SCENARIOS below); Th2 (most conservative) is
+    # the nominal top-level design point, but all three are preserved
+    # under cruise_design_point["thrust_scenarios"]. This is still NOT a
+    # trajectory ODE integration (fuel depletion, drag, and
+    # altitude/velocity coupling over time remain TBD); it is a single
+    # quasi-steady operating point used to derive a first-order
+    # cruise_time_s / cruise_range_m estimate PER SCENARIO from the
+    # SZACOWANY 15 kg fuel load.
     cruise_design_point = _compute_ramjet_design_point()
 
     builder.add_segment(
@@ -171,10 +192,23 @@ def build_ramp_staged_mission(burnout_state: BurnoutState) -> list[MissionSegmen
     return builder.build()
 
 
-#: Fallback cruise-segment parameters used only if the L2 ramjet cycle
-#: model (analyses.propulsion.ramjet_cycle) is unavailable or raises an
-#: unexpected error. These reproduce the original fixed-guess stub so the
-#: mission structure keeps degrading gracefully rather than failing.
+#: Grzywka three-thrust-model scenarios (Sec. 6.2.2), in canonical order
+#: from least to most conservative. Each tuple is
+#: ``(scenario_key, results_data_key, description)``; ``results_data_key``
+#: indexes the ``AnalysisResults`` returned by
+#: :meth:`analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis.execute`.
+_THRUST_SCENARIOS: tuple[tuple[str, str, str], ...] = (
+    ("Thi", "Thi_N", "ideal: no combustor or nozzle total-pressure losses (upper bound)"),
+    ("Th1", "Th1_N", "combustor total-pressure loss only, nozzle idealized"),
+    ("Th2", "Th2_N", "real: combustor AND nozzle total-pressure losses (nominal)"),
+)
+
+
+#: Fallback cruise-segment parameters used only if the L2 combustor/nozzle
+#: cycle model (analyses.propulsion.combustor_nozzle_cycle) is unavailable
+#: or raises an unexpected error. These reproduce the original fixed-guess
+#: stub, extended with a ``thrust_scenarios`` block so downstream code that
+#: expects all three Grzywka scenarios keeps working even in degraded mode.
 _STUB_CRUISE_DESIGN_POINT: dict[str, Any] = {
     "design_mach": 2.5,  # from vehicle_config.yaml stage_2.design_mach
     "cruise_altitude_m": 10000.0,  # TBD — design decision, typical ramjet cruise alt
@@ -182,27 +216,99 @@ _STUB_CRUISE_DESIGN_POINT: dict[str, Any] = {
     "cruise_range_m": 0.0,  # TBD — cannot be derived without the cycle model
     "fuel_mass_kg": 15.0,  # SZACOWANY — placeholder stage-2 fuel load
     "thrust_N": 0.0,  # TBD — cycle model unavailable
-    "thrust_cylindrical_nozzle_N": 0.0,  # TBD — cycle model unavailable
     "tsfc_kg_per_Ns": 0.0,  # TBD — cycle model unavailable
+    "isp_s": 0.0,  # TBD — cycle model unavailable
     "mdot_fuel_kg_s": 0.0,  # TBD — cycle model unavailable
+    "thrust_scenarios": {
+        key: {
+            "thrust_N": 0.0,
+            "tsfc_kg_per_Ns": 0.0,
+            "isp_s": 0.0,
+            "mdot_fuel_kg_s": 0.0,
+            "cruise_time_s": 60.0,
+            "cruise_range_m": 0.0,
+            "description": description,
+        }
+        for key, _field, description in _THRUST_SCENARIOS
+    },
     "note": (
-        "FALLBACK STUB: analyses.propulsion.ramjet_cycle raised an "
-        "unexpected error, so this segment reverted to fixed-guess "
-        "placeholder values (thrust/TSFC/mdot_fuel = 0.0, cruise_time_s = "
-        "60.0 s placeholder). Re-run once the ramjet cycle model is "
-        "fixed to recover a real design point."
+        "FALLBACK STUB: analyses.propulsion.combustor_nozzle_cycle raised "
+        "an unexpected error, so this segment reverted to fixed-guess "
+        "placeholder values (thrust/TSFC/mdot_fuel = 0.0 for all three "
+        "Thi/Th1/Th2 scenarios, cruise_time_s = 60.0 s placeholder). "
+        "Re-run once the Grzywka combustor/nozzle cycle model is fixed to "
+        "recover a real design point."
     ),
 }
 
 
-def _compute_ramjet_design_point() -> dict[str, Any]:
-    """Compute the stage-2 ramjet cruise design point via the L2 cycle model.
+def _scenario_cruise_point(
+    thrust_N: float,
+    mdot_fuel_kg_s: float,
+    fuel_mass_kg: float,
+    v_cruise_ms: float,
+    g0_m_s2: float,
+) -> dict[str, float]:
+    """Derive TSFC, Isp, cruise time and range for one thrust scenario.
 
-    Runs :class:`analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis` at
-    the design condition (Mach 2.5, 10,000 m ISA) and derives a first-order
-    quasi-steady cruise duration and range from the SZACOWANY 15 kg fuel
-    load: ``cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s`` and
-    ``cruise_range_m = V_cruise * cruise_time_s``.
+    Fuel flow ``mdot_fuel_kg_s`` is, by construction of the Grzywka
+    station model, IDENTICAL across the Thi/Th1/Th2 thrust scenarios (same
+    mass flow, Tt1, Tt2 and fuel-air ratio; only the delivered nozzle
+    total pressure differs — see the
+    :mod:`analyses.propulsion.combustor_nozzle_cycle` module docstring).
+    Consequently ``cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s`` and
+    ``cruise_range_m = V_cruise * cruise_time_s`` come out numerically
+    equal across scenarios at THIS quasi-steady, constant-cruise-Mach
+    design point (thrust differences show up in ``tsfc_kg_per_Ns`` /
+    ``isp_s``, not in burn duration, since the combustor sets fuel flow
+    independent of nozzle loss). This coincidence is a physical property
+    of the model and is surfaced explicitly here rather than hidden, per
+    this repo's method-discrepancy convention; a future trajectory-ODE
+    cruise model (fuel depletion + drag/altitude/velocity coupling) would
+    let a lower-thrust scenario diverge from the assumed constant Mach.
+
+    Args:
+        thrust_N: Scenario thrust [N] (Thi, Th1 or Th2).
+        mdot_fuel_kg_s: Fuel mass flow [kg/s] (scenario-invariant).
+        fuel_mass_kg: Available stage-2 fuel mass [kg].
+        v_cruise_ms: Cruise (freestream) velocity [m/s].
+        g0_m_s2: Standard gravity used for the Isp definition [m/s^2].
+
+    Returns:
+        Dict with ``thrust_N``, ``tsfc_kg_per_Ns``, ``isp_s``,
+        ``mdot_fuel_kg_s``, ``cruise_time_s`` and ``cruise_range_m``.
+    """
+    tsfc_kg_per_Ns = mdot_fuel_kg_s / thrust_N
+    isp_s = thrust_N / (mdot_fuel_kg_s * g0_m_s2)
+    cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s
+    cruise_range_m = v_cruise_ms * cruise_time_s
+    return {
+        "thrust_N": thrust_N,
+        "tsfc_kg_per_Ns": tsfc_kg_per_Ns,
+        "isp_s": isp_s,
+        "mdot_fuel_kg_s": mdot_fuel_kg_s,
+        "cruise_time_s": cruise_time_s,
+        "cruise_range_m": cruise_range_m,
+    }
+
+
+def _compute_ramjet_design_point() -> dict[str, Any]:
+    """Compute the stage-2 ramjet cruise design point via the L2 Grzywka cycle.
+
+    Runs
+    :class:`analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis`
+    at the design condition (Mach 2.5, 10,000 m ISA) and derives, for
+    EACH of the three Grzywka thrust scenarios (``Thi`` ideal, ``Th1``
+    combustor-loss-only, ``Th2`` real/combustor+nozzle losses — see
+    :data:`_THRUST_SCENARIOS`), a first-order quasi-steady cruise duration
+    and range from the SZACOWANY 15 kg fuel load via
+    :func:`_scenario_cruise_point`. The three scenarios are never
+    collapsed to a single number: all three are returned under
+    ``thrust_scenarios``, keyed ``"Thi"``/``"Th1"``/``"Th2"``. The
+    top-level ``thrust_N``/``tsfc_kg_per_Ns``/``isp_s``/``cruise_time_s``/
+    ``cruise_range_m`` fields mirror the ``Th2`` (real, most conservative)
+    scenario, since that is the nominal design point for the rest of the
+    mission profile.
 
     This is a design-point evaluation, NOT a trajectory ODE — fuel
     depletion, drag and altitude/velocity coupling over time are not
@@ -218,51 +324,73 @@ def _compute_ramjet_design_point() -> dict[str, Any]:
     fuel_mass_kg = 15.0  # SZACOWANY — placeholder stage-2 fuel load
 
     try:
-        from analyses.propulsion.ramjet_cycle import (
+        from analyses.propulsion.combustor_nozzle_cycle import (
+            GrzywkaCombustorNozzleAnalysis,
+        )
+        from analyses.propulsion.inlet_performance import (
             DESIGN_ALTITUDE_M,
+            G0,
             MACH_DESIGN,
-            RamjetCycleAnalysis,
+            isa_atmosphere,
         )
 
-        analysis = RamjetCycleAnalysis()
+        analysis = GrzywkaCombustorNozzleAnalysis()
         analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M)
         results = analysis.execute()
 
-        thrust_N = results["thrust_N"]
-        thrust_cylindrical_nozzle_N = results["thrust_cylindrical_nozzle_N"]
-        tsfc_kg_per_Ns = results["tsfc_kg_per_Ns"]
         mdot_fuel_kg_s = results["mdot_fuel_kg_s"]
-        v_cruise_ms = results.metadata["station_table"][0]["velocity_m_s"]
+        atmosphere = isa_atmosphere(DESIGN_ALTITUDE_M)
+        v_cruise_ms = MACH_DESIGN * atmosphere.speed_of_sound_m_s
 
-        cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s
-        cruise_range_m = v_cruise_ms * cruise_time_s
+        thrust_scenarios: dict[str, dict[str, float]] = {}
+        for key, thrust_field, description in _THRUST_SCENARIOS:
+            scenario = _scenario_cruise_point(
+                thrust_N=results[thrust_field],
+                mdot_fuel_kg_s=mdot_fuel_kg_s,
+                fuel_mass_kg=fuel_mass_kg,
+                v_cruise_ms=v_cruise_ms,
+                g0_m_s2=G0,
+            )
+            scenario["description"] = description
+            thrust_scenarios[key] = scenario
+
+        nominal = thrust_scenarios["Th2"]  # real: combustor + nozzle losses
 
         return {
             "design_mach": MACH_DESIGN,
             "cruise_altitude_m": DESIGN_ALTITUDE_M,
-            "cruise_time_s": cruise_time_s,
-            "cruise_range_m": cruise_range_m,
+            "cruise_time_s": nominal["cruise_time_s"],
+            "cruise_range_m": nominal["cruise_range_m"],
             "fuel_mass_kg": fuel_mass_kg,  # SZACOWANY — placeholder fuel load
-            "thrust_N": thrust_N,
-            "thrust_cylindrical_nozzle_N": thrust_cylindrical_nozzle_N,
-            "tsfc_kg_per_Ns": tsfc_kg_per_Ns,
+            "thrust_N": nominal["thrust_N"],
+            "tsfc_kg_per_Ns": nominal["tsfc_kg_per_Ns"],
+            "isp_s": nominal["isp_s"],
             "mdot_fuel_kg_s": mdot_fuel_kg_s,
+            "thrust_scenarios": thrust_scenarios,
             "note": (
                 "Ramjet cruise: quasi-steady design point (Mach 2.5, "
                 "10,000 m ISA), NOT a trajectory ODE (fuel depletion, "
                 "drag and altitude/velocity coupling over time remain "
-                "TBD). thrust_N/tsfc_kg_per_Ns/mdot_fuel_kg_s from "
-                "analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis "
-                "(matched design nozzle); thrust_cylindrical_nozzle_N is "
-                "the as-built Fusion CAD cylindrical-nozzle thrust, kept "
-                "alongside thrust_N so the CAD-vs-design discrepancy "
-                "stays visible. cruise_time_s = fuel_mass_kg / "
-                "mdot_fuel_kg_s and cruise_range_m = V_cruise * "
-                "cruise_time_s are DERIVED from the SZACOWANY 15 kg "
-                "fuel_mass_kg. Reference model: L2 1-D cycle, "
-                "single-method, MATLAB baseline unavailable, CFD delta "
-                "+20-30% open (see ramjet_cycle module docstring "
-                "'REFERENCE-MODEL DISCLOSURE')."
+                "TBD). thrust_N/tsfc_kg_per_Ns/isp_s/cruise_time_s/"
+                "cruise_range_m at the top level mirror the Th2 (real, "
+                "combustor+nozzle losses) scenario from "
+                "analyses.propulsion.combustor_nozzle_cycle."
+                "GrzywkaCombustorNozzleAnalysis. ALL THREE Grzywka Sec. "
+                "6.2.2 thrust scenarios (Thi ideal / Th1 combustor-loss-"
+                "only / Th2 real) are preserved, never collapsed, under "
+                "thrust_scenarios. mdot_fuel_kg_s is scenario-invariant "
+                "(same combustor mass flow/Tt1/Tt2/fuel-air ratio for all "
+                "three; only the delivered nozzle total pressure "
+                "differs), so cruise_time_s/cruise_range_m come out "
+                "numerically equal across scenarios at this constant-"
+                "Mach design point while thrust_N/tsfc_kg_per_Ns/isp_s "
+                "differ — see _scenario_cruise_point docstring. "
+                "cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s and "
+                "cruise_range_m = V_cruise * cruise_time_s are DERIVED "
+                "from the SZACOWANY 15 kg fuel_mass_kg. Reference model: "
+                "L2 1-D Grzywka station cycle (1-2-21-3), single-method, "
+                "MATLAB baseline unavailable, CFD delta open (see "
+                "combustor_nozzle_cycle module docstring)."
             ),
         }
     except Exception as exc:  # noqa: BLE001 — deliberate graceful degradation
