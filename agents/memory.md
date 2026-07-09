@@ -35,3 +35,23 @@ Append-only; maintained by the orchestrator.
   assumptions confirmation + memory log) into one subagent call to save
   cold-start overhead. Markdown files have low parsing cost; parallel edits
   safe if non-overlapping.
+
+### Night-2 lessons (2026-07-09)
+
+- **Stopping early beats stopping mid-write:** the budget guard stop worked
+  cleanly this run because the opus agent (Phase 2b) was still in read-only
+  exploration when it fired — no partial files, no dangling state to clean
+  up. Whenever possible, prefer checking budget headroom *before* a subagent
+  starts writing rather than mid-write.
+- **blocked_by_budget vs merytoryczne blocked must be distinguished in
+  trackers.** A resource-exhaustion stop (resume as-is next session, no
+  re-diagnosis) is a fundamentally different signal than a physics/data
+  blocker (needs human input or design decision). Conflating the two in
+  `analysis_status.md` would cause the next session to waste time
+  re-diagnosing a phase that was simply cut short.
+- **A checkpoint is a tracker section with the full resume spec, not just a
+  status flag.** "BLOCKED_BY_BUDGET" alone tells the next session nothing
+  about what to do; the checkpoint must carry the complete task spec (files
+  to create, model equations, coefficients, fidelity requirements, tier
+  requirement) so the next session can resume Phase 2b directly instead of
+  re-deriving it from the original run prompt.
