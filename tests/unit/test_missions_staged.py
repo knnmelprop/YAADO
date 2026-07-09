@@ -152,22 +152,127 @@ def _sample_burnout_state() -> BurnoutState:
     )
 
 
-def test_cruise_segment_has_positive_thrust_from_ramjet_cycle_model() -> None:
-    """The cruise segment's thrust_N comes from the L2 ramjet cycle model.
+def test_cruise_segment_has_positive_thrust_from_grzywka_cycle_model() -> None:
+    """The cruise segment's thrust_N comes from the L2 Grzywka cycle model.
 
     This asserts the design point is populated by
-    analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis rather than the
-    old fixed-guess stub (thrust_N == 0.0 would indicate the fallback
-    stub path was taken).
+    analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis
+    rather than the old fixed-guess stub (thrust_N == 0.0 would indicate
+    the fallback stub path was taken), and that the top-level thrust_N
+    mirrors the nominal Th2 (real, combustor + nozzle losses) scenario.
     """
     mission = build_ramp_staged_mission(_sample_burnout_state())
     cruise_params = mission[2].parameters
 
     assert cruise_params["thrust_N"] > 0.0
-    assert cruise_params["thrust_cylindrical_nozzle_N"] > 0.0
-    # CAD cylindrical (unexpanded) nozzle must produce less thrust than
-    # the matched design nozzle (per ramjet_cycle validate_results()).
-    assert cruise_params["thrust_cylindrical_nozzle_N"] < cruise_params["thrust_N"]
+    scenarios = cruise_params["thrust_scenarios"]
+    assert cruise_params["thrust_N"] == pytest.approx(scenarios["Th2"]["thrust_N"])
+
+
+def test_cruise_segment_preserves_all_three_grzywka_thrust_scenarios() -> None:
+    """Thi/Th1/Th2 are all preserved as separate named scenarios, never collapsed.
+
+    Per Grzywka Sec. 6.2.2, the physical hierarchy Thi >= Th1 >= Th2 must
+    hold since the three scenarios share identical mass flow, Tt1, Tt2
+    and fuel-air ratio -- only the delivered nozzle total pressure
+    differs (see analyses.propulsion.combustor_nozzle_cycle module
+    docstring).
+    """
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    cruise_params = mission[2].parameters
+
+    assert "thrust_scenarios" in cruise_params
+    scenarios = cruise_params["thrust_scenarios"]
+    assert set(scenarios.keys()) == {"Thi", "Th1", "Th2"}
+
+    thi, th1, th2 = (
+        scenarios["Thi"]["thrust_N"],
+        scenarios["Th1"]["thrust_N"],
+        scenarios["Th2"]["thrust_N"],
+    )
+    assert thi > 0.0 and th1 > 0.0 and th2 > 0.0
+    assert thi >= th1 >= th2
+
+
+def test_cruise_segment_scenario_dicts_have_expected_fields() -> None:
+    """Each thrust scenario carries its own TSFC, Isp, cruise time and range."""
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    scenarios = mission[2].parameters["thrust_scenarios"]
+
+    for key in ("Thi", "Th1", "Th2"):
+        scenario = scenarios[key]
+        for field in (
+            "thrust_N",
+            "tsfc_kg_per_Ns",
+            "isp_s",
+            "mdot_fuel_kg_s",
+            "cruise_time_s",
+            "cruise_range_m",
+            "description",
+        ):
+            assert field in scenario, f"scenario {key!r} missing {field!r}"
+        assert scenario["thrust_N"] > 0.0
+        assert scenario["tsfc_kg_per_Ns"] > 0.0
+        assert scenario["isp_s"] > 0.0
+        assert scenario["mdot_fuel_kg_s"] > 0.0
+        assert math.isfinite(scenario["cruise_time_s"])
+        assert scenario["cruise_time_s"] > 0.0
+        assert math.isfinite(scenario["cruise_range_m"])
+        assert scenario["cruise_range_m"] > 0.0
+
+
+def test_cruise_segment_scenario_fuel_flow_is_invariant_across_thrust_models() -> None:
+    """mdot_fuel_kg_s is identical across Thi/Th1/Th2 (Grzywka model property).
+
+    The three thrust scenarios share the same combustor mass flow, Tt1,
+    Tt2 and fuel-air ratio; only the delivered nozzle total pressure
+    differs. tsfc_kg_per_Ns and isp_s, however, DO vary with thrust:
+    higher thrust (Thi) means lower TSFC and higher Isp than the more
+    conservative Th2.
+    """
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    scenarios = mission[2].parameters["thrust_scenarios"]
+
+    mdot_thi = scenarios["Thi"]["mdot_fuel_kg_s"]
+    mdot_th1 = scenarios["Th1"]["mdot_fuel_kg_s"]
+    mdot_th2 = scenarios["Th2"]["mdot_fuel_kg_s"]
+    assert mdot_thi == pytest.approx(mdot_th1)
+    assert mdot_th1 == pytest.approx(mdot_th2)
+
+    # Higher thrust -> lower TSFC, higher Isp (same fuel flow, more thrust
+    # per unit fuel).
+    assert scenarios["Thi"]["tsfc_kg_per_Ns"] <= scenarios["Th2"]["tsfc_kg_per_Ns"]
+    assert scenarios["Thi"]["isp_s"] >= scenarios["Th2"]["isp_s"]
+
+
+def test_cruise_segment_scenario_range_and_endurance_computed_per_scenario() -> None:
+    """cruise_time_s/cruise_range_m are derived per-scenario, not copy-pasted from Th2.
+
+    Because mdot_fuel_kg_s is scenario-invariant (see
+    test_cruise_segment_scenario_fuel_flow_is_invariant_across_thrust_models),
+    cruise_time_s and cruise_range_m come out numerically equal across
+    the three scenarios at this constant-cruise-Mach design point -- a
+    documented physical property of the Grzywka model, not a shortcut
+    that reused Th2's number without deriving it per scenario. Each
+    scenario's own cruise_time_s must still be internally consistent
+    with ITS OWN fuel_mass_kg / mdot_fuel_kg_s.
+    """
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    cruise_params = mission[2].parameters
+    scenarios = cruise_params["thrust_scenarios"]
+    fuel_mass_kg = cruise_params["fuel_mass_kg"]
+
+    for key in ("Thi", "Th1", "Th2"):
+        scenario = scenarios[key]
+        expected_time_s = fuel_mass_kg / scenario["mdot_fuel_kg_s"]
+        assert scenario["cruise_time_s"] == pytest.approx(expected_time_s, rel=1e-6)
+
+    assert scenarios["Thi"]["cruise_time_s"] == pytest.approx(
+        scenarios["Th2"]["cruise_time_s"]
+    )
+    assert scenarios["Thi"]["cruise_range_m"] == pytest.approx(
+        scenarios["Th2"]["cruise_range_m"]
+    )
 
 
 def test_cruise_segment_tsfc_in_plausible_hydrocarbon_ramjet_band() -> None:
