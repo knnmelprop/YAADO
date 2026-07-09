@@ -159,14 +159,23 @@ def test_cruise_segment_has_positive_thrust_from_grzywka_cycle_model() -> None:
     analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis
     rather than the old fixed-guess stub (thrust_N == 0.0 would indicate
     the fallback stub path was taken), and that the top-level thrust_N
-    mirrors the nominal Th2 (real, combustor + nozzle losses) scenario.
+    mirrors the nominal Th1 (combustor-loss-only, non-ideal) scenario --
+    Night-3 Phase 2 switched the nominal from Th2 to Th1; Thi and Th2
+    remain always-present explicit upper/lower bounds.
     """
     mission = build_ramp_staged_mission(_sample_burnout_state())
     cruise_params = mission[2].parameters
 
     assert cruise_params["thrust_N"] > 0.0
     scenarios = cruise_params["thrust_scenarios"]
-    assert cruise_params["thrust_N"] == pytest.approx(scenarios["Th2"]["thrust_N"])
+    assert cruise_params["thrust_N"] == pytest.approx(scenarios["Th1"]["thrust_N"])
+    # All three scenarios always present as explicit bounds (verification gate).
+    assert cruise_params["thrust_upper_bound_N"] == pytest.approx(
+        scenarios["Thi"]["thrust_N"]
+    )
+    assert cruise_params["thrust_lower_bound_N"] == pytest.approx(
+        scenarios["Th2"]["thrust_N"]
+    )
 
 
 def test_cruise_segment_preserves_all_three_grzywka_thrust_scenarios() -> None:
