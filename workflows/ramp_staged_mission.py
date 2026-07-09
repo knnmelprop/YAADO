@@ -151,30 +151,126 @@ def build_ramp_staged_mission(burnout_state: BurnoutState) -> list[MissionSegmen
         ),
     )
 
-    # Segment 3: Ramjet cruise (stage-2)
-    # This is a placeholder cruise segment; the ramjet propulsion analysis
-    # (analyses.propulsion.ramjet_cycle) exists but is not yet wired into
-    # a trajectory ODE. A production workflow would integrate:
-    #   - Ramjet thrust and SFC from the pyCycle model
-    #   - Drag from analyses.aerodynamics.rocket_empirical_aero
-    #   - Fuel depletion over time -> cruise duration or range objective
+    # Segment 3: Ramjet cruise (stage-2) — quasi-steady design point.
+    # Thrust/TSFC/mdot_fuel are computed from the L2 1-D ramjet cycle model
+    # (analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis) at the design
+    # condition (Mach 2.5, 10,000 m ISA). This is still NOT a trajectory
+    # ODE integration (fuel depletion, drag, and altitude/velocity coupling
+    # over time remain TBD); it is a single quasi-steady operating point
+    # used to derive a first-order cruise_time_s / cruise_range_m estimate
+    # from the SZACOWANY 15 kg fuel load.
+    cruise_design_point = _compute_ramjet_design_point()
+
     builder.add_segment(
         name="cruise_stage_2_ramjet",
         segment_type="cruise",
         propulsion_type="ramjet",
-        design_mach=2.5,  # from vehicle_config.yaml stage_2.design_mach
-        cruise_altitude_m=10000.0,  # TBD — design decision, typical ramjet cruise alt
-        cruise_time_s=60.0,  # TBD — placeholder cruise duration
-        fuel_mass_kg=15.0,  # SZACOWANY — placeholder stage-2 fuel load
-        note=(
-            "Ramjet cruise at Mach 2.5. Thrust/SFC from pyCycle ramjet_cycle "
-            "analysis; drag from rocket_empirical_aero. Trajectory integration "
-            "not yet implemented (TBD). This segment is a design-point "
-            "placeholder for MDO workflows."
-        ),
+        **cruise_design_point,
     )
 
     return builder.build()
+
+
+#: Fallback cruise-segment parameters used only if the L2 ramjet cycle
+#: model (analyses.propulsion.ramjet_cycle) is unavailable or raises an
+#: unexpected error. These reproduce the original fixed-guess stub so the
+#: mission structure keeps degrading gracefully rather than failing.
+_STUB_CRUISE_DESIGN_POINT: dict[str, Any] = {
+    "design_mach": 2.5,  # from vehicle_config.yaml stage_2.design_mach
+    "cruise_altitude_m": 10000.0,  # TBD — design decision, typical ramjet cruise alt
+    "cruise_time_s": 60.0,  # TBD — placeholder cruise duration
+    "cruise_range_m": 0.0,  # TBD — cannot be derived without the cycle model
+    "fuel_mass_kg": 15.0,  # SZACOWANY — placeholder stage-2 fuel load
+    "thrust_N": 0.0,  # TBD — cycle model unavailable
+    "thrust_cylindrical_nozzle_N": 0.0,  # TBD — cycle model unavailable
+    "tsfc_kg_per_Ns": 0.0,  # TBD — cycle model unavailable
+    "mdot_fuel_kg_s": 0.0,  # TBD — cycle model unavailable
+    "note": (
+        "FALLBACK STUB: analyses.propulsion.ramjet_cycle raised an "
+        "unexpected error, so this segment reverted to fixed-guess "
+        "placeholder values (thrust/TSFC/mdot_fuel = 0.0, cruise_time_s = "
+        "60.0 s placeholder). Re-run once the ramjet cycle model is "
+        "fixed to recover a real design point."
+    ),
+}
+
+
+def _compute_ramjet_design_point() -> dict[str, Any]:
+    """Compute the stage-2 ramjet cruise design point via the L2 cycle model.
+
+    Runs :class:`analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis` at
+    the design condition (Mach 2.5, 10,000 m ISA) and derives a first-order
+    quasi-steady cruise duration and range from the SZACOWANY 15 kg fuel
+    load: ``cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s`` and
+    ``cruise_range_m = V_cruise * cruise_time_s``.
+
+    This is a design-point evaluation, NOT a trajectory ODE — fuel
+    depletion, drag and altitude/velocity coupling over time are not
+    integrated (TBD). If the cycle model import or execution fails
+    unexpectedly, the function degrades gracefully to the documented
+    fixed-guess stub values (see :data:`_STUB_CRUISE_DESIGN_POINT`) rather
+    than raising, so the mission structure keeps building.
+
+    Returns:
+        Dict of cruise-segment parameters ready to pass as
+        ``**kwargs`` to :meth:`core.mission_builder.MissionBuilder.add_segment`.
+    """
+    fuel_mass_kg = 15.0  # SZACOWANY — placeholder stage-2 fuel load
+
+    try:
+        from analyses.propulsion.ramjet_cycle import (
+            DESIGN_ALTITUDE_M,
+            MACH_DESIGN,
+            RamjetCycleAnalysis,
+        )
+
+        analysis = RamjetCycleAnalysis()
+        analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M)
+        results = analysis.execute()
+
+        thrust_N = results["thrust_N"]
+        thrust_cylindrical_nozzle_N = results["thrust_cylindrical_nozzle_N"]
+        tsfc_kg_per_Ns = results["tsfc_kg_per_Ns"]
+        mdot_fuel_kg_s = results["mdot_fuel_kg_s"]
+        v_cruise_ms = results.metadata["station_table"][0]["velocity_m_s"]
+
+        cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s
+        cruise_range_m = v_cruise_ms * cruise_time_s
+
+        return {
+            "design_mach": MACH_DESIGN,
+            "cruise_altitude_m": DESIGN_ALTITUDE_M,
+            "cruise_time_s": cruise_time_s,
+            "cruise_range_m": cruise_range_m,
+            "fuel_mass_kg": fuel_mass_kg,  # SZACOWANY — placeholder fuel load
+            "thrust_N": thrust_N,
+            "thrust_cylindrical_nozzle_N": thrust_cylindrical_nozzle_N,
+            "tsfc_kg_per_Ns": tsfc_kg_per_Ns,
+            "mdot_fuel_kg_s": mdot_fuel_kg_s,
+            "note": (
+                "Ramjet cruise: quasi-steady design point (Mach 2.5, "
+                "10,000 m ISA), NOT a trajectory ODE (fuel depletion, "
+                "drag and altitude/velocity coupling over time remain "
+                "TBD). thrust_N/tsfc_kg_per_Ns/mdot_fuel_kg_s from "
+                "analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis "
+                "(matched design nozzle); thrust_cylindrical_nozzle_N is "
+                "the as-built Fusion CAD cylindrical-nozzle thrust, kept "
+                "alongside thrust_N so the CAD-vs-design discrepancy "
+                "stays visible. cruise_time_s = fuel_mass_kg / "
+                "mdot_fuel_kg_s and cruise_range_m = V_cruise * "
+                "cruise_time_s are DERIVED from the SZACOWANY 15 kg "
+                "fuel_mass_kg. Reference model: L2 1-D cycle, "
+                "single-method, MATLAB baseline unavailable, CFD delta "
+                "+20-30% open (see ramjet_cycle module docstring "
+                "'REFERENCE-MODEL DISCLOSURE')."
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001 — deliberate graceful degradation
+        stub = dict(_STUB_CRUISE_DESIGN_POINT)
+        stub["note"] = (
+            f"{stub['note']} Original exception: {type(exc).__name__}: {exc}"
+        )
+        return stub
 
 
 def main() -> None:
