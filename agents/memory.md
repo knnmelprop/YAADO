@@ -49,6 +49,22 @@ Append-only; maintained by the orchestrator.
   blocker (needs human input or design decision). Conflating the two in
   `analysis_status.md` would cause the next session to waste time
   re-diagnosing a phase that was simply cut short.
+
+## Night-3 STEP-0 (2026-07-09)
+- Baseline: 80/80 green (after installing missing runtime deps in fresh
+  container: `pytest`, `pydantic`, `pyyaml`, `scipy`, `numpy` — none were
+  preinstalled; `analyses/propulsion/inlet_performance.py` imports
+  `scipy.optimize`, so scipy is a hard runtime dep despite not being listed
+  in CLAUDE.md's "dev deps" note).
+- Blocked phases to resume: 2b (combustor_nozzle_cycle.py), 3b (staged
+  mission cruise wiring), 4b (movable inlet actuation).
+- Active assumptions: A1-A16 tracked in docs/assumptions.md.
+- Known urgent items: fin span sign flip (SM +8.99 cal Barrowman vs
+  -2.75 cal Teltik CFD at Ma 2.5 — HUMAN_REVIEW, do not resolve
+  unilaterally), Grzywka combustor/nozzle model (2b), actuator params (4b).
+- Working branch for this session: `claude/dazzling-turing-d91coa` (harness
+  -assigned; did not create a separate night3-suffix branch per harness
+  branch policy).
 - **A checkpoint is a tracker section with the full resume spec, not just a
   status flag.** "BLOCKED_BY_BUDGET" alone tells the next session nothing
   about what to do; the checkpoint must carry the complete task spec (files
