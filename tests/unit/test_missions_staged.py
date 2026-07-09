@@ -137,6 +137,94 @@ def test_booster_burnout_state_is_supersonic() -> None:
     assert data["burnout_mach"] > 1.0
 
 
+def _sample_burnout_state() -> BurnoutState:
+    """Build a representative BurnoutState for cruise-segment tests."""
+    return BurnoutState(
+        time_s=6.0,
+        mass_kg=280.02,
+        velocity_ms=413.5,
+        velocity_x_ms=57.3,
+        velocity_h_ms=409.5,
+        altitude_m=1289.3,
+        range_m=167.5,
+        mach=1.23,
+        dynamic_pressure_pa=92362.7,
+    )
+
+
+def test_cruise_segment_has_positive_thrust_from_ramjet_cycle_model() -> None:
+    """The cruise segment's thrust_N comes from the L2 ramjet cycle model.
+
+    This asserts the design point is populated by
+    analyses.propulsion.ramjet_cycle.RamjetCycleAnalysis rather than the
+    old fixed-guess stub (thrust_N == 0.0 would indicate the fallback
+    stub path was taken).
+    """
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    cruise_params = mission[2].parameters
+
+    assert cruise_params["thrust_N"] > 0.0
+    assert cruise_params["thrust_cylindrical_nozzle_N"] > 0.0
+    # CAD cylindrical (unexpanded) nozzle must produce less thrust than
+    # the matched design nozzle (per ramjet_cycle validate_results()).
+    assert cruise_params["thrust_cylindrical_nozzle_N"] < cruise_params["thrust_N"]
+
+
+def test_cruise_segment_tsfc_in_plausible_hydrocarbon_ramjet_band() -> None:
+    """TSFC should fall in a physically plausible kerosene-ramjet range.
+
+    A TSFC of roughly 3e-5 to 2.5e-4 kg/(N*s) corresponds to Isp of
+    ~400-3400 s, consistent with the ~400-3000 s Isp band asserted by
+    RamjetCycleAnalysis.validate_results() (Isp = 1/(tsfc*g0)).
+    """
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    cruise_params = mission[2].parameters
+
+    assert 3e-5 < cruise_params["tsfc_kg_per_Ns"] < 2.5e-4
+
+
+def test_cruise_segment_time_derived_from_fuel_mass_and_mdot_fuel() -> None:
+    """cruise_time_s must equal fuel_mass_kg / mdot_fuel_kg_s (derived, not guessed)."""
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    cruise_params = mission[2].parameters
+
+    assert cruise_params["fuel_mass_kg"] == pytest.approx(15.0)
+    assert cruise_params["mdot_fuel_kg_s"] > 0.0
+    expected_cruise_time_s = (
+        cruise_params["fuel_mass_kg"] / cruise_params["mdot_fuel_kg_s"]
+    )
+    assert cruise_params["cruise_time_s"] == pytest.approx(
+        expected_cruise_time_s, rel=1e-6
+    )
+    assert math.isfinite(cruise_params["cruise_time_s"])
+    assert cruise_params["cruise_time_s"] > 0.0
+
+
+def test_cruise_segment_range_derived_from_cruise_time_and_velocity() -> None:
+    """cruise_range_m must be finite and positive, consistent with a real design point."""
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    cruise_params = mission[2].parameters
+
+    assert math.isfinite(cruise_params["cruise_range_m"])
+    assert cruise_params["cruise_range_m"] > 0.0
+
+
+def test_cruise_segment_note_discloses_reference_model() -> None:
+    """The cruise segment note discloses the L2 cycle model and its open gaps.
+
+    Per the project verification-gate rules, any segment fed by a
+    single-method analysis must state the reference model, note the
+    unavailable MATLAB baseline, and disclose the open CFD delta.
+    """
+    mission = build_ramp_staged_mission(_sample_burnout_state())
+    note = mission[2].parameters["note"]
+
+    assert "L2" in note
+    assert "MATLAB baseline unavailable" in note
+    assert "CFD delta" in note
+    assert "quasi-steady design point" in note
+
+
 def test_booster_burnout_altitude_is_positive_and_reasonable() -> None:
     """Burnout altitude should be in the range [500, 3000] m for this booster."""
     this_dir = Path(__file__).resolve().parent
