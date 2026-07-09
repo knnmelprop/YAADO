@@ -30,20 +30,26 @@ Limitations of the current model:
     model would include angle-of-attack-dependent lift and a pitch autopilot.
 
 Run as a script to integrate the trajectory, print the burnout state, and
-write ``burnout_state.json`` + ``boost_phase.png`` next to this file::
+write ``burnout_state.json`` + ``boost_phase.png`` next to this file. It
+also runs a launch-angle sensitivity sweep (:func:`run_launch_angle_sweep`,
+angles 5-30 deg) and writes ``launch_angle_sweep.csv`` +
+``launch_angle_sweep.png``; the recommended angle (smallest swept angle
+that avoids ground impact) is added to the JSON as
+``recommended_launch_angle_deg``::
 
     python3 analyses/trajectory/booster_burnout.py
 """
 
 from __future__ import annotations
 
+import csv
 import json
 import math
 import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import matplotlib
 
@@ -160,6 +166,18 @@ THIS_DIR = Path(__file__).resolve().parent
 VEHICLE_CONFIG_PATH = THIS_DIR.parents[1] / "vehicles" / "ramjet_rocket" / "vehicle_config.yaml"
 OUTPUT_JSON_PATH = THIS_DIR / "burnout_state.json"
 OUTPUT_PNG_PATH = THIS_DIR / "boost_phase.png"
+SWEEP_CSV_PATH = THIS_DIR / "launch_angle_sweep.csv"
+SWEEP_PNG_PATH = THIS_DIR / "launch_angle_sweep.png"
+
+LAUNCH_ANGLE_SWEEP_DEG: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
+"""Launch angles [deg] swept by :func:`run_launch_angle_sweep`.
+
+Note: these sweep angles are all below the module's own operating default
+of ``LAUNCH_ANGLE_DEG = 83.0`` (a near-vertical rail-launch angle). The
+sweep is retained for the requested low-angle sensitivity study (e.g. to
+characterize the shallow-launch-angle non-viability documented in
+``doc/AGENT_CONTEXT.md`` Sec. 7 caveat 2); it does not change the default
+used by :func:`main`'s nominal run, which stays at 83 deg."""
 
 
 @dataclass(frozen=True)
@@ -177,6 +195,7 @@ class BoosterParams:
         thrust_mean_yaml_N: Mean thrust from vehicle YAML [N] (informational).
         a_ref_m2: Reference (body cross-section) area for drag [m^2].
         cd_fins: Constant fin-drag contribution to CD (count * per-fin CD).
+        launch_angle_deg: Fixed thrust/body angle above horizontal [deg].
         launch_angle_rad: Fixed thrust/body angle above horizontal [rad].
     """
 
@@ -190,6 +209,7 @@ class BoosterParams:
     thrust_mean_yaml_N: float
     a_ref_m2: float
     cd_fins: float
+    launch_angle_deg: float
     launch_angle_rad: float
 
     @property
@@ -198,11 +218,18 @@ class BoosterParams:
         return self.isp_sl_s * self.mdot_kg_s * G0_MS2
 
 
-def load_booster_params(config_path: Path = VEHICLE_CONFIG_PATH) -> BoosterParams:
+def load_booster_params(
+    config_path: Path = VEHICLE_CONFIG_PATH,
+    launch_angle_deg: float = LAUNCH_ANGLE_DEG,
+) -> BoosterParams:
     """Load stage-1 booster parameters from the rocket vehicle config.
 
     Args:
         config_path: Path to ``vehicle_config.yaml`` for the ramjet rocket.
+        launch_angle_deg: Fixed thrust/body angle above horizontal [deg].
+            Defaults to the module's nominal near-vertical rail-launch angle
+            (``LAUNCH_ANGLE_DEG = 83.0``); overridden by
+            :func:`run_launch_angle_sweep` to explore shallower angles.
 
     Returns:
         Resolved :class:`BoosterParams` with the impulse-consistent thrust
@@ -240,7 +267,8 @@ def load_booster_params(config_path: Path = VEHICLE_CONFIG_PATH) -> BoosterParam
         thrust_mean_yaml_N=propulsion.thrust_mean_N,
         a_ref_m2=a_ref_m2,
         cd_fins=cd_fins,
-        launch_angle_rad=math.radians(LAUNCH_ANGLE_DEG),
+        launch_angle_deg=launch_angle_deg,
+        launch_angle_rad=math.radians(launch_angle_deg),
     )
 
 
@@ -473,7 +501,7 @@ def postprocess(sol: OdeResult, params: BoosterParams) -> dict[str, Any]:
             "model_limitations": (
                 "Point-mass 3-DOF with fixed launch angle (no pitch program). "
                 "Zero-lift gravity-turn approximation: thrust along body axis "
-                f"at {LAUNCH_ANGLE_DEG:.1f} deg, no explicit lift force. "
+                f"at {params.launch_angle_deg:.1f} deg, no explicit lift force. "
                 "Angle-of-attack effects neglected. Reasonable for near-vertical "
                 "boost phase; higher-fidelity models would include 6-DOF pitch "
                 "dynamics and alpha-dependent lift/moment."
@@ -496,7 +524,7 @@ def postprocess(sol: OdeResult, params: BoosterParams) -> dict[str, Any]:
             "launch_mass_kg": params.launch_mass_kg,
             "burnout_mass_kg": params.burnout_mass_kg,
             "mass_at_stop_kg": mass_at_time(t_end_s, params),
-            "launch_angle_deg": LAUNCH_ANGLE_DEG,
+            "launch_angle_deg": params.launch_angle_deg,
             "initial_altitude_m": H0_M,
             "reference_area_m2": params.a_ref_m2,
             "cd_fins": params.cd_fins,
@@ -584,6 +612,122 @@ def plot_boost_phase(samples: dict[str, Any], output_path: Path = OUTPUT_PNG_PAT
     plt.close(fig)
 
 
+def run_launch_angle_sweep(
+    angles_deg: Sequence[float] = LAUNCH_ANGLE_SWEEP_DEG,
+    config_path: Path = VEHICLE_CONFIG_PATH,
+) -> list[dict[str, Any]]:
+    """Sweep the fixed launch angle and report burnout/impact metrics per angle.
+
+    For each angle, the boost phase is re-integrated from ignition with
+    :func:`load_booster_params` overriding ``launch_angle_deg``, then the
+    resulting trajectory is post-processed exactly as in :func:`main`.
+
+    Args:
+        angles_deg: Launch angles [deg] to sweep. Defaults to
+            :data:`LAUNCH_ANGLE_SWEEP_DEG` (``5, 10, 15, 20, 25, 30``).
+        config_path: Path to ``vehicle_config.yaml`` for the ramjet rocket.
+
+    Returns:
+        A list of per-angle result dicts, one per swept angle, each with
+        keys ``launch_angle_deg``, ``burnout_mach``, ``burnout_altitude_m``,
+        ``burnout_range_m``, ``max_q_Pa``, and ``ground_impact_flag`` (bool,
+        ``True`` if altitude reached ``<= 0 m`` before nominal burnout).
+    """
+    sweep_results: list[dict[str, Any]] = []
+    for angle_deg in angles_deg:
+        params = load_booster_params(config_path=config_path, launch_angle_deg=angle_deg)
+        sol = integrate_boost_phase(params)
+        result = postprocess(sol, params)
+        sweep_results.append(
+            {
+                "launch_angle_deg": float(angle_deg),
+                "burnout_mach": result["burnout_mach"],
+                "burnout_altitude_m": result["burnout_altitude_m"],
+                "burnout_range_m": result["range_at_burnout_m"],
+                "max_q_Pa": result["q_max_pa"],
+                "ground_impact_flag": bool(
+                    result["metadata"]["ground_impact_before_burnout"]
+                ),
+            }
+        )
+    return sweep_results
+
+
+def recommended_launch_angle_deg(sweep_results: list[dict[str, Any]]) -> float | None:
+    """Pick the smallest swept launch angle that avoids premature ground impact.
+
+    Args:
+        sweep_results: Output of :func:`run_launch_angle_sweep`.
+
+    Returns:
+        The smallest ``launch_angle_deg`` among entries with
+        ``ground_impact_flag is False``, or ``None`` if every swept angle
+        results in ground impact.
+    """
+    viable_deg = [
+        entry["launch_angle_deg"] for entry in sweep_results if not entry["ground_impact_flag"]
+    ]
+    return min(viable_deg) if viable_deg else None
+
+
+def write_sweep_csv(
+    sweep_results: list[dict[str, Any]], output_path: Path = SWEEP_CSV_PATH
+) -> None:
+    """Write the launch-angle sweep results to a CSV file.
+
+    Args:
+        sweep_results: Output of :func:`run_launch_angle_sweep`.
+        output_path: Destination CSV path.
+    """
+    fieldnames = [
+        "launch_angle_deg",
+        "burnout_mach",
+        "burnout_altitude_m",
+        "burnout_range_m",
+        "max_q_Pa",
+        "ground_impact_flag",
+    ]
+    with output_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for entry in sweep_results:
+            writer.writerow({key: entry[key] for key in fieldnames})
+
+
+def plot_launch_angle_sweep(
+    sweep_results: list[dict[str, Any]], output_path: Path = SWEEP_PNG_PATH
+) -> None:
+    """Plot burnout Mach and burnout altitude vs. launch angle (2 subplots).
+
+    Args:
+        sweep_results: Output of :func:`run_launch_angle_sweep`.
+        output_path: Destination PNG path.
+    """
+    angles_deg = [entry["launch_angle_deg"] for entry in sweep_results]
+    mach_vals = [entry["burnout_mach"] for entry in sweep_results]
+    alt_vals = [entry["burnout_altitude_m"] for entry in sweep_results]
+
+    fig, (ax_mach, ax_alt) = plt.subplots(1, 2, figsize=(10, 4))
+
+    ax_mach.plot(angles_deg, mach_vals, marker="o", color="tab:red")
+    ax_mach.set_xlabel("Launch angle [deg]")
+    ax_mach.set_ylabel("Burnout Mach [-]")
+    ax_mach.set_title("Burnout Mach vs. launch angle")
+    ax_mach.grid(True, alpha=0.3)
+
+    ax_alt.plot(angles_deg, alt_vals, marker="o", color="tab:green")
+    ax_alt.axhline(0.0, color="k", linewidth=0.8, linestyle="--")
+    ax_alt.set_xlabel("Launch angle [deg]")
+    ax_alt.set_ylabel("Burnout altitude [m]")
+    ax_alt.set_title("Burnout altitude vs. launch angle")
+    ax_alt.grid(True, alpha=0.3)
+
+    fig.suptitle("Stage-1 booster: launch-angle sensitivity sweep")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+
 def main() -> dict[str, Any]:
     """Run the boost-phase simulation, print, and write JSON + PNG outputs.
 
@@ -598,12 +742,20 @@ def main() -> dict[str, Any]:
 
     plot_boost_phase(samples)
 
+    sweep_results = run_launch_angle_sweep()
+    write_sweep_csv(sweep_results)
+    plot_launch_angle_sweep(sweep_results)
+    result["recommended_launch_angle_deg"] = recommended_launch_angle_deg(sweep_results)
+
     OUTPUT_JSON_PATH.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     print("Boost-phase trajectory results (stage-1 booster):")
     print(json.dumps(result, indent=2))
     print(f"\nWrote {OUTPUT_JSON_PATH}")
     print(f"Wrote {OUTPUT_PNG_PATH}")
+    print(f"Wrote {SWEEP_CSV_PATH}")
+    print(f"Wrote {SWEEP_PNG_PATH}")
+    print(f"Recommended launch angle: {result['recommended_launch_angle_deg']} deg")
 
     if result["metadata"]["ground_impact_before_burnout"]:
         print(
