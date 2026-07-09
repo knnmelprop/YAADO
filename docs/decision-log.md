@@ -85,6 +85,6 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
   exploration — **no files were written**. Phases 2b/3b/4b are therefore
   **blocked_by_budget** with a clean checkpoint: no partial/dangling files,
   suite still 80/80 green. Full resume spec logged in
-  `doc/ramP/analysis_status.md`.
+  `docs/ramP/analysis_status.md`.
 - **PR #12** continues as the single open PR for this workstream; Night-2
   doc commits were pushed onto it rather than opening a new PR.

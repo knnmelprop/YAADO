@@ -1,6 +1,6 @@
 # MELprop-IADE ramP -- extended Barrowman fin-span sensitivity (Ma=2.5)
 # YAML fin_span_m=0.6685 m -> SM_basic=8.986 cal, SM_extended=4.594 cal, delta_SM=-4.392 cal
-# SM_extended vs Teltik CFD (-2.75 cal): delta=7.344 cal (gap narrowed by the Galejs body-lift correction but not closed; see doc/ramP/stability_reconciliation.md)
+# SM_extended vs Teltik CFD (-2.75 cal): delta=7.344 cal (gap narrowed by the Galejs body-lift correction but not closed; see docs/ramP/stability_reconciliation.md)
 # neutral_span_m (SM_cal=0)=0.1391 m [basic (extended has no positive-span root)]
 # STABILITY_REVIEW_NEEDED
 fin_span_factor,fin_span_m,CP_nose_m,CP_fin_m,CP_body_m,CP_total_m,CG_m,SM_cal_basic,SM_cal_extended,SM_flag

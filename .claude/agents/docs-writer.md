@@ -66,15 +66,15 @@ After completing work, append key findings to MEMORY.md: new notebook sections a
 **README and architecture documentation (.md):**
 - **README.md**: Quick start, dependencies, projects A & B overview, folder structure.
 - **CLAUDE.md**: Project rules, subagent roles, constraints (maintained by team lead; docs-writer keeps in sync with agent definitions).
-- **doc/AGENT_CONTEXT.md**: Handoff for new agents — repo state, setup, recent work, known issues, next steps. Append session summaries.
-- **doc/ramP/analysis_status.md**: Tabular tracker (Mach×altitude×analysis_type) — completion %, last updated, blocked by, link to results.
-- **doc/assumptions.md**: Consolidated list of all `# SZACOWANY` and `# TODO_PHYSICAL_PARAM` markers with justifications.
+- **docs/AGENT_CONTEXT.md**: Handoff for new agents — repo state, setup, recent work, known issues, next steps. Append session summaries.
+- **docs/ramP/analysis_status.md**: Tabular tracker (Mach×altitude×analysis_type) — completion %, last updated, blocked by, link to results.
+- **docs/assumptions.md**: Consolidated list of all `# SZACOWANY` and `# TODO_PHYSICAL_PARAM` markers with justifications.
 
 **Nightly run reports:**
 - **Format**: Markdown table + JSON summary.
 - **Contents**: Agent run summary (propulsion-designer: N analyses; aero-analyst: N polars; mission-planner: N profiles; vehicle-builder: N configs validated).
 - **Results**: JSON/PNG/CSV files generated; validation pass/fail; alert on blocking issues.
-- **Output location**: `doc/reports/nightly_YYYY-MM-DD.md`.
+- **Output location**: `docs/reports/nightly_YYYY-MM-DD.md`.
 
 ## Output Standard
 
