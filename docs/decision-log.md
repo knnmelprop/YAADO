@@ -88,3 +88,13 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
   `docs/ramP/analysis_status.md`.
 - **PR #12** continues as the single open PR for this workstream; Night-2
   doc commits were pushed onto it rather than opening a new PR.
+
+---
+
+## 2026-07-09 — Phase 1 Step A (IADE repo-separation) — security note
+
+- **SECURITY NOTE:** `appveyor.yml` (removed from history in Phase 1 Step B,
+  not yet executed) contained a plaintext `COVERALLS_REPO_TOKEN`. Token
+  rotation on the Coveralls side is a human action item, tracked outside
+  this repo. The token will be purged from history as part of Phase 1
+  Step B `git filter-repo` when approved.
