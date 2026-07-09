@@ -121,3 +121,19 @@ URL = {https://arc.aiaa.org/doi/abs/10.2514/6.2017-4437},
 eprint = {https://arc.aiaa.org/doi/pdf/10.2514/6.2017-4437}
 }
 ```
+
+---
+
+## Stan projektu (Night-4, 2026-07-09)
+
+**MELprop-IADE** (Koło Naukowe MELprop, Politechnika Warszawska) is an integrated aircraft design environment forking SUAVE with specialized modules for Polish educational and research projects.
+
+**Test status**: 157 green (pytest); blocks: none (Night-4 complete).  
+**Project A (GTM-140 drone)**: foundation only (vehicle config schema, no flight sim yet).  
+**Project B (ramP—ramjet rocket, two-stage)**: stability under geometry audit (HR-1/HR-2 flagged), V3 exit velocity root-caused to nozzle CAD assumption (HR-3), operational envelope all-SUSTAINED pending real drag polar.
+
+**Key documentation**:
+- [Analysis Status Tracker](doc/ramP/analysis_status.md) — Mach×altitude×analysis completion grid.
+- [Results Registry](doc/ramP/results_registry.md) — Unified artifact log (Nights 1–4 JSON/CSV).
+- [Nightly Run Report (2026-07-11)](doc/ramP/nightly_run_report_2026-07-11.md) — Agent outputs summary.
+- [Human Review (Night-4)](doc/ramP/human_review_night4.md) — Flagged issues, next steps.

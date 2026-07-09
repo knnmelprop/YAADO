@@ -93,3 +93,17 @@ Append-only; maintained by the orchestrator.
 - Night-4 plan: P1-A Barrowman extended sensitivity (sonnet), P1-B V3
   root-cause (opus), P1-C operational envelope (sonnet), P1-D persistent agent
   definitions (haiku), then P2-A/B/C/D.
+
+## Night-4 close-out (2026-07-09)
+- All 8 blocks (P1-A/B/C/D, P2-A/B/C/D) + backlog BB1/BB2/BB4/BB5 done; no
+  budget stop. Tests 118 → 157 green; every commit gated on a green suite.
+- BB1 resolved by P2-A: bare `import SUAVE` succeeds via an empty
+  namespace-package stub at repo root (SUAVE/version.py, no __init__.py)
+  shadowing trunk/SUAVE — availability probes must deep-import a concrete
+  submodule (see analyses/suave/ramp_suave_baseline.py _probe_suave_available).
+- Repo convention discovered: *.png is gitignored repo-wide (.gitignore:73);
+  plots are regenerable from scripts, only CSV/JSON results are committed.
+- Run-prompt path drift: prompt said vehicle/ (actual vehicles/) and
+  results/combustor_nozzle_results.json (actual
+  analyses/propulsion/combustor_nozzle_cycle_results.json) — STEP-0
+  verification caught both before delegation.
