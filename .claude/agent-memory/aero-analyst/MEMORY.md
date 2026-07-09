@@ -55,3 +55,45 @@ This file tracks Barrowman coefficients, fin interference multipliers, Ackeret c
   alpha at Ma=2.5 both methods). Tests: `tests/unit/test_fin_polar_comparison.py`
   (7 tests, all green); full suite 146 passed (was 139 before this session, +7).
 
+## 2026-07-09 — Night-5 BB3: OpenVSP AngelScript export stub (ramP geometry, no aero math)
+
+- New module: `analyses/geometry/openvsp_export.py` (new package
+  `analyses/geometry/`). `OpenVSPExporter(BaseAnalysis)`, `FidelityLevel.LEVEL_0`.
+  Pure geometry export -- **no aerodynamic coefficients computed here**; this is
+  a CAD/pre-processing deliverable, not an aero analysis. Mirrors the
+  generator-only pattern already used by `analyses/cfd/su2_config_template.py`
+  and `analyses/aero/xfoil_runner.py`'s "never run the binary" convention: it
+  writes an OpenVSP AngelScript (`.vspscript`) text file with `AddGeom("FUSELAGE")`
+  (nose-cone + cylindrical afterbody, 4 XSecs) and `AddGeom("WING")` (4-fin set
+  via `RotationalCount`/`Sym` params) plus a companion JSON manifest — `vsp`
+  binary is never invoked (not installed; would raise `NotImplementedError` if a
+  binary path were attempted, but this module doesn't even try — the encoded
+  contract is "generate script text only").
+- Geometry fields encoded from `vehicles/ramjet_rocket/vehicle_config.yaml` via
+  `RocketConfig` (no hardcoding): `body.total_length_m` (4.377), `body.length_m`
+  (4.084 cylindrical), `body.diameter_m` (0.250), `body.nose_length_m` (0.293),
+  `body.nose_diameter_m` (0.150), `body.nose_type` (must be `"conical"` — ogive/
+  hemispherical raise `ValueError` with a `TODO_PHYSICAL_PARAM` comment, not yet
+  implemented), `fins.count` (4), `fins.span_m` (0.6685), `fins.chord_root_m` /
+  `fins.chord_tip_m` (0.1768 each, rectangular), `fins.sweep_deg` (0.0).
+- **HR-1 flag carried through both script comments and manifest**: `fins.span_m`
+  = 0.6685 m is suspected to be a Fusion-export bounding-box artifact rather than
+  the true exposed semi-span (consistent with the earlier fin-polar-comparison
+  session's observation that the resulting `AR_eff ~ 7.6` makes Diederich vs.
+  Ackeret slopes diverge sharply at high Mach — an unusually high-AR reading for
+  a rocket fin). This module does NOT correct the value; it only propagates the
+  HUMAN_REVIEW note so a future CAD-verification pass can regenerate cleanly.
+- Idempotency contract verified: `write_openvsp_export()` overwrites
+  `ramp_rocket.vspscript` + `ramp_rocket_manifest.json` byte-identically (script
+  text has no run-to-run randomness); manifest's `generated_at_utc` timestamp is
+  the only field that changes between regenerations, by design.
+- Output convention: `runs/openvsp/` (repo-root, gitignored via existing
+  `/runs/` gitignore entry — no new gitignore edit needed).
+- Tests: `tests/unit/test_geometry_openvsp_export.py` (6 tests: FUSELAGE+WING+
+  YAML-span content check, manifest required-keys check, idempotent-regeneration
+  check, execute-before-setup RuntimeError, setup rejects config missing body/
+  fins, full BaseAnalysis setup->execute->validate_results roundtrip). `main()`
+  executed once, produced `runs/openvsp/ramp_rocket.vspscript` (2635 bytes) +
+  `ramp_rocket_manifest.json` (1020 bytes). Full suite: 199 passed (was 193
+  before this session, +6).
+
