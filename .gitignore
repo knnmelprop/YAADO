@@ -77,3 +77,6 @@ ide/Wing/SUAVE.wpr
 /doc/latex
 
 !/doc/suave_logo.png
+
+# Generated solver run configs/outputs (SU2 config generator writes here)
+/runs/
