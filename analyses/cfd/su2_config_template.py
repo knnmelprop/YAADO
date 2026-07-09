@@ -1,4 +1,4 @@
-# MELprop-IADE | analyses.cfd.su2_config_template | v0.2.0
+# MELprop-IADE | analyses.cfd.su2_config_template | v0.3.0
 """SU2 external-aerodynamics configuration generator for the ramjet rocket.
 
 Generates SU2 ``.cfg`` files for an inviscid (Euler) Mach sweep of the
@@ -46,6 +46,7 @@ Theory / tooling reference:
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 from pathlib import Path
@@ -108,6 +109,21 @@ VEHICLE_CONFIG_PATH: Path = (
 #: ``analyses/`` modules, e.g. ``analyses/stability/*.json``).
 OUTPUT_DIR: Path = Path(__file__).resolve().parent / "su2_configs"
 
+#: Default angle-of-attack sweep for the Mach x AoA grid API
+#: (:func:`build_mach_aoa_grid`, :class:`SU2ConfigGenerator`). A single
+#: AoA of 0 deg matches the legacy Mach-only sweep above.
+AOA_SWEEP: tuple[float, ...] = (0.0,)
+
+#: Repo-root output directory for the Mach x AoA grid generator, per
+#: project convention ("run artifacts live under runs/<tool>/"). Distinct
+#: from the legacy ``OUTPUT_DIR`` (next to this module) used by
+#: :func:`write_mach_sweep_configs` / :class:`SU2ConfigGeneration`, kept
+#: for backward compatibility.
+RUNS_OUTPUT_DIR: Path = REPO_ROOT / "runs" / "su2"
+
+#: Filename of the manifest written alongside a Mach x AoA grid.
+RUN_MANIFEST_FILENAME: str = "run_manifest.json"
+
 #: SU2 config keys common to every Mach case (Euler, no viscous terms).
 _BASE_CONFIG: dict[str, str] = {
     "SOLVER": "EULER",
@@ -162,11 +178,35 @@ def su2_config_filename(mach: float) -> str:
     return f"su2_ramjet_mach{mach_tag}.cfg"
 
 
+def su2_config_filename_grid(mach: float, aoa_deg: float) -> str:
+    """Return the conventional filename for a (Mach, AoA) grid case.
+
+    Used by the grid API (:func:`build_mach_aoa_grid`,
+    :class:`SU2ConfigGenerator`) to give every (Mach, AoA) combination a
+    distinct, deterministic filename -- unlike :func:`su2_config_filename`
+    (Mach-only), which is kept for the legacy single-AoA sweep.
+
+    Args:
+        mach: Freestream Mach number.
+        aoa_deg: Angle of attack in degrees. Negative signs are rendered
+            as ``m`` (e.g. ``-2.0`` -> ``aoam2p00``).
+
+    Returns:
+        Filename of the form ``su2_ramjet_mach{M}_aoa{A}.cfg``, e.g.
+        ``su2_ramjet_mach2p50_aoa0p00.cfg``.
+    """
+    mach_tag = f"{mach:.2f}".replace(".", "p")
+    aoa_sign = "m" if aoa_deg < 0 else ""
+    aoa_tag = f"{abs(aoa_deg):.2f}".replace(".", "p")
+    return f"su2_ramjet_mach{mach_tag}_aoa{aoa_sign}{aoa_tag}.cfg"
+
+
 def build_su2_config(
     config: RocketConfig,
     mach: float,
     aoa_deg: float = 0.0,
     altitude_m: float = DESIGN_ALTITUDE_M,
+    filename: str | None = None,
 ) -> str:
     """Render an SU2 Euler ``.cfg`` text for one Mach/AoA case.
 
@@ -185,6 +225,13 @@ def build_su2_config(
         altitude_m: ISA altitude [m] used for freestream pressure and
             temperature (defaults to the ramjet design altitude used
             elsewhere in the project, 10,000 m).
+        filename: Filename this config text will be written under
+            (used only for the ``# TO RUN:`` hint and the
+            restart/history/solution stems, so they always match the
+            file actually saved to disk). Defaults to
+            :func:`su2_config_filename` (Mach-only) for backward
+            compatibility with the single-AoA sweep; the Mach x AoA
+            grid API passes :func:`su2_config_filename_grid` instead.
 
     Returns:
         SU2 configuration file contents as a string, ready to write to
@@ -210,7 +257,8 @@ def build_su2_config(
 
     temperature_K, pressure_Pa, _density_kg_m3 = isa_atmosphere(altitude_m)
 
-    filename = su2_config_filename(mach)
+    if filename is None:
+        filename = su2_config_filename(mach)
     restart_stem = filename.rsplit(".", 1)[0]
 
     lines: list[str] = [
@@ -319,6 +367,143 @@ def write_mach_sweep_configs(
     return written
 
 
+def build_mach_aoa_grid(
+    config: RocketConfig,
+    mach_list: tuple[float, ...],
+    aoa_list: tuple[float, ...],
+    altitude_m: float = DESIGN_ALTITUDE_M,
+) -> dict[tuple[float, float], str]:
+    """Build SU2 configs for the full Cartesian grid of Mach x AoA.
+
+    Unlike :func:`build_mach_sweep` (one AoA shared by all Mach cases),
+    this generates every ``(mach, aoa_deg)`` *combination* -- i.e. a
+    grid, not a zip -- so ``len(mach_list) * len(aoa_list)`` cases are
+    produced.
+
+    Args:
+        config: Validated two-stage rocket configuration (Project B).
+        mach_list: Freestream Mach numbers to sweep.
+        aoa_list: Angles of attack [deg] to sweep.
+        altitude_m: ISA altitude [m] for the freestream state.
+
+    Returns:
+        Mapping of ``(mach, aoa_deg)`` to its SU2 ``.cfg`` text, keyed
+        in grid order (all AoA for the first Mach, then all AoA for the
+        second Mach, etc.).
+    """
+    return {
+        (mach, aoa_deg): build_su2_config(
+            config,
+            mach,
+            aoa_deg=aoa_deg,
+            altitude_m=altitude_m,
+            filename=su2_config_filename_grid(mach, aoa_deg),
+        )
+        for mach in mach_list
+        for aoa_deg in aoa_list
+    }
+
+
+def write_mach_aoa_grid(
+    config: RocketConfig | None,
+    mach_list: tuple[float, ...],
+    aoa_list: tuple[float, ...],
+    output_dir: Path | str = RUNS_OUTPUT_DIR,
+    altitude_m: float = DESIGN_ALTITUDE_M,
+) -> list[Path]:
+    """Write one SU2 ``.cfg`` file per (Mach, AoA) grid combination.
+
+    Idempotency contract: regenerating into the same ``output_dir`` is
+    idempotent for a *fixed* grid (byte-identical files, same manifest),
+    and safe across a *shrinking* grid too -- every ``*.cfg`` file
+    already present in ``output_dir`` is removed before the new grid is
+    written, so stale cases left over from a previous, larger sweep do
+    not linger alongside (and get silently listed as still-valid by) the
+    fresh :data:`RUN_MANIFEST_FILENAME`. This mirrors a clean-rebuild
+    semantics rather than an additive/merge one.
+
+    Args:
+        config: Rocket configuration; loaded from
+            :data:`VEHICLE_CONFIG_PATH` if omitted.
+        mach_list: Freestream Mach numbers to sweep.
+        aoa_list: Angles of attack [deg] to sweep.
+        output_dir: Directory to write the ``.cfg`` files and manifest
+            into (created if missing). Defaults to the repo-root
+            ``runs/su2/`` convention (:data:`RUNS_OUTPUT_DIR`).
+        altitude_m: ISA altitude [m] for the freestream state.
+
+    Returns:
+        List of paths written, one per ``(mach, aoa_deg)`` combination,
+        in grid order (see :func:`build_mach_aoa_grid`).
+    """
+    if config is None:
+        config = load_rocket_config()
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Idempotent regeneration: clear stale *.cfg files from any previous
+    # (possibly larger) grid before writing the current one.
+    for stale in output_dir.glob("*.cfg"):
+        stale.unlink()
+
+    d_ref_m = config.body.diameter_m
+    a_ref_m2 = math.pi / 4.0 * d_ref_m**2
+    body_length_m = config.body.total_length_m or config.body.length_m
+
+    written: list[Path] = []
+    manifest_entries: list[dict[str, object]] = []
+    for mach in mach_list:
+        for aoa_deg in aoa_list:
+            grid_filename = su2_config_filename_grid(mach, aoa_deg)
+            text = build_su2_config(
+                config,
+                mach,
+                aoa_deg=aoa_deg,
+                altitude_m=altitude_m,
+                filename=grid_filename,
+            )
+            path = output_dir / grid_filename
+            path.write_text(text, encoding="utf-8")
+            written.append(path)
+            manifest_entries.append(
+                {
+                    "config_path": str(path),
+                    "mach": mach,
+                    "aoa_deg": aoa_deg,
+                    "ref_length_m": body_length_m,
+                    "ref_area_m2": a_ref_m2,
+                }
+            )
+
+    write_run_manifest(output_dir, manifest_entries)
+    return written
+
+
+def write_run_manifest(
+    output_dir: Path | str, entries: list[dict[str, object]]
+) -> Path:
+    """Write (overwriting) the ``run_manifest.json`` for a grid of configs.
+
+    Args:
+        output_dir: Directory the manifest is written into (created if
+            missing); the same directory the ``.cfg`` files live in.
+        entries: One dict per generated case, each with keys
+            ``config_path``, ``mach``, ``aoa_deg``, ``ref_length_m``,
+            ``ref_area_m2`` (matches :func:`write_mach_aoa_grid`'s
+            per-case bookkeeping).
+
+    Returns:
+        Path to the written ``run_manifest.json``.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / RUN_MANIFEST_FILENAME
+    manifest_path.write_text(
+        json.dumps(entries, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest_path
+
+
 class SU2ConfigGeneration(BaseAnalysis):
     """Generates SU2 Euler ``.cfg`` files for the ramjet Mach sweep.
 
@@ -420,6 +605,143 @@ class SU2ConfigGeneration(BaseAnalysis):
         return results["n_configs"] == float(len(self._mach_sweep))
 
 
+class SU2ConfigGenerator(BaseAnalysis):
+    """Generates the full Mach x AoA grid of SU2 Euler ``.cfg`` files.
+
+    Grid variant of :class:`SU2ConfigGeneration`: instead of one shared
+    AoA across a Mach sweep, :meth:`generate` produces one config per
+    ``(mach, aoa)`` *combination* (a Cartesian grid), writes them to a
+    repo-root ``runs/su2/`` directory (:data:`RUNS_OUTPUT_DIR`) and
+    emits a companion ``run_manifest.json`` next to them. Like every
+    other module in this file, it only writes SU2 configuration text --
+    SU2 itself is never invoked (not installed in this environment).
+
+    Example:
+        >>> analysis = SU2ConfigGenerator()
+        >>> analysis.setup(rocket_config)
+        >>> paths = analysis.generate(mach_list=(0.8, 1.5), aoa_list=(0.0, 4.0))
+        >>> len(paths)  # doctest: +SKIP
+        4
+    """
+
+    fidelity = FidelityLevel.LEVEL_2
+
+    #: Default Mach sweep used by :meth:`execute` when no grid has been
+    #: requested yet via :meth:`generate` (mirrors :data:`MACH_SWEEP`).
+    DEFAULT_MACH_LIST: tuple[float, ...] = MACH_SWEEP
+    #: Default AoA sweep used by :meth:`execute` (mirrors :data:`AOA_SWEEP`).
+    DEFAULT_AOA_LIST: tuple[float, ...] = AOA_SWEEP
+
+    def __init__(self, name: str = "su2_mach_aoa_grid") -> None:
+        super().__init__(name)
+        self._config: RocketConfig | None = None
+        self._altitude_m = DESIGN_ALTITUDE_M
+        self._output_dir = RUNS_OUTPUT_DIR
+        self._last_paths: list[Path] = []
+
+    def setup(
+        self,
+        vehicle_config: RocketConfig,
+        altitude_m: float = DESIGN_ALTITUDE_M,
+        output_dir: Path | str = RUNS_OUTPUT_DIR,
+    ) -> None:
+        """Bind the analysis to a rocket config and output directory.
+
+        Args:
+            vehicle_config: Validated rocket configuration with body/fins.
+            altitude_m: ISA altitude [m] for the freestream state.
+            output_dir: Directory the ``.cfg`` files and manifest are
+                written into (created if missing). Injectable so tests
+                can point it at ``tmp_path`` instead of the repo-root
+                ``runs/su2/`` default.
+
+        Raises:
+            ValueError: If the config has no body/fins definition.
+        """
+        if getattr(vehicle_config, "body", None) is None:
+            raise ValueError("vehicle_config must define body")
+        if getattr(vehicle_config, "fins", None) is None:
+            raise ValueError("vehicle_config must define fins")
+        self._config = vehicle_config
+        self._altitude_m = altitude_m
+        self._output_dir = Path(output_dir)
+        self._is_setup = True
+
+    def generate(
+        self,
+        mach_list: tuple[float, ...],
+        aoa_list: tuple[float, ...],
+    ) -> list[Path]:
+        """Write one ``.cfg`` per (Mach, AoA) grid combination plus manifest.
+
+        Args:
+            mach_list: Freestream Mach numbers to sweep.
+            aoa_list: Angles of attack [deg] to sweep.
+
+        Returns:
+            List of ``len(mach_list) * len(aoa_list)`` paths written, in
+            grid order.
+
+        Raises:
+            RuntimeError: If called before :meth:`setup`.
+        """
+        if not self._is_setup or self._config is None:
+            raise RuntimeError("SU2ConfigGenerator.generate() called before setup()")
+
+        paths = write_mach_aoa_grid(
+            self._config,
+            mach_list=mach_list,
+            aoa_list=aoa_list,
+            output_dir=self._output_dir,
+            altitude_m=self._altitude_m,
+        )
+        self._last_paths = paths
+        return paths
+
+    def execute(self) -> AnalysisResults:
+        """Generate the default Mach x AoA grid and report the paths.
+
+        Uses :data:`DEFAULT_MACH_LIST` / :data:`DEFAULT_AOA_LIST` unless
+        a different grid was already requested via :meth:`generate`
+        (whose result is reused instead of regenerating).
+
+        Returns:
+            AnalysisResults with ``n_configs`` (float count) in ``data``
+            and the written file paths / grids in ``metadata``.
+
+        Raises:
+            RuntimeError: If called before :meth:`setup`.
+        """
+        if not self._is_setup or self._config is None:
+            raise RuntimeError("SU2ConfigGenerator.execute() called before setup()")
+
+        paths = self.generate(self.DEFAULT_MACH_LIST, self.DEFAULT_AOA_LIST)
+
+        return AnalysisResults(
+            name=self.name,
+            fidelity=self.fidelity,
+            data={"n_configs": float(len(paths))},
+            metadata={
+                "method": "su2_config_file_generation_only",
+                "mach_list": self.DEFAULT_MACH_LIST,
+                "aoa_list": self.DEFAULT_AOA_LIST,
+                "output_dir": str(self._output_dir),
+                "manifest_path": str(self._output_dir / RUN_MANIFEST_FILENAME),
+                "config_paths": [str(p) for p in paths],
+                "note": (
+                    "SU2 binary was NOT invoked (not installed in this "
+                    "environment); run manually with the `# TO RUN:` "
+                    "comment in each generated file once available"
+                ),
+            },
+        )
+
+    def validate_results(self, results: AnalysisResults) -> bool:
+        """Check one config file was written per (Mach, AoA) combination."""
+        expected = len(self.DEFAULT_MACH_LIST) * len(self.DEFAULT_AOA_LIST)
+        return results["n_configs"] == float(expected)
+
+
 def run(config_path: Path | str = VEHICLE_CONFIG_PATH) -> list[Path]:
     """Generate the full Mach-sweep SU2 config set and print a summary.
 
@@ -436,8 +758,33 @@ def run(config_path: Path | str = VEHICLE_CONFIG_PATH) -> list[Path]:
     return [Path(p) for p in results.metadata["config_paths"]]
 
 
+def run_grid(
+    config_path: Path | str = VEHICLE_CONFIG_PATH,
+    mach_list: tuple[float, ...] = MACH_SWEEP,
+    aoa_list: tuple[float, ...] = AOA_SWEEP,
+    output_dir: Path | str = RUNS_OUTPUT_DIR,
+) -> list[Path]:
+    """Generate the full Mach x AoA grid SU2 config set under ``runs/su2/``.
+
+    Args:
+        config_path: Path to the ramjet-rocket ``vehicle_config.yaml``.
+        mach_list: Freestream Mach numbers to sweep.
+        aoa_list: Angles of attack [deg] to sweep.
+        output_dir: Directory the ``.cfg`` files and manifest are
+            written into (repo-root ``runs/su2/`` by default).
+
+    Returns:
+        List of written ``.cfg`` file paths, one per (Mach, AoA)
+        combination.
+    """
+    config = load_rocket_config(config_path)
+    analysis = SU2ConfigGenerator()
+    analysis.setup(config, output_dir=output_dir)
+    return analysis.generate(mach_list, aoa_list)
+
+
 if __name__ == "__main__":
-    paths = run()
-    print(f"Wrote {len(paths)} SU2 Euler configs to {OUTPUT_DIR}:")
+    paths = run_grid()
+    print(f"Wrote {len(paths)} SU2 Euler configs to {RUNS_OUTPUT_DIR}:")
     for p in paths:
         print(f"  {p}")
