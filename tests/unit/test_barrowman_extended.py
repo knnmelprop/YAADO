@@ -124,7 +124,7 @@ def test_neutral_span_found_finite_and_less_than_yaml_span(geometry) -> None:
     and be smaller than the current YAML fin span (0.6685 m) -- i.e. the
     rocket would need *less* fin than currently specified to reach
     neutral stability at Ma 2.5, consistent with
-    doc/ramP/stability_reconciliation.md's independently-derived ~0.139 m
+    docs/ramP/stability_reconciliation.md's independently-derived ~0.139 m
     figure at the same Mach.
     """
     neutral_span_m, variant = find_neutral_span_m(geometry)

@@ -10,8 +10,8 @@ Append-only; maintained by the orchestrator.
 ### Lessons carried in from prior sessions (from run prompt / AGENT_CONTEXT.md)
 - Never commit subagent work while the test suite is red (prior incident).
 - Never hard-reset onto origin/develop when local commits hold real work.
-- `doc/ramP/preliminary_analysis_report.md` is STALE — cite
-  `doc/ramP/analysis_status.md` instead.
+- `docs/ramP/preliminary_analysis_report.md` is STALE — cite
+  `docs/ramP/analysis_status.md` instead.
 - Single-cone inlet failing MIL-E-5007 at M2.5 is physics, not a bug; do not
   fake inlet physics to make tests pass with too few cones.
 
@@ -81,7 +81,7 @@ Append-only; maintained by the orchestrator.
   staged-mission cruise wiring, movable-spike inlet actuation, stability
   reconciliation, SU2 config generator) and PR #14 (backlog wave 1: dead-link
   audit + test docstrings).
-- Stale tracker note: `doc/ramP/analysis_status.md` rows 16–18 still say
+- Stale tracker note: `docs/ramP/analysis_status.md` rows 16–18 still say
   BLOCKED_BY_BUDGET although PR #13 merged that work — refresh scheduled in
   Night-4 KROK 8.
 - BLOCKED_BY_HUMAN_REVIEW items: HR-1 fin span 0.6685 m vs Fusion v6

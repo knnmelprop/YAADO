@@ -3,9 +3,9 @@
 Projekt Koła Naukowego **KNN MELprop** (Politechnika Warszawska).
 Repo bazuje na forku **SUAVE** (kod SUAVE w `trunk/SUAVE/` — NIE modyfikuj go).
 
-> 🧭 **Nowa sesja agenta?** Przeczytaj najpierw [`doc/AGENT_CONTEXT.md`](doc/AGENT_CONTEXT.md)
+> 🧭 **Nowa sesja agenta?** Przeczytaj najpierw [`docs/AGENT_CONTEXT.md`](docs/AGENT_CONTEXT.md)
 > — pełny handoff: stan repo, setup zależności, jak uruchamiać analizy, wykonana
-> praca, znane problemy i następne kroki. Live tracker: [`doc/ramP/analysis_status.md`](doc/ramP/analysis_status.md).
+> praca, znane problemy i następne kroki. Live tracker: [`docs/ramP/analysis_status.md`](docs/ramP/analysis_status.md).
 
 ## Architektura
 

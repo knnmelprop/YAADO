@@ -133,7 +133,7 @@ eprint = {https://arc.aiaa.org/doi/pdf/10.2514/6.2017-4437}
 **Project B (ramP—ramjet rocket, two-stage)**: stability under geometry audit (HR-1/HR-2 flagged), V3 exit velocity root-caused to nozzle CAD assumption (HR-3), operational envelope all-SUSTAINED pending real drag polar.
 
 **Key documentation**:
-- [Analysis Status Tracker](doc/ramP/analysis_status.md) — Mach×altitude×analysis completion grid.
-- [Results Registry](doc/ramP/results_registry.md) — Unified artifact log (Nights 1–4 JSON/CSV).
-- [Nightly Run Report (2026-07-11)](doc/ramP/nightly_run_report_2026-07-11.md) — Agent outputs summary.
-- [Human Review (Night-4)](doc/ramP/human_review_night4.md) — Flagged issues, next steps.
+- [Analysis Status Tracker](docs/ramP/analysis_status.md) — Mach×altitude×analysis completion grid.
+- [Results Registry](docs/ramP/results_registry.md) — Unified artifact log (Nights 1–4 JSON/CSV).
+- [Nightly Run Report (2026-07-11)](docs/ramP/nightly_run_report_2026-07-11.md) — Agent outputs summary.
+- [Human Review (Night-4)](docs/ramP/human_review_night4.md) — Flagged issues, next steps.

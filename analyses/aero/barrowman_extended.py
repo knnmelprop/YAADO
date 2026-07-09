@@ -7,7 +7,7 @@ corrections used by "practical" Barrowman implementations (RockSim /
 OpenRocket-style "extended Barrowman"), and sweeps the suspect
 ``fins.span_m`` geometry field to quantify how much of the
 Barrowman-vs-Teltik-CFD static-margin discrepancy documented in
-``doc/ramP/stability_reconciliation.md`` (+8.99 cal Barrowman vs. -2.75
+``docs/ramP/stability_reconciliation.md`` (+8.99 cal Barrowman vs. -2.75
 cal Teltik CFD at Mach 2.5) each correction, and each candidate fin
 span, can explain.
 
@@ -61,7 +61,7 @@ Per project rule, AVL (subsonic VLM) is never used for this vehicle's
 supersonic regime; this module only ever calls empirical/analytical
 DATCOM-style correlations, consistent with
 ``analyses/stability/barrowman_stability.py``. This is a low-order
-engineering estimate, not CFD -- see ``doc/ramP/stability_reconciliation.md``
+engineering estimate, not CFD -- see ``docs/ramP/stability_reconciliation.md``
 for the full discussion of why a large gap against the Teltik CFD result
 is expected to remain even after both corrections in this module.
 
@@ -105,11 +105,11 @@ from core.component_base import AnalysisResults, BaseAnalysis, FidelityLevel  # 
 # --------------------------------------------------------------------------
 
 #: Mach number used for the Teltik CFD comparison and the fin-span sweep,
-#: per doc/ramP/stability_reconciliation.md Section 3 ("Ma 2.5").
+#: per docs/ramP/stability_reconciliation.md Section 3 ("Ma 2.5").
 COMPARISON_MACH = 2.5
 
 #: Teltik 2024 CFD static-margin result at COMPARISON_MACH, calibers.
-#: Source: doc/ramP/stability_margin_report.md / stability_reconciliation.md
+#: Source: docs/ramP/stability_margin_report.md / stability_reconciliation.md
 #: (Barrowman +8.99 cal vs. Teltik CFD -2.75 cal discrepancy).
 TELTIK_CFD_SM_CAL = -2.75
 
@@ -445,7 +445,7 @@ def find_neutral_span_m(
     falls back to the **basic** (unmodified Barrowman) static margin,
     which does have a well-defined root and reproduces the ~0.139 m
     figure independently derived in
-    ``doc/ramP/stability_reconciliation.md`` Section 3.
+    ``docs/ramP/stability_reconciliation.md`` Section 3.
 
     Args:
         geometry: Baseline rocket geometry.
@@ -789,7 +789,7 @@ def run(
         f"delta_SM={delta_sm_cal:.3f} cal",
         f"# SM_extended vs Teltik CFD ({TELTIK_CFD_SM_CAL:.2f} cal): "
         f"delta={delta_vs_teltik_cal:.3f} cal (gap narrowed by the Galejs "
-        "body-lift correction but not closed; see doc/ramP/stability_reconciliation.md)",
+        "body-lift correction but not closed; see docs/ramP/stability_reconciliation.md)",
         f"# neutral_span_m (SM_cal=0)={neutral_span_m:.4f} m [{neutral_variant}]",
     ]
     if review_needed:
