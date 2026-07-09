@@ -1,4 +1,4 @@
-# MELprop-IADE | workflows.ramp_staged_mission | v0.1.0
+# MELprop-IADE | workflows.ramp_staged_mission | v0.2.0
 """Staged mission profile for the Project B two-stage ramjet rocket.
 
 This module builds a solver-agnostic mission profile using
@@ -14,9 +14,21 @@ computed from
 scenarios -- ``Thi`` (ideal), ``Th1`` (combustor loss only) and ``Th2``
 (real, combustor + nozzle losses) -- are never collapsed to a single
 number: each is propagated through its own cruise-time/range derivation
-and preserved under the cruise segment's ``thrust_scenarios`` parameter,
-with ``Th2`` (most conservative) also mirrored at the top level as the
-mission's nominal design point.
+and preserved under the cruise segment's ``thrust_scenarios`` parameter.
+
+Night-3 Phase 2 change: the mission's NOMINAL top-level design point was
+switched from ``Th2`` to ``Th1`` (combustor-loss-only, non-ideal), per
+the project verification gate's requirement that a non-ideal but
+non-most-conservative operating point drive the nominal mission profile.
+``Thi`` and ``Th2`` remain always present as explicit upper/lower thrust
+bounds under ``thrust_scenarios`` (and mirrored as
+``thrust_upper_bound_N`` / ``thrust_lower_bound_N`` at the top level) --
+all three scenarios are still never collapsed away. A first-order net
+thrust margin at cruise, ``net_thrust_margin_N = Th1 - drag_estimate_N``,
+is also computed and logged against two independent drag estimates (a
+0-order CD0*q*Aref placeholder and the Teltik 2024 CFD point), see
+:func:`_estimate_cruise_drag_N` and the cruise segment's
+``drag_estimates`` parameter.
 
 Theory / model references:
     - Staging dynamics: Sutton & Biblarz, *Rocket Propulsion Elements*, ch. 4
@@ -36,6 +48,7 @@ Run as a script to print the mission profile and booster-burnout handoff state::
 from __future__ import annotations
 
 import json
+import math
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -199,9 +212,32 @@ def build_ramp_staged_mission(burnout_state: BurnoutState) -> list[MissionSegmen
 #: :meth:`analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis.execute`.
 _THRUST_SCENARIOS: tuple[tuple[str, str, str], ...] = (
     ("Thi", "Thi_N", "ideal: no combustor or nozzle total-pressure losses (upper bound)"),
-    ("Th1", "Th1_N", "combustor total-pressure loss only, nozzle idealized"),
-    ("Th2", "Th2_N", "real: combustor AND nozzle total-pressure losses (nominal)"),
+    (
+        "Th1",
+        "Th1_N",
+        "combustor total-pressure loss only, nozzle idealized "
+        "(NOMINAL as of Night-3 Phase 2 -- see module docstring)",
+    ),
+    (
+        "Th2",
+        "Th2_N",
+        "real: combustor AND nozzle total-pressure losses "
+        "(most conservative; lower bound, no longer the nominal)",
+    ),
 )
+
+#: CD0 (zero-lift drag coefficient) placeholder used for the first-order
+#: cruise drag estimate. SZACOWANY -- a generic slender-body supersonic
+#: drag-coefficient guess, NOT derived from AVL/CFD/wind-tunnel data for
+#: this airframe (AVL is invalid here per CLAUDE.md rule 7: Ma > 0.6).
+CD0_CRUISE_PLACEHOLDER: float = 0.35  # SZACOWANY
+
+#: Teltik 2024 CFD-derived cruise drag reference point [N], independent of
+#: the 0-order CD0*q*Aref estimate above. Logged alongside it (both drags
+#: and both resulting net-thrust margins are always reported together, per
+#: this repo's method-discrepancy convention -- CFD delta is surfaced, not
+#: resolved).
+TELTIK_CFD_DRAG_N: float = 2451.95
 
 
 #: Fallback cruise-segment parameters used only if the L2 combustor/nozzle
@@ -215,10 +251,18 @@ _STUB_CRUISE_DESIGN_POINT: dict[str, Any] = {
     "cruise_time_s": 60.0,  # TBD — placeholder cruise duration
     "cruise_range_m": 0.0,  # TBD — cannot be derived without the cycle model
     "fuel_mass_kg": 15.0,  # SZACOWANY — placeholder stage-2 fuel load
-    "thrust_N": 0.0,  # TBD — cycle model unavailable
+    "thrust_N": 0.0,  # TBD — cycle model unavailable (nominal Th1, Night-3 Phase 2)
     "tsfc_kg_per_Ns": 0.0,  # TBD — cycle model unavailable
     "isp_s": 0.0,  # TBD — cycle model unavailable
     "mdot_fuel_kg_s": 0.0,  # TBD — cycle model unavailable
+    "eta_inlet": 0.0,  # TBD — cycle model unavailable
+    "thrust_upper_bound_N": 0.0,  # TBD — mirrors Thi
+    "thrust_lower_bound_N": 0.0,  # TBD — mirrors Th2
+    "net_thrust_margin_N": 0.0,  # TBD — Th1 - drag_estimate_N
+    "drag_estimates": {
+        "cd0_placeholder_N": 0.0,
+        "teltik_cfd_N": TELTIK_CFD_DRAG_N,
+    },
     "thrust_scenarios": {
         key: {
             "thrust_N": 0.0,
@@ -292,6 +336,75 @@ def _scenario_cruise_point(
     }
 
 
+def _vehicle_body_diameter_m() -> float:
+    """Load the stage-2 body diameter from vehicle_config.yaml.
+
+    Loaded via :class:`src.schemas.vehicle_schema.BaseVehicleConfig` (NOT
+    hardcoded), per this module's Night-3 Phase 2 requirement that the
+    cruise drag reference area track the vehicle config as the single
+    source of truth.
+
+    Returns:
+        Body (airframe) diameter ``body.diameter_m`` [m] from
+        ``vehicles/ramjet_rocket/vehicle_config.yaml``.
+    """
+    from src.schemas.vehicle_schema import BaseVehicleConfig
+
+    this_dir = Path(__file__).resolve().parent
+    config_path = (
+        this_dir.parent / "vehicles" / "ramjet_rocket" / "vehicle_config.yaml"
+    )
+    config = BaseVehicleConfig.from_yaml(config_path)
+    return config.body.diameter_m  # type: ignore[union-attr]
+
+
+def _estimate_cruise_drag_N(
+    mach: float,
+    altitude_m: float,
+    diameter_m: float,
+    cd0: float = CD0_CRUISE_PLACEHOLDER,
+) -> dict[str, float]:
+    """0-order cruise drag estimate ``CD0 * q * Aref`` plus the Teltik CFD point.
+
+    ``Aref`` is the body cross-sectional area ``pi/4 * d^2`` with ``d``
+    the airframe diameter loaded from ``vehicle_config.yaml`` (never
+    hardcoded, see :func:`_vehicle_body_diameter_m`). ``q`` is the
+    dynamic pressure ``0.5 * rho * V^2`` at the given (Mach, ISA
+    altitude) condition, using
+    :func:`analyses.propulsion.inlet_performance.isa_atmosphere` for the
+    freestream state. ``CD0`` = 0.35 is a documented SZACOWANY generic
+    slender-body supersonic placeholder -- NOT derived from AVL (invalid
+    above Ma 0.6 per CLAUDE.md rule 7) or CFD for this specific airframe.
+
+    Args:
+        mach: Freestream Mach number at cruise [-].
+        altitude_m: ISA cruise altitude [m].
+        diameter_m: Body diameter used for the reference area [m].
+        cd0: Zero-lift drag coefficient placeholder [-].
+
+    Returns:
+        Dict with ``cd0_placeholder``, ``q_pa``, ``aref_m2``,
+        ``cd0_placeholder_N`` (the 0-order drag estimate) and
+        ``teltik_cfd_N`` (the independent Teltik 2024 CFD drag point,
+        :data:`TELTIK_CFD_DRAG_N`).
+    """
+    from analyses.propulsion.inlet_performance import isa_atmosphere
+
+    atmosphere = isa_atmosphere(altitude_m)
+    v_ms = mach * atmosphere.speed_of_sound_m_s
+    q_pa = 0.5 * atmosphere.density_kg_m3 * v_ms**2
+    aref_m2 = math.pi / 4.0 * diameter_m**2
+    drag_0order_N = cd0 * q_pa * aref_m2
+
+    return {
+        "cd0_placeholder": cd0,
+        "q_pa": q_pa,
+        "aref_m2": aref_m2,
+        "cd0_placeholder_N": drag_0order_N,
+        "teltik_cfd_N": TELTIK_CFD_DRAG_N,
+    }
+
+
 def _compute_ramjet_design_point() -> dict[str, Any]:
     """Compute the stage-2 ramjet cruise design point via the L2 Grzywka cycle.
 
@@ -304,11 +417,22 @@ def _compute_ramjet_design_point() -> dict[str, Any]:
     and range from the SZACOWANY 15 kg fuel load via
     :func:`_scenario_cruise_point`. The three scenarios are never
     collapsed to a single number: all three are returned under
-    ``thrust_scenarios``, keyed ``"Thi"``/``"Th1"``/``"Th2"``. The
-    top-level ``thrust_N``/``tsfc_kg_per_Ns``/``isp_s``/``cruise_time_s``/
-    ``cruise_range_m`` fields mirror the ``Th2`` (real, most conservative)
-    scenario, since that is the nominal design point for the rest of the
-    mission profile.
+    ``thrust_scenarios``, keyed ``"Thi"``/``"Th1"``/``"Th2"``.
+
+    Night-3 Phase 2: the top-level ``thrust_N``/``tsfc_kg_per_Ns``/
+    ``isp_s``/``cruise_time_s``/``cruise_range_m`` fields now mirror
+    ``Th1`` (combustor-loss-only, non-ideal) as the mission's NOMINAL
+    design point -- previously ``Th2`` (real, most conservative) was
+    nominal; that switch is the headline change of this phase. ``Thi``
+    and ``Th2`` remain always-present explicit upper/lower thrust bounds,
+    mirrored at the top level as ``thrust_upper_bound_N`` /
+    ``thrust_lower_bound_N`` (verification-gate requirement: all three
+    scenarios always present, never collapsed). A first-order net thrust
+    margin at cruise, ``net_thrust_margin_N = Th1 - drag_estimate_N``, is
+    computed against TWO independent drag estimates (0-order
+    ``CD0*q*Aref`` and the Teltik 2024 CFD point) via
+    :func:`_estimate_cruise_drag_N`; both margins are returned under
+    ``net_thrust_margins_N``.
 
     This is a design-point evaluation, NOT a trajectory ODE — fuel
     depletion, drag and altitude/velocity coupling over time are not
@@ -354,43 +478,71 @@ def _compute_ramjet_design_point() -> dict[str, Any]:
             scenario["description"] = description
             thrust_scenarios[key] = scenario
 
-        nominal = thrust_scenarios["Th2"]  # real: combustor + nozzle losses
+        nominal = thrust_scenarios["Th1"]  # combustor-loss-only, non-ideal
+
+        diameter_m = _vehicle_body_diameter_m()
+        drag_estimates = _estimate_cruise_drag_N(
+            mach=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M, diameter_m=diameter_m
+        )
+        net_thrust_margins_N = {
+            "vs_cd0_placeholder_N": nominal["thrust_N"]
+            - drag_estimates["cd0_placeholder_N"],
+            "vs_teltik_cfd_N": nominal["thrust_N"] - drag_estimates["teltik_cfd_N"],
+        }
 
         return {
             "design_mach": MACH_DESIGN,
-            "cruise_altitude_m": DESIGN_ALTITUDE_M,
+            "cruise_altitude_m": DESIGN_ALTITUDE_M,  # source: inlet_performance.DESIGN_ALTITUDE_M (typical ramjet cruise band, TBD design decision)
             "cruise_time_s": nominal["cruise_time_s"],
             "cruise_range_m": nominal["cruise_range_m"],
             "fuel_mass_kg": fuel_mass_kg,  # SZACOWANY — placeholder fuel load
-            "thrust_N": nominal["thrust_N"],
+            "thrust_N": nominal["thrust_N"],  # NOMINAL = Th1 (Night-3 Phase 2)
             "tsfc_kg_per_Ns": nominal["tsfc_kg_per_Ns"],
             "isp_s": nominal["isp_s"],
             "mdot_fuel_kg_s": mdot_fuel_kg_s,
+            "eta_inlet": results["eta_inlet"],
+            "thrust_upper_bound_N": thrust_scenarios["Thi"]["thrust_N"],
+            "thrust_lower_bound_N": thrust_scenarios["Th2"]["thrust_N"],
+            "net_thrust_margin_N": net_thrust_margins_N["vs_cd0_placeholder_N"],
+            "net_thrust_margins_N": net_thrust_margins_N,
+            "drag_estimates": drag_estimates,
             "thrust_scenarios": thrust_scenarios,
             "note": (
                 "Ramjet cruise: quasi-steady design point (Mach 2.5, "
                 "10,000 m ISA), NOT a trajectory ODE (fuel depletion, "
                 "drag and altitude/velocity coupling over time remain "
-                "TBD). thrust_N/tsfc_kg_per_Ns/isp_s/cruise_time_s/"
-                "cruise_range_m at the top level mirror the Th2 (real, "
-                "combustor+nozzle losses) scenario from "
+                "TBD). NIGHT-3 PHASE 2: thrust_N/tsfc_kg_per_Ns/isp_s/"
+                "cruise_time_s/cruise_range_m at the top level now mirror "
+                "Th1 (combustor-loss-only, non-ideal) as the NOMINAL "
+                "design point -- changed from Th2 (real, most "
+                "conservative), which was nominal prior to this phase. "
+                "Thi and Th2 remain always-present explicit upper/lower "
+                "thrust bounds (thrust_upper_bound_N / "
+                "thrust_lower_bound_N), per the project verification gate "
+                "(all three Grzywka scenarios always present, never "
+                "collapsed) -- see thrust_scenarios for the full per-"
+                "scenario breakdown from "
                 "analyses.propulsion.combustor_nozzle_cycle."
-                "GrzywkaCombustorNozzleAnalysis. ALL THREE Grzywka Sec. "
-                "6.2.2 thrust scenarios (Thi ideal / Th1 combustor-loss-"
-                "only / Th2 real) are preserved, never collapsed, under "
-                "thrust_scenarios. mdot_fuel_kg_s is scenario-invariant "
-                "(same combustor mass flow/Tt1/Tt2/fuel-air ratio for all "
-                "three; only the delivered nozzle total pressure "
-                "differs), so cruise_time_s/cruise_range_m come out "
-                "numerically equal across scenarios at this constant-"
-                "Mach design point while thrust_N/tsfc_kg_per_Ns/isp_s "
-                "differ — see _scenario_cruise_point docstring. "
+                "GrzywkaCombustorNozzleAnalysis. mdot_fuel_kg_s is "
+                "scenario-invariant (same combustor mass flow/Tt1/Tt2/"
+                "fuel-air ratio for all three; only the delivered nozzle "
+                "total pressure differs), so cruise_time_s/cruise_range_m "
+                "come out numerically equal across scenarios at this "
+                "constant-Mach design point while thrust_N/tsfc_kg_per_Ns/"
+                "isp_s differ — see _scenario_cruise_point docstring. "
                 "cruise_time_s = fuel_mass_kg / mdot_fuel_kg_s and "
                 "cruise_range_m = V_cruise * cruise_time_s are DERIVED "
-                "from the SZACOWANY 15 kg fuel_mass_kg. Reference model: "
-                "L2 1-D Grzywka station cycle (1-2-21-3), single-method, "
-                "MATLAB baseline unavailable, CFD delta open (see "
-                "combustor_nozzle_cycle module docstring)."
+                "from the SZACOWANY 15 kg fuel_mass_kg. net_thrust_margin_N "
+                "= Th1 - drag_estimate_N is a first-order margin (0-order "
+                "CD0*q*Aref estimate, CD0=0.35 SZACOWANY, Aref from "
+                "vehicle_config.yaml body.diameter_m); "
+                "net_thrust_margins_N also reports the margin against the "
+                "independent Teltik 2024 CFD drag point "
+                f"({TELTIK_CFD_DRAG_N:.2f} N) -- both drags and both "
+                "margins are logged together, agreement NOT forced. "
+                "Reference model: L2 1-D Grzywka station cycle (1-2-21-3), "
+                "single-method, MATLAB baseline unavailable, CFD delta "
+                "open (see combustor_nozzle_cycle module docstring)."
             ),
         }
     except Exception as exc:  # noqa: BLE001 — deliberate graceful degradation
@@ -401,15 +553,106 @@ def _compute_ramjet_design_point() -> dict[str, Any]:
         return stub
 
 
+def _write_cruise_summary_md(cruise_params: dict[str, Any], path: Path) -> None:
+    """Write the Night-3 Phase 2 cruise summary to a Markdown file.
+
+    Logs the cruise design point, the inlet recovery used, all three
+    Grzywka thrust scenarios (Thi/Th1/Th2), both drag estimates, both net
+    thrust margins, the fuel-based cruise time/range and the single-
+    method disclosure, per the project verification gate.
+
+    Args:
+        cruise_params: The ``cruise_stage_2_ramjet`` segment parameters
+            dict returned by :func:`_compute_ramjet_design_point`.
+        path: Destination Markdown file path.
+    """
+    scenarios = cruise_params.get("thrust_scenarios", {})
+    drag = cruise_params.get(
+        "drag_estimates", {"cd0_placeholder_N": 0.0, "teltik_cfd_N": TELTIK_CFD_DRAG_N}
+    )
+    margins = cruise_params.get(
+        "net_thrust_margins_N",
+        {"vs_cd0_placeholder_N": 0.0, "vs_teltik_cfd_N": 0.0},
+    )
+    eta_inlet = cruise_params.get("eta_inlet")
+
+    lines = [
+        "# Cruise summary — Night-3 Phase 2 (Th1 nominal)",
+        "",
+        "Auto-generated by `workflows/ramp_staged_mission.py::main()`. Do not "
+        "hand-edit; re-run the script to refresh.",
+        "",
+        "## Cruise design point",
+        "",
+        f"- Design Mach: {cruise_params.get('design_mach')}",
+        f"- Cruise altitude: {cruise_params.get('cruise_altitude_m')} m ISA "
+        "(source: `analyses.propulsion.inlet_performance.DESIGN_ALTITUDE_M`, "
+        "a typical ramjet cruise-band assumption, TBD design decision — "
+        "same altitude source the module has always used, unchanged this "
+        "phase)",
+        f"- eta_inlet used (Th1 scenario): {eta_inlet}",
+        "",
+        "## Grzywka three-thrust scenarios (Thi / Th1 / Th2)",
+        "",
+        "| Scenario | thrust_N | Role |",
+        "|---|---|---|",
+        f"| Thi | {scenarios.get('Thi', {}).get('thrust_N')} | upper bound |",
+        f"| Th1 | {scenarios.get('Th1', {}).get('thrust_N')} | **NOMINAL** "
+        "(Night-3 Phase 2 switch, was Th2) |",
+        f"| Th2 | {scenarios.get('Th2', {}).get('thrust_N')} | lower bound "
+        "(most conservative) |",
+        "",
+        "All three are always present under `thrust_scenarios` — the "
+        "project verification gate requires never collapsing them to a "
+        "single number.",
+        "",
+        "## Drag estimates and net thrust margin (Th1 - drag)",
+        "",
+        "| Drag estimate | Value [N] | Net margin vs Th1 [N] |",
+        "|---|---|---|",
+        f"| 0-order CD0*q*Aref (CD0=0.35 SZACOWANY) | "
+        f"{drag.get('cd0_placeholder_N')} | {margins.get('vs_cd0_placeholder_N')} |",
+        f"| Teltik 2024 CFD | {drag.get('teltik_cfd_N')} | "
+        f"{margins.get('vs_teltik_cfd_N')} |",
+        "",
+        f"- q = {drag.get('q_pa')} Pa, Aref = {drag.get('aref_m2')} m^2 "
+        "(pi/4*d^2, d = `vehicle_config.yaml` `body.diameter_m`, loaded "
+        "via `BaseVehicleConfig`)",
+        "",
+        "## Fuel-based cruise time / range (Th1, nominal)",
+        "",
+        f"- fuel_mass_kg: {cruise_params.get('fuel_mass_kg')} (SZACOWANY)",
+        f"- mdot_fuel_kg_s: {cruise_params.get('mdot_fuel_kg_s')}",
+        f"- cruise_time_s: {cruise_params.get('cruise_time_s')}",
+        f"- cruise_range_m: {cruise_params.get('cruise_range_m')}",
+        "",
+        "## Single-method disclosure",
+        "",
+        "- Fidelity: L2 1-D Grzywka station cycle (1-2-21-3), "
+        "`analyses.propulsion.combustor_nozzle_cycle.GrzywkaCombustorNozzleAnalysis`.",
+        "- MATLAB baseline (Grzywka 2022 original) is NOT vendored in this "
+        "repo — unavailable for direct cross-check.",
+        "- CFD delta: OPEN. The Teltik 2024 CFD drag point "
+        f"({TELTIK_CFD_DRAG_N} N) and V3 cross-check are logged alongside "
+        "the model results but agreement is NOT forced (see "
+        "`combustor_nozzle_cycle` module docstring, `teltik_v3_cross_check`).",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     """Load booster burnout state, build the staged mission, and print.
 
     Writes the mission profile and burnout handoff state to
-    ``staged_mission_profile.json`` in the same directory as this script.
+    ``staged_mission_profile.json`` in the same directory as this script,
+    and a human-readable cruise summary to
+    ``doc/ramP/cruise_summary_night3.md``.
     """
     this_dir = Path(__file__).resolve().parent
     burnout_json_path = this_dir.parent / "analyses" / "trajectory" / "burnout_state.json"
     output_json_path = this_dir / "staged_mission_profile.json"
+    cruise_summary_md_path = this_dir.parent / "doc" / "ramP" / "cruise_summary_night3.md"
 
     burnout_state = load_burnout_state_from_json(burnout_json_path)
     mission = build_ramp_staged_mission(burnout_state)
@@ -429,9 +672,15 @@ def main() -> None:
 
     output_json_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
 
+    cruise_segment = next(
+        seg for seg in mission if seg.name == "cruise_stage_2_ramjet"
+    )
+    _write_cruise_summary_md(cruise_segment.parameters, cruise_summary_md_path)
+
     print("Two-stage ramjet rocket mission profile:")
     print(json.dumps(output, indent=2))
     print(f"\nWrote {output_json_path}")
+    print(f"Wrote {cruise_summary_md_path}")
 
 
 if __name__ == "__main__":
