@@ -26,7 +26,14 @@ stage_2:
   design_mach: 2.5         # TBD — decyzja projektowa
   fuel_type: "kerosene"
   combustor_temp_K: 2000.0
-  nozzle_area_ratio: 4.0
+  # Nozzle throat/exit diameters + area ratio from "CFD Simplified Single
+  # Rocket Model" (Aleks Czernicki, DWG 10/07/2026, sheet 1/1) — replaces
+  # the 4.0 design-intent placeholder with a real dimensioned value.
+  # Resolves HR-3 (Laval vs cylindrical) with a real, non-cylindrical,
+  # non-4.0 nozzle: area_ratio = (241/210)^2 = 1.317.
+  nozzle_area_ratio: 1.317
+  nozzle_throat_diameter_m: 0.210
+  nozzle_exit_diameter_m: 0.241
 body:
   length_m: 4.084          # cylindrical portion = total 4.377 - nose 0.293
   diameter_m: 0.250        # Fusion-verified body diameter
@@ -49,7 +56,26 @@ cfd_notes:
   booster_diameter_note: "Body diameter 0.250m; bbox 1.809m includes PRD-240 fins"
   ramjet_inlet_note: "Axisymmetric conical spike: cone L=0.293m base 0.150m; capture area 0.0491 m^2; diffuser expansion 2.98"
   length_reconciliation: "Fusion total 4.377m; nose 0.293m is included in total (do not add to body). Task-2 spec listing body cylinder=4.377m double-counts the nose; analyses use total=4.377m, cylinder=4.084m."
+  cfd_simplified_model_note_2026_07_10: >
+    "CFD Simplified Single Rocket Model" drawing (Aleks Czernicki, DWG
+    10/07/2026, sheet 1/1) supplies: nozzle throat/exit diameters (used
+    above), inlet cone 42deg external / 60deg internal with centerbody
+    85x62mm (NOT yet represented as structured schema fields -- no inlet
+    -geometry schema section exists yet; this note preserves the raw
+    values pending a deliberate schema design pass), nozzle convergence/
+    diverging stations, total length 4355.01mm, station markers at
+    1480.7mm (nozzle exit) and 1738.2mm (ramjet section end), and a fin
+    sweep of 29.98deg with tail dims 550mm/127mm not yet confidently
+    mapped to fin span vs another dimension. The drawing's body diameter
+    (Ø200mm throughout) and total length (4355.01mm) and fin sweep
+    (29.98deg, i.e. NOT rectangular) conflict with this file's existing
+    Fusion-verified body.diameter_m=0.250, body.total_length_m=4.377,
+    and fins.sweep_deg=0.0 -- NOT reconciled here, flagged for human
+    decision (does this "simplified" CFD model supersede the detailed
+    Fusion export, or is it a deliberately-simplified meshing geometry
+    that should not overwrite flight-vehicle dimensions?).
 tbd:
   - "stage_1 motor datasheet (Isp, thrust curve, propellant mass) — currently SZACOWANY"
   - "stage_2 ramjet design_mach final decision"
   - "moments of inertia Ixx/Iyy/Izz — open Fusion 360 Assembly v6, right-click main component → 'Physical Properties', copy Ixx/Iyy/Izz tensor (units: kg*m^2) from GUI panel. Not scriptable via Fusion API."
+  - "RECONCILE: CFD-simplified-model body diameter (0.200m) vs Fusion-verified (0.250m); total length 4355.01mm vs 4.377m; fin sweep 29.98deg (swept) vs Fusion 0.0deg (rectangular) — see cfd_simplified_model_note_2026_07_10. NOT applied to body:/fins: sections pending human decision."
