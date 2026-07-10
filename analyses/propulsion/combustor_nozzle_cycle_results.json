@@ -1,0 +1,94 @@
+{
+  "Thi_N": 12467.629227569254,
+  "Th1_N": 12107.907170221897,
+  "Th2_N": 12008.96485105987,
+  "thrust_nominal_N": 12008.96485105987,
+  "V3i_m_s": 1503.272177096609,
+  "V3_1_m_s": 1480.5729400996183,
+  "V3_2_m_s": 1474.3294665460296,
+  "V3_m_s": 1474.3294665460296,
+  "A21_throat_m2": 0.05064881693023091,
+  "D21_throat_m": 0.2539450267471718,
+  "A3_exit_m2": 0.12360278596279858,
+  "Ma21": 1.0,
+  "Ma3": 2.3186664603021465,
+  "f_fuel_air": 0.04482144410219242,
+  "isp_s": 1801.2969819334419,
+  "mdot_air_kg_s": 15.167490506864516,
+  "mdot_fuel_kg_s": 0.6798288279239622,
+  "mdot_exit_kg_s": 15.847319334788477,
+  "tt1_K": 502.0875,
+  "tt2_K": 2000.0,
+  "pt1_Pa": 394799.6886002815,
+  "pt2_Pa": 352319.2421068912,
+  "eta_inlet": 0.8740657315001767,
+  "pi_cc": 0.8924,
+  "pi_nozzle": 0.97,
+  "eta_b": 0.95,
+  "mach0": 2.5,
+  "altitude_m": 10000.0,
+  "nozzle_area_ratio_model": 2.440388412883607,
+  "nozzle_area_ratio_design_yaml": 4.0,
+  "nozzle_area_ratio_cad_cylindrical": 1.0,
+  "eta_inlet_source": "multi_cone_4preset_chain",
+  "station_table": [
+    {
+      "station": "1_combustor_inlet",
+      "total_temperature_K": 502.0875,
+      "total_pressure_Pa": 394799.6886002815
+    },
+    {
+      "station": "2_combustor_exit",
+      "total_temperature_K": 2000.0,
+      "total_pressure_Pa": 352319.2421068912
+    },
+    {
+      "station": "21_nozzle_throat_choked",
+      "mach": 1.0,
+      "static_temperature_K": 1716.7381974248929,
+      "static_pressure_Pa": 190380.64115533256,
+      "velocity_m_s": 809.2597157610455,
+      "area_m2": 0.05064881693023091,
+      "diameter_m": 0.2539450267471718
+    },
+    {
+      "station": "3_nozzle_exit_real_Th2",
+      "mach": 2.3186664603021465,
+      "static_temperature_K": 1059.841100378071,
+      "static_pressure_Pa": 26435.887460311165,
+      "velocity_m_s": 1474.3294665460296,
+      "area_m2": 0.12360278596279858
+    }
+  ],
+  "thrust_model_hierarchy": {
+    "Thi_N": 12467.629227569254,
+    "Th1_N": 12107.907170221897,
+    "Th2_N": 12008.96485105987,
+    "note": "Grzywka Sec. 6.2.2 three-thrust decomposition. Thi: ideal, no losses (pi_CC=pi_nozzle=1), fully expanded. Th1: combustor loss pi_CC only. Th2: real, both pi_CC and pi_nozzle (nominal for downstream cruise wiring). Hierarchy Thi>=Th1>=Th2 holds by construction (same mdot/Tt1/Tt2/f; only the delivered nozzle total pressure differs)."
+  },
+  "brayton_t2_cross_check": {
+    "station_model_tt2_K": 2000.0,
+    "brayton_estimate_tt2_K": 2250.7045221210733,
+    "delta_frac": 0.12535226106053665,
+    "exceeds_5pct": true,
+    "note": "Independently-coded single-gas (cold-cp) Brayton heat-addition estimate of Tt2 vs the station model's Tt2. Delta driven mainly by cold-cp vs hot-cp choice. Logged as an OPEN ITEM if >5%; NOT a validation failure (repo method-discrepancy convention)."
+  },
+  "teltik_v3_cross_check": {
+    "model_v3_m_s": 1474.3294665460296,
+    "teltik_cfd_v3_m_s": 1047.0,
+    "condition": "Mach 2.5 / 6000 m",
+    "delta_frac": 0.4081465774078602,
+    "note": "Model V3 is the fully-expanded 1-D isentropic exit velocity (Th2, real losses); Teltik 2024 CFD ~1047 m/s (assumptions A15) reflects the actual (near-cylindrical, expansion_ratio 1.0) geometry, so the 1-D fully-expanded value is expected to be higher. Delta quantified, agreement NOT forced (cf. assumptions A3: CFD vs MATLAB 20-30% open discrepancy)."
+  },
+  "nozzle_area_ratio_note": "Model implies A3/A21 ~ 2.44 (fully-expanded real Th2 exit over the dynamic choked throat). vehicle_config.yaml nozzle_area_ratio=4.0 is the DESIGN INTENT; the Fusion v6 CAD nozzle is a cylindrical exit stub (expansion_ratio 1.0, 'full ramjet engine NOT modeled'). All three are logged so the CAD-vs-design gap is quantified, not silently resolved (assumptions A10).",
+  "reference_model_disclosure": "Grzywka 2022 station model (1-2-21-3, pi_CC=0.8924, pi_nozzle=0.97). Complementary to the Mattingly-style ramjet_cycle (0-2-4-9) model; single-method L2 result pending CFD/MATLAB dual-check (assumptions A3).",
+  "assumptions": [
+    "Grzywka loss coefficients pi_CC=0.8924, pi_nozzle=0.97 (assumptions A13).",
+    "Combustion efficiency eta_b=0.95 is a placeholder shared with ramjet_cycle.",
+    "Nozzle throat (station 21) choked (Ma=1) at all conditions; A21 solved dynamically from continuity, never hard-coded.",
+    "All three thrust models fully expand to ambient p0 (p3=p0); loss level enters only via the delivered nozzle total pressure.",
+    "Full mass-flow capture at the design Mach (mdot_air=rho0*u0*A_capture), consistent with inlet_performance / ramjet_cycle.",
+    "Two-gas calorically-perfect model (cold/hot cp,gamma); no dissociation or variable-cp beyond the two fixed sets."
+  ],
+  "fidelity": "LEVEL_2"
+}

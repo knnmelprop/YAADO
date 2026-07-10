@@ -1,0 +1,101 @@
+{
+  "data": {
+    "cd0_at_teltik_point": 0.9201365382415532,
+    "drag_N_at_teltik_point": 9323.180136749972,
+    "teltik_drag_N_ref": 2451.95,
+    "delta_drag_pct": 280.23532848345087,
+    "teltik_implied_cd0": 0.24199133255488667
+  },
+  "metadata": {
+    "method": "empirical_drag_buildup_body_wave_friction_fin_base",
+    "grid": [
+      {
+        "mach": 1.5,
+        "cd_body_wave": 0.5817529882133423,
+        "cd_friction": 0.1701920293576321,
+        "cd_fin_wave": 0.9734702684597029,
+        "cd_base": 0.07777777777777777,
+        "cd0_total": 1.803193063808455
+      },
+      {
+        "mach": 1.75,
+        "cd_body_wave": 0.45289408708689793,
+        "cd_friction": 0.1604945543148557,
+        "cd_fin_wave": 0.757845576168513,
+        "cd_base": 0.057142857142857134,
+        "cd0_total": 1.4283770747131237
+      },
+      {
+        "mach": 2.0,
+        "cd_body_wave": 0.37551993915944576,
+        "cd_friction": 0.15112474978027612,
+        "cd_fin_wave": 0.6283723562954154,
+        "cd_base": 0.04375,
+        "cd0_total": 1.1987670452351373
+      },
+      {
+        "mach": 2.25,
+        "cd_body_wave": 0.32269849671655443,
+        "cd_friction": 0.14204639234309496,
+        "cd_fin_wave": 0.5399841489340238,
+        "cd_base": 0.0345679012345679,
+        "cd0_total": 1.0392969392282412
+      },
+      {
+        "mach": 2.5,
+        "cd_body_wave": 0.28386639181771395,
+        "cd_friction": 0.133265293422313,
+        "cd_fin_wave": 0.4750048530015262,
+        "cd_base": 0.027999999999999997,
+        "cd0_total": 0.9201365382415532
+      },
+      {
+        "mach": 2.75,
+        "cd_body_wave": 0.25389781945279943,
+        "cd_friction": 0.12480506184330122,
+        "cd_fin_wave": 0.42485725638148303,
+        "cd_base": 0.023140495867768594,
+        "cd0_total": 0.8267006335453522
+      },
+      {
+        "mach": 3.0,
+        "cd_body_wave": 0.22995805979540634,
+        "cd_friction": 0.11669398477469009,
+        "cd_fin_wave": 0.38479791034852917,
+        "cd_base": 0.01944444444444444,
+        "cd0_total": 0.7508943993630701
+      },
+      {
+        "mach": 3.25,
+        "cd_body_wave": 0.21033323678415275,
+        "cd_friction": 0.10895796930366455,
+        "cd_fin_wave": 0.3519589183496892,
+        "cd_base": 0.016568047337278104,
+        "cd0_total": 0.6878181717747845
+      },
+      {
+        "mach": 3.5,
+        "cd_body_wave": 0.19391766273778077,
+        "cd_friction": 0.10161702254708159,
+        "cd_fin_wave": 0.3244900894865676,
+        "cd_base": 0.014285714285714284,
+        "cd0_total": 0.6343104890571443
+      }
+    ],
+    "validation": {
+      "mach": 2.5,
+      "altitude_m": 6000.0,
+      "cd0_buildup": 0.9201365382415532,
+      "drag_N_buildup": 9323.180136749972,
+      "teltik_drag_N_ref": 2451.95,
+      "teltik_implied_cd0": 0.24199133255488667,
+      "delta_drag_N": 6871.230136749972,
+      "delta_drag_pct": 280.23532848345087,
+      "cd0_placeholder": 0.35,
+      "delta_cd0_buildup_vs_teltik": 0.6781452056866665,
+      "delta_cd0_placeholder_vs_teltik": 0.10800866744511331,
+      "note": "Reported as-is, NOT tuned to match Teltik CFD. Component buildup is an independent L1 estimate; disagreement with a single CFD point at one Mach/altitude does not invalidate the buildup across the full Mach sweep, but flags where refinement (nose taper geometry, actual nozzle-exit annular fraction, boundary-layer transition location) would matter most."
+    },
+    "annular_base_fraction_szacowany": 0.7
+  }
+}
