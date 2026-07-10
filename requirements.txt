@@ -1,0 +1,25 @@
+# MELprop-IADE runtime dependencies.
+# See docs/EXTERNAL_TOOLS.md for the full external-dependency registry
+# (submodule vs pip-only rationale, pinned refs, deferred tools).
+
+# Core dev/runtime deps (unit test suite requires these; verified empirically
+# 2026-07-09/10 — CLAUDE.md previously listed only pydantic/pyyaml/pytest,
+# which undercounts: scipy and matplotlib are hard runtime deps of
+# analyses/propulsion/inlet_performance.py and analyses/trajectory/
+# booster_burnout.py respectively).
+pydantic>=2
+pyyaml
+pytest
+scipy
+matplotlib
+
+# pyCycle — pinned per ADR-002 / locked human decision. This is the runtime
+# install; external/pycycle/ (submodule, once added) is the separate
+# source-browsing/diff mechanism and is not installed via this file.
+om-pycycle==4.1.2
+
+# NOT yet added — no code in this repo imports openmdao directly today
+# (grepped 2026-07-10, zero hits outside a planned architecture doc
+# reference in workflows/). Do not pin a version until an actual import
+# exists; adding one speculatively would be guessing a constraint nothing
+# here needs yet.
