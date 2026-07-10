@@ -22,9 +22,9 @@ To use SUAVE itself (not just run the MELprop unit suite, which doesn't
 require it):
 
 ```bash
-cd external/suave
+cd external/suave/trunk
 pip install -e .   # or: python setup.py develop
-cd ../..
+cd ../../..
 ```
 
 ## Running tests
@@ -41,7 +41,7 @@ python -m pytest tests/ -v --tb=short
   real command history from Phase 0/1/2 verification, not a claim made
   without running it. `om-pycycle==4.1.2` was **not** installed/tested in
   this session (the unit suite doesn't require it).
-- **Unverified:** `pip install -e external/suave` (or `setup.py develop`).
+- **Unverified:** `pip install -e external/suave/trunk` (or `setup.py develop`).
   SUAVE 2.5.2's own `INSTALL`/`setup.py` targets an older Python/setuptools
   combination than this environment's Python 3.11 — it may need `numpy`/
   `scipy` version pins from `.devcontainer/requirements.txt` (which

@@ -98,3 +98,80 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
   rotation on the Coveralls side is a human action item, tracked outside
   this repo. The token will be purged from history as part of Phase 1
   Step B `git filter-repo` when approved.
+
+---
+
+## 2026-07-10 — Phase 5 final validation
+
+- **pytest baseline vs current:** unchanged, 208 passed / 0 failed,
+  throughout Phase 2 (submodule add), Phase 3 (environment docs), Phase 4
+  (branch docs), and Phase 5 (path-reference fixes below).
+- **Import-path / trunk-reference audit:** grepped the full tree
+  (excluding `external/` submodules and `.git/`) for `trunk` and
+  `import SUAVE`. Found and fixed 6 live-operational-doc references that
+  were a real correctness bug, not cosmetic: `.devcontainer/
+  devcontainer.json` (`postCreateCommand` did `cd trunk; ...`, would have
+  failed container build), `CLAUDE.md`, and all 5 `.claude/agents/*.md`
+  (said "Never modify `trunk/SUAVE/`", a path that no longer exists).
+  Also fixed docstrings/error messages in `core/vehicle_factory.py` and
+  `analyses/suave/*.py`. **Correction caught mid-fix:** the SUAVE
+  submodule's installable path is `external/suave/trunk/`, not
+  `external/suave/` (upstream `suavecode/SUAVE` has its own internal
+  `trunk/` layout) — first-pass edits said `external/suave` everywhere
+  and had to be corrected after actually inspecting the submodule
+  contents. All fixed paths verified against the real submodule tree, not
+  assumed.
+- **No direct reliance on removed `trunk/` paths remains** in any
+  MELprop-authored or operational-doc file (confirmed by the audit
+  above). Historical/log docs (`docs/ADR/*`, `docs/migration-plan-
+  phase1.md`, `docs/AGENT_CONTEXT.md`, nightly reports, `agents/
+  memory.md`'s older entries) still say `trunk/` where they're
+  describing what *used to be true* — left as-is, since rewriting history
+  logs to read as if the past matched the present would be inaccurate.
+- **Docs updated to match reality:** README.md environment matrix +
+  SUAVE-identity framing note, ADR-002 status flipped from Proposed to
+  Accepted-and-executed, EXTERNAL_TOOLS.md flipped from draft to applied.
+- **`agents/memory.md`:** appended (not rewritten) with this session's
+  lessons — filter-repo path-list gaps, submodule internal-layout gotcha,
+  operational-doc staleness as a correctness bug, and how the two
+  mid-session untrusted/stale-replay messages were handled.
+
+### Unresolved blockers (explicit list, none resolved by this session)
+
+1. `knnmelprop/droneEnv`'s `develop` is missing 3 of 4 commits from
+   `claude/iade-repo-restructure-00rrro` despite PR #18 showing
+   `merged: false` with a merge commit present — needs human
+   investigation and a decision on how to reconcile (see droneEnv's
+   `docs/decision-log.md`, Phase 4 entry).
+2. GitHub admin actions not performed (by design — out of scope for this
+   session): no default branch set on `knnmelprop/iade`, no branch
+   protection on any branch, no CODEOWNERS-enforcing review rule.
+3. `.github/CODEOWNERS` handles are all `[TBD-HUMAN]` — no reviewer role
+   is defined anywhere in this project's docs; needs real GitHub handles.
+4. AVL/XFOIL/SU2/OpenVSP remain deferred, mirrors empty. A mid-session
+   message proposed integrating SU2/OpenVSP now with specific version
+   pins — **not acted on**, since it reverses a locked human decision and
+   its claims (tags, licenses) are unverified by this session. Needs an
+   explicit human decision on whether/how to reopen this.
+5. SUAVE's `external/suave/trunk` editable install
+   (`pip install -e external/suave/trunk`) is unverified — SUAVE 2.5.2's
+   own `setup.py` targets an older Python/setuptools combination than
+   this environment's Python 3.11; may need the numpy/scipy pins from
+   `.devcontainer/requirements.txt` rather than root `requirements.txt`'s
+   unpinned versions. Nobody has actually run this yet.
+6. pyCycle's `om-pycycle==4.1.2` install and any pyCycle-backed run are
+   unverified — not attempted this session (unit suite doesn't need it).
+7. `environment-conda.yml` is unverified — no conda available in this
+   session; never run through `conda env create`.
+8. Devcontainer mode is unverified end-to-end — fixed the known-broken
+   `trunk/` path, but no container was actually built/run this session.
+9. `external/suave`'s match to what `droneEnv` originally vendored is by
+   version string only, not a byte-level tree diff (ADR-002 caveat,
+   still open).
+10. `LICENSE` is still SUAVE's LGPL-2.1, unchanged, per human decision.
+    PolyForm Noncommercial 1.0.0 remains a forward-looking note in
+    ADR-001 only — no license decision has been made or applied.
+11. README.md/CLAUDE.md still substantially frame the project in SUAVE
+    terms (badges, "Simple Setup" for standalone SUAVE, contributor/
+    citation blocks) — a clarifying note was added, but the full identity
+    rewrite ADR-002 flagged as a follow-up was not done this session.

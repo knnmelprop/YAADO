@@ -22,7 +22,7 @@ After completing work, append key findings to MEMORY.md: new schema fields valid
 
 ## Constraints (MELprop-specific)
 
-- **Never modify `trunk/SUAVE/`** — it is read-only reference code for the fork.
+- **Never modify `external/suave/`** — it is read-only reference code for the fork.
 - **Never hard-code physical parameters without comment markers** — mark all material densities, motor specifications, and manufacturer limits with either `# SZACOWANY [source]` (estimated from reference) or `# TODO_PHYSICAL_PARAM [datasheet_name]` (placeholder awaiting real data).
 - **Pydantic v2 API only**: Use `field_validator`, `model_validator`, `ConfigDict`, and `model_json_schema()` — no v1 syntax.
 - **Every new function** must have:

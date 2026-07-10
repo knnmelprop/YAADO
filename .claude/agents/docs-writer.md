@@ -22,7 +22,7 @@ After completing work, append key findings to MEMORY.md: new notebook sections a
 
 ## Constraints (MELprop-specific)
 
-- **Never modify `trunk/SUAVE/`** — it is read-only reference code for the fork.
+- **Never modify `external/suave/`** — it is read-only reference code for the fork.
 - **YAML/code in docs**: If example in notebook requires API changes to `src/`, `core/`, or `analyses/`, **do not modify the code**. Instead, note the documentation gap in a `# TODO` cell and alert the responsible agent (e.g., "Alert: vehicle-builder — this example needs BaseVehicleConfig update").
 - **Every new function docstring** (when supplementing existing code) must have:
   - Full type hints (already present on function signature).
