@@ -148,11 +148,16 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
    protection on any branch, no CODEOWNERS-enforcing review rule.
 3. `.github/CODEOWNERS` handles are all `[TBD-HUMAN]` — no reviewer role
    is defined anywhere in this project's docs; needs real GitHub handles.
-4. AVL/XFOIL/SU2/OpenVSP remain deferred, mirrors empty. A mid-session
-   message proposed integrating SU2/OpenVSP now with specific version
-   pins — **not acted on**, since it reverses a locked human decision and
-   its claims (tags, licenses) are unverified by this session. Needs an
-   explicit human decision on whether/how to reopen this.
+4. **UPDATED 2026-07-10, resolved for SU2/OpenVSP:** human gave explicit
+   instruction "I want SU2 and OpenVSP modules installed for now in the
+   repo." Added both as pinned submodules (`external/su2` @ `v8.5.0`,
+   `external/openvsp` @ `OpenVSP_3.51.0`) per ADR-003, with every factual
+   claim from the earlier mid-session brief (tags, licenses, PyPI
+   availability) independently re-verified rather than trusted — one
+   claim (OpenVSP pip wheel) did not hold up and was not acted on.
+   **AVL/XFOIL remain deferred** — the instruction named SU2/OpenVSP
+   specifically, not the full original deferred set. Mirrors
+   (`avl-mirror`, `xfoil-mirror`) still empty.
 5. SUAVE's `external/suave/trunk` editable install
    (`pip install -e external/suave/trunk`) is unverified — SUAVE 2.5.2's
    own `setup.py` targets an older Python/setuptools combination than
