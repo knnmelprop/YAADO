@@ -140,6 +140,10 @@ class RamjetConfig(BaseModel):
         combustor_temp_K: Combustor exit total temperature in kelvin
             (1200..2600, bounded by material/dissociation limits).
         nozzle_area_ratio: Nozzle exit/throat area ratio (>= 1).
+        nozzle_throat_diameter_m: Nozzle throat diameter in meters (> 0),
+            if known from a dimensioned drawing (optional).
+        nozzle_exit_diameter_m: Nozzle exit diameter in meters (> 0), if
+            known from a dimensioned drawing (optional).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -149,6 +153,20 @@ class RamjetConfig(BaseModel):
     fuel_type: str
     combustor_temp_K: float = Field(..., ge=1200.0, le=2600.0)
     nozzle_area_ratio: float = Field(..., ge=1.0)
+    nozzle_throat_diameter_m: float | None = Field(default=None, gt=0.0)
+    nozzle_exit_diameter_m: float | None = Field(default=None, gt=0.0)
+
+    @model_validator(mode="after")
+    def _nozzle_area_ratio_consistency(self) -> "RamjetConfig":
+        """If both diameters are given, cross-check against nozzle_area_ratio."""
+        if self.nozzle_throat_diameter_m is not None and self.nozzle_exit_diameter_m is not None:
+            implied_ratio = (self.nozzle_exit_diameter_m / self.nozzle_throat_diameter_m) ** 2
+            if abs(implied_ratio - self.nozzle_area_ratio) / implied_ratio > 0.02:
+                raise ValueError(
+                    f"nozzle_area_ratio={self.nozzle_area_ratio} inconsistent with "
+                    f"diameters (implies {implied_ratio:.4f}); update one to match"
+                )
+        return self
 
 
 class BodyConfig(BaseModel):
