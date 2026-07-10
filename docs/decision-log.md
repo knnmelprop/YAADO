@@ -221,3 +221,62 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
   0.25, and internal channel nozzle 0.241." `stage_1.geometry.
   assembly_diameter_m=0.250` stays unchanged, correct as-is; 0.241 is
   the nozzle, not the booster. No further action needed on this item.
+
+---
+
+## 2026-07-11 — Barrowman supersonic extension retired as CDR stability gate
+
+- **Retired method:** `analyses/stability/barrowman_stability.py` supersonic
+  branch (Mach > 1.2 in `fin_mach_correction_factor`) is no longer the CDR
+  stability gate for the ramjet rocket (Project B).
+- **Reasons for retirement:**
+  1. Barrowman theory is only valid to ~Mach 0.7; the Rogers supersonic
+     extension is an informal rocketry-community approximation, not a
+     validated supersonic method.
+  2. The ramP fins violate the small-fin/slender-body assumption: exposed
+     fin semi-span 0.550 m vs body diameter 0.200 m => span/diameter = 2.75.
+     Barrowman assumes fins are small perturbations to a slender body.
+- **Replacement modules (2026-07-11):**
+  - `analyses/stability/datcom_class_sweep.py`: DATCOM-style supersonic
+    component buildup (body potential + Allen-Perkins viscous crossflow +
+    supersonic fin with mid-chord CP). Produces CSV over Mach {0.5, 0.8, 1.0,
+    1.2, 1.5, 2.0, 2.5, 3.0} × CG {1.40–2.20 m step 0.05}.
+  - `analyses/stability/ackeret_fin_check.py`: independent closed-form
+    cross-check (pure Ackeret 2D fins + slender-body potential, no crossflow)
+    at Mach 2.5, CG 1.6084 m.
+- **Body crossflow linearization corrected (orchestrator review, same
+  session).** The first-pass buildup folded the nonlinear Allen-Perkins
+  crossflow term (∝ sin²α) into the linear CN_α buildup using the *tangent*
+  slope (∝ sin2α) and then divided by α_ref a second time, inflating
+  CN_α_body to ~46 /rad at Mach 2.5 (physically absurd — it implied body-alone
+  CN ≈ 3.3 at 4° trim, ~30× too high, and dominated the fins). Fixed to the
+  *secant* slope δCN(α_ref)/α_ref = η·Cdc·(A_plan/A_ref)·sin²(α_ref)/α_ref,
+  which makes the combined CP the α_ref CP (RASAero/DATCOM convention).
+  Corrected CN_α_body ≈ 3.56 /rad (2.0 potential + 1.56 crossflow), fins
+  dominate as physically expected.
+- **DATCOM vs Ackeret sign agreement at Mach 2.5, CG 1.6084 m (corrected):**
+  - DATCOM static margin: **+11.92 cal** (VALID regime).
+  - Ackeret static margin: +12.29 cal.
+  - **SIGNS AND MAGNITUDES AGREE** (both positive/stable, within ~3%; the
+    ~0.4 cal gap is the crossflow + fin-body interference + tip correction
+    that Ackeret omits).
+- **Static margin RANGE at Mach 2.5 (DATCOM, CG sweep 1.40–2.20 m):**
+  **+8.92 to +12.92 cal** (all positive, stable across the entire CG sweep).
+- **Caveat — magnitude, not just sign, still needs SU2/CFD.** Both analytical
+  methods here share the same large-aft-fin linear-lifting-surface basis, so
+  their agreement does not resolve the Teltik 2024 CFD sign-flip concern
+  (A15: CP implied −2.75 cal at Mach 2.5). SU2 RANS is the intended tie-breaker
+  and is BLOCKED_BY_ENVIRONMENT this session — run locally. This overstable
+  result is also conditional on fins.span_m=0.550 (MODERATE confidence; if the
+  true span is ~0.127 m the picture changes entirely).
+- **Supersonic fin CP shift:** The DATCOM-class method places the supersonic
+  fin CP at ~0.50 MAC (mid-chord, uniform load), which sits significantly
+  aft of the Barrowman subsonic fin CP (~0.67 MAC from LE for the same
+  geometry). This aft shift is a key physics difference captured by the
+  DATCOM method and missed by Barrowman.
+- **Test suite:** +9 new tests in `tests/unit/test_stability_datcom_class.py`;
+  full suite 220 passed (was 211 before this session).
+- **Action:** `barrowman_stability.py` is RETAINED for subsonic/low-transonic
+  comparisons and as the historical baseline, but is marked HISTORICAL /
+  OUT-OF-REGIME for Mach > 1.2 via module-level and inline docstring comments.
+  Do NOT use its supersonic output for CDR sign-off.

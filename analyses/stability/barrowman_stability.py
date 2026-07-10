@@ -9,6 +9,30 @@ normal-force-curve slope (informally known in the amateur/professional
 rocketry community as the "Rogers extension" to Barrowman, used e.g. by
 RASAero and OpenRocket to keep CP well-behaved through Mach 1).
 
+HISTORICAL / OUT-OF-REGIME NOTE (supersonic, 2026-07-11)
+---------------------------------------------------------
+The supersonic extension of this module (Mach > 1.2 in
+fin_mach_correction_factor) is RETIRED as the CDR stability gate for the
+ramjet rocket. Reasons:
+  (1) Barrowman theory is only valid to ~Mach 0.7; the Rogers extension
+      to supersonic is an informal rocketry-community approximation, not
+      a validated supersonic method.
+  (2) The ramP fins violate the small-fin/slender-body assumption:
+      exposed fin semi-span 0.550 m vs body diameter 0.200 m => span/diameter
+      = 2.75 (the Barrowman method assumes fins are small perturbations
+      to a slender body).
+
+SUPERSEDED BY (as of 2026-07-11):
+  - analyses.stability.datcom_class_sweep (DATCOM-style supersonic
+    component buildup with Allen-Perkins crossflow and supersonic fin
+    CP at mid-chord).
+  - analyses.stability.ackeret_fin_check (independent closed-form
+    cross-check).
+
+This module is RETAINED for subsonic/low-transonic comparisons and as
+the historical baseline. Do NOT use its supersonic output (Mach > 1.2)
+for CDR sign-off.
+
 Theory references
 ------------------
 - Barrowman, J. S. and Barrowman, J. A., *The Theoretical Prediction of
@@ -313,6 +337,16 @@ def fin_cn_alpha_base_and_cp(geometry: RocketGeometry) -> tuple[float, float]:
 
 def fin_mach_correction_factor(mach: float) -> float:
     """Rogers-extended compressibility correction on fin CN_alpha.
+
+    HISTORICAL / OUT-OF-REGIME NOTE (supersonic branch, 2026-07-11):
+    The supersonic branch (Mach > 1.2) is RETIRED as the CDR gate for
+    the ramjet rocket because:
+      (1) Barrowman theory is only valid to ~Mach 0.7.
+      (2) The ramP fins violate the small-fin/slender-body assumption:
+          fin semi-span 0.550 m vs body diameter 0.200 m => span/diameter = 2.75.
+    SUPERSEDED BY: datcom_class_sweep.py (DATCOM-style supersonic buildup) +
+    ackeret_fin_check.py (independent cross-check).
+    DO NOT use this function's supersonic output (Mach > 1.2) for CDR sign-off.
 
     Anchored at 1.0 for ``mach -> 0`` (matching the incompressible
     Barrowman fin formula):
