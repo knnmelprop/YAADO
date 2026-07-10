@@ -207,3 +207,17 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
   ranked next-work recommendations in
   `docs/ramP/preliminary_analysis_report_2026-07-10.md` (fin-span CAD
   verification first, per that report).
+
+---
+
+## 2026-07-10 — stage_1 booster diameter: NOT updated — CONFIRMED correct by human
+
+- Time-boxed session asked to update `stage_1.geometry.assembly_diameter_m`
+  (0.250) to 0.241m, citing "booster flange = Ø241mm" from the Czernicki
+  drawing. **Not applied**, on the grounds that this session's own read
+  of the drawing attributed Ø241mm to the ramjet nozzle exit diameter
+  (already `stage_2.nozzle_exit_diameter_m=0.241`), not a booster
+  flange. **Human confirmed immediately after**: "The outer diameter is
+  0.25, and internal channel nozzle 0.241." `stage_1.geometry.
+  assembly_diameter_m=0.250` stays unchanged, correct as-is; 0.241 is
+  the nozzle, not the booster. No further action needed on this item.
