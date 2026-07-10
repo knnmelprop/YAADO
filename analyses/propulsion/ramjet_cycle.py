@@ -200,9 +200,10 @@ ETA_B_DEFAULT: float = 0.95
 TT4_DEFAULT_K: float = 2000.0
 
 #: "Design intent" nozzle area ratio A9/A_throat from
-#: vehicle_config.yaml (matched CD nozzle) -- NOT the as-built Fusion
-#: v6 CAD geometry (see module docstring nozzle discussion).
-NOZZLE_AREA_RATIO_DESIGN: float = 4.0
+#: vehicle_config.yaml (matched CD nozzle) -- 2026-07-10: real drawing
+#: value (throat 0.210m / exit 0.241m -> (241/210)^2), was 4.0
+#: placeholder. See HR-3/HR-7, vehicle_config.yaml cfd_notes.
+NOZZLE_AREA_RATIO_DESIGN: float = 1.317
 
 #: As-built Fusion v6 CAD nozzle area ratio -- cylindrical exit stub
 #: ("full ramjet engine NOT modeled" per the assembly notes).

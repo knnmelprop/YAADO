@@ -121,11 +121,17 @@ def test_prandtl_glauert_ackeret_correction_supersonic_finite_positive() -> None
 
 def test_neutral_span_found_finite_and_less_than_yaml_span(geometry) -> None:
     """A neutral-stability (SM_cal = 0) fin span must exist, be finite,
-    and be smaller than the current YAML fin span (0.6685 m) -- i.e. the
-    rocket would need *less* fin than currently specified to reach
-    neutral stability at Ma 2.5, consistent with
-    docs/ramP/stability_reconciliation.md's independently-derived ~0.139 m
-    figure at the same Mach.
+    and be smaller than the current YAML fin span (0.550 m as of
+    2026-07-10) -- i.e. the rocket would need *less* fin than currently
+    specified to reach neutral stability at Ma 2.5.
+
+    2026-07-10: body diameter dropped from 0.250 m (Fusion) to 0.200 m
+    (drawing-verified, see vehicle_config.yaml cfd_notes), which changes
+    the body's CN_alpha/CP per Barrowman theory and therefore legitimately
+    changes this result -- NOT a code bug. The old cross-check value
+    (~0.1391 m) came from docs/ramP/stability_reconciliation.md, computed
+    under the old 0.250 m geometry via the same compute_stability_at_mach()
+    code path; that doc is now stale and needs re-running, not this test.
     """
     neutral_span_m, variant = find_neutral_span_m(geometry)
 
@@ -134,10 +140,9 @@ def test_neutral_span_found_finite_and_less_than_yaml_span(geometry) -> None:
     assert neutral_span_m < geometry.fin_span_m
     assert isinstance(variant, str) and len(variant) > 0
 
-    # Cross-check: the reconciliation doc independently found ~0.1391 m
-    # for the *basic* Barrowman curve at Ma 2.5, calling the same
-    # compute_stability_at_mach() code path.
-    assert neutral_span_m == pytest.approx(0.1391, rel=0.02)
+    # Cross-check: recomputed under the 2026-07-10 geometry update
+    # (body diameter 0.200 m). Old value under 0.250 m was ~0.1391 m.
+    assert neutral_span_m == pytest.approx(0.1151, rel=0.02)
 
 
 def test_csv_output_has_all_ten_required_columns(geometry, tmp_path) -> None:
