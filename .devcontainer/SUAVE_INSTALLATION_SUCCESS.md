@@ -22,7 +22,13 @@ The SUAVE package installation in the GitHub Codespace environment has been succ
 
 ## Current Configuration
 
-### devcontainer.json
+> **Superseded 2026-07-10 (Phase 3):** this file documents the original
+> SUAVE-tutorial-era devcontainer, back when SUAVE lived at `trunk/`. Phase 1
+> removed `trunk/`; Phase 2 added SUAVE back as a pinned submodule at
+> `external/suave/`. The snippet below is kept for historical record — see
+> the real `.devcontainer/devcontainer.json` for the current config.
+
+### devcontainer.json (historical, pre-Phase-1)
 ```json
 {
   "name": "SUAVE Tutorial Environment (Git LFS + Codespaces Optimized)",
@@ -59,7 +65,7 @@ python3.9 -c "import numpy, scipy, matplotlib, sklearn, plotly; print('✓ Deps 
 
 If installation fails in the future, check:
 1. Dependencies are pre-installed in the Docker image
-2. Installation runs from the correct directory (`trunk/`)
+2. Installation runs from the correct directory (`external/suave/`)
 3. `setup.py` doesn't call `import_tests()` during installation
 4. Python paths are correctly configured
 

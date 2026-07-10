@@ -5,7 +5,7 @@
 - Base image: devcontainers Python 3.9
 - Dependencies: Installed globally from `.devcontainer/requirements.txt`
 - Git LFS initialized on container create
-- SUAVE installed in editable mode via `cd trunk && python3.9 setup.py develop`
+- SUAVE installed in editable mode via `cd external/suave && python3.9 setup.py develop`
 
 ## Why this works
 
