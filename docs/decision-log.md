@@ -180,3 +180,30 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
     terms (badges, "Simple Setup" for standalone SUAVE, contributor/
     citation blocks) — a clarifying note was added, but the full identity
     rewrite ADR-002 flagged as a follow-up was not done this session.
+
+---
+
+## 2026-07-10 — Checkpoint: first PR opened
+
+- **Phase:** PR bootstrap for `knnmelprop/iade` (post Phase 1-5 +
+  SU2/OpenVSP addition + preliminary analysis run).
+- **Branch / HEAD:** `claude/iade-repo-restructure-00rrro` @ `012f1af`.
+- **Files changed this session outside git plumbing:** none beyond what
+  was already committed in prior entries — this checkpoint's own work was
+  bootstrapping `main` (empty orphan → reset to real root commit
+  `2072b0c`, force-pushed) and opening the PR. `agents/memory.md` and this
+  file were edited to record it (this commit).
+- **Tests:** 208 passed, 0 failed — matches baseline, re-confirmed
+  immediately before PR creation.
+- **PR:** [`knnmelprop/iade#1`](https://github.com/knnmelprop/iade/pull/1)
+  (draft), base `main` @ `2072b0c`, head `claude/iade-repo-restructure-00rrro`
+  @ `012f1af`. 194 files changed, +39,328/-10.
+- **Untracked leftovers:** none — working tree fully clean
+  (`git status --porcelain` empty except this commit's own edits;
+  `runs/` correctly gitignored, not a concern).
+- **Next human action:** review PR #1 (ADRs, decision log, preliminary
+  analysis report), then decide on the still-open items: default-branch/
+  branch-protection setup on GitHub, real CODEOWNERS handles, and the
+  ranked next-work recommendations in
+  `docs/ramP/preliminary_analysis_report_2026-07-10.md` (fin-span CAD
+  verification first, per that report).
