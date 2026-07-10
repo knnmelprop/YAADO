@@ -652,7 +652,7 @@ def main() -> None:
     this_dir = Path(__file__).resolve().parent
     burnout_json_path = this_dir.parent / "analyses" / "trajectory" / "burnout_state.json"
     output_json_path = this_dir / "staged_mission_profile.json"
-    cruise_summary_md_path = this_dir.parent / "doc" / "ramP" / "cruise_summary_night3.md"
+    cruise_summary_md_path = this_dir.parent / "docs" / "ramP" / "cruise_summary_night3.md"
 
     burnout_state = load_burnout_state_from_json(burnout_json_path)
     mission = build_ramp_staged_mission(burnout_state)
