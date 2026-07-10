@@ -16,7 +16,7 @@ Two solve paths share the exact same output JSON schema:
        ``SUAVE.Analyses.Mission.Segments`` submodule resolve; this
        container ships an EMPTY namespace-package stub named ``SUAVE``
        at the repo root (``/SUAVE/version.py`` only, no ``Analyses``
-       subpackage) that shadows the real ``trunk/SUAVE`` fork on
+       subpackage) that shadows the real ``external/suave/trunk/SUAVE`` fork on
        ``sys.path``, so ``import SUAVE`` alone succeeds but
        ``from SUAVE.Analyses...`` raises :class:`ModuleNotFoundError`
        (a subclass of :class:`ImportError`) -- this is deliberately
@@ -59,7 +59,7 @@ Both paths emit the common schema::
     }
 
 References:
-    SUAVE mission-segment structure: ``trunk/SUAVE/Analyses/Mission/Segments/``
+    SUAVE mission-segment structure: ``external/suave/trunk/SUAVE/Analyses/Mission/Segments/``
     (read-only reference fork; ``Climb/Constant_Mach_Linear_Altitude.py``,
     ``Cruise/Constant_Mach_Constant_Altitude.py``).
     Night-3 nominal cruise design point and thrust-drag pipeline:
@@ -149,7 +149,7 @@ def _probe_suave_available() -> bool:
     A plain ``import SUAVE`` is insufficient here: this container's repo
     root has an EMPTY namespace-package stub directory named ``SUAVE``
     (``/SUAVE/version.py`` only) that shadows the real reference fork in
-    ``trunk/SUAVE`` on ``sys.path``, so ``import SUAVE`` alone succeeds
+    ``external/suave/trunk/SUAVE`` on ``sys.path``, so ``import SUAVE`` alone succeeds
     without error yet exposes none of the real mission-segment classes.
     This probe additionally attempts the specific submodule import the
     SUAVE mission path actually needs
@@ -161,7 +161,7 @@ def _probe_suave_available() -> bool:
         ``True`` only if SUAVE's mission-segment API is genuinely usable.
 
     Reference:
-        SUAVE package layout, ``trunk/SUAVE/Analyses/Mission/Segments/``
+        SUAVE package layout, ``external/suave/trunk/SUAVE/Analyses/Mission/Segments/``
         (read-only reference fork).
     """
     try:
@@ -221,7 +221,7 @@ def build_mission_suave(
             :func:`build_mission_fallback`.
 
     Reference:
-        SUAVE mission-segment API, ``trunk/SUAVE/Analyses/Mission/Segments/``
+        SUAVE mission-segment API, ``external/suave/trunk/SUAVE/Analyses/Mission/Segments/``
         (read-only reference fork; this repo's container does not have a
         functional top-level ``SUAVE`` package, so this path is not
         exercised here -- see :func:`_probe_suave_available`).
@@ -231,7 +231,7 @@ def build_mission_suave(
             "SUAVE mission-segment API is not importable in this container "
             "(see _probe_suave_available docstring: only an empty namespace "
             "-package stub named SUAVE is on sys.path, not the real "
-            "trunk/SUAVE fork); use build_mission_fallback() instead."
+            "external/suave/trunk/SUAVE fork); use build_mission_fallback() instead."
         )
 
     try:  # pragma: no cover - unreachable while SUAVE_AVAILABLE is False
@@ -290,7 +290,7 @@ def _suave_segment_to_schema(segment: Any) -> dict[str, float | str]:
 
     Reference:
         SUAVE segment ``conditions`` data structure,
-        ``trunk/SUAVE/Analyses/Mission/Segments/Conditions``.
+        ``external/suave/trunk/SUAVE/Analyses/Mission/Segments/Conditions``.
     """  # pragma: no cover - unreachable while SUAVE_AVAILABLE is False
     conditions = segment.conditions
     return {
