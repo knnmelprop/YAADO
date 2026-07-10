@@ -30,6 +30,7 @@
   "nozzle_area_ratio_model": 2.440388412883607,
   "nozzle_area_ratio_design_yaml": 4.0,
   "nozzle_area_ratio_cad_cylindrical": 1.0,
+  "eta_inlet_source": "multi_cone_4preset_chain",
   "station_table": [
     {
       "station": "1_combustor_inlet",
