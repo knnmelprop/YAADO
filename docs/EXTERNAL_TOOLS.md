@@ -2,10 +2,10 @@
 
 Every external dependency `iade` relies on, how it's tracked, and who owns
 keeping it current. See `docs/ADR/ADR-002-external-dependencies.md` for the
-reasoning behind each entry. **Status as of 2026-07-10: none of the
-submodules below have actually been added to the working tree yet** — this
-table is the Phase 2 plan, pending a separate explicit approval to run
-`git submodule add`.
+reasoning behind each entry. **Status as of 2026-07-10: SUAVE and pyCycle
+submodules have been added and pinned** (human-approved separately from
+the general Phase 2 go-ahead, per ADR-002's own requirement). AVL, XFOIL,
+SU2, OpenVSP remain deferred, unchanged.
 
 | Tool | Source URL | Pinned ref | Install mode | Update owner | Submodule vs pip-only |
 |---|---|---|---|---|---|
@@ -27,7 +27,14 @@ table is the Phase 2 plan, pending a separate explicit approval to run
   `droneEnv`'s `docs/assumptions.md` A6: "No defined Project Lead/reviewer
   exists... agent never invents one"). A human needs to assign real owners
   before this table is considered complete.
-- Once submodules are actually added, `git submodule update --init
-  --recursive` becomes a required post-clone step — this needs to be added
-  to `scripts/bootstrap_submodules.sh` (Phase 3 deliverable, not yet
-  written) and documented in the environment-mode docs.
+- `git submodule update --init --recursive` is now a required post-clone
+  step, since `external/suave` and `external/pycycle` are real gitlinks.
+  Wired into `scripts/bootstrap_submodules.sh` (Phase 3) and the
+  environment-mode docs.
+- Neither submodule's Python package is installed into the environment by
+  adding the submodule alone — SUAVE needs `external/suave` added to
+  `PYTHONPATH` (or `pip install -e external/suave`, unverified — SUAVE
+  2.5.2 targets an older Python/setuptools combination per its own
+  `INSTALL`/`setup.py`, not tested in this run) and pyCycle's runtime
+  install is the separate `om-pycycle==4.1.2` pip entry in
+  `requirements.txt`, not the submodule.
