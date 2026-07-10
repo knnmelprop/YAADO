@@ -1,0 +1,22 @@
+# MELprop-IADE CODEOWNERS — DRAFT
+#
+# All handles below are [TBD-HUMAN] placeholders. No project-lead/reviewer
+# role is defined anywhere in this repo's docs (droneEnv's
+# docs/assumptions.md A6: "No defined Project Lead/reviewer exists...
+# agent never invents one") — this file must not be treated as enforcing
+# review requirements until real GitHub handles are filled in AND branch
+# protection on the default branch is configured to require CODEOWNERS
+# review (both are human/admin actions, see docs/BRANCHING.md Open Items).
+#
+# Scope mirrors CLAUDE.md's subagent file-scope table.
+
+analyses/aerodynamics/ @TBD-HUMAN
+analyses/aero/         @TBD-HUMAN
+analyses/propulsion/   @TBD-HUMAN
+src/schemas/           @TBD-HUMAN
+vehicles/              @TBD-HUMAN
+workflows/              @TBD-HUMAN
+analyses/trajectory/   @TBD-HUMAN
+docs/                  @TBD-HUMAN
+external/               @TBD-HUMAN
+.github/                @TBD-HUMAN
