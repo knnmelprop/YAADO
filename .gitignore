@@ -43,7 +43,8 @@ nosetests.xml
 
 # local directories
 /workspace
-
+.idea
+ 
 # latex
 *.aux
 *.log
@@ -72,7 +73,10 @@ nosetests.xml
 *.png
 
 ide/Wing/SUAVE.wpr
-/doc/html
-/doc/latex
+/docs/html
+/docs/latex
 
-!/doc/suave_logo.png
+!/docs/suave_logo.png
+
+# Generated solver run configs/outputs (SU2 config generator writes here)
+/runs/

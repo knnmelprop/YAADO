@@ -1,0 +1,24 @@
+# MELprop-IADE conda environment (Mode 3 of 3 — see docs/environment-native.md
+# and .devcontainer/ for the other two documented modes).
+#
+# UNVERIFIED as of 2026-07-10: this file has not been run through
+# `conda env create` in this session (no conda available in this
+# container). Package list is derived from requirements.txt (itself
+# verified via pip this session) plus SUAVE's known numpy/scipy pins from
+# .devcontainer/requirements.txt — translated to conda syntax, not
+# independently tested. Report back and correct this file once someone
+# actually runs it.
+name: iade
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pydantic>=2
+  - pyyaml
+  - pytest
+  - scipy
+  - matplotlib
+  - numpy>=1.21.6,<1.25.0   # SUAVE 2.5.2 compatibility range, unverified under conda
+  - pip
+  - pip:
+      - om-pycycle==4.1.2
