@@ -235,3 +235,47 @@ Append-only; maintained by the orchestrator.
   staged on the working branch. Caught before committing — `git status`
   after any `git add -A` workaround, every time, especially right before
   a commit.
+
+## 2026-07-10 — time-boxed 30min session (NOZZLE_AREA_RATIO_DESIGN propagation + drawing data staging)
+
+DONE (5 small commits, all pushed, 211/211 green throughout):
+- `7c884ea` — propagated the real nozzle_area_ratio=1.317 into
+  `analyses/propulsion/ramjet_cycle.py`'s `NOZZLE_AREA_RATIO_DESIGN`
+  constant (was still 4.0 despite the YAML already being updated —
+  only 2 files read it, low-risk change). Fixed the one test asserting
+  the old 4.0 value and a stale hardcoded print label in
+  `combustor_nozzle_cycle.py` that still said "YAML design 4.0".
+- `e2d07ed` — flagged `fins.span_m=0.550`'s confidence level inline in
+  `vehicle_config.yaml` (layout-inferred, not a clear callout, needs
+  human re-check against the PDF before CDR).
+- `64f090a` → `92fe347` — `stage_1.geometry.assembly_diameter_m`
+  (booster diameter): did NOT apply a requested change to 0.241m,
+  since this session's own read of the drawing attributed 0.241m to
+  the ramjet nozzle exit, not a booster flange. Human confirmed
+  immediately after: "outer diameter is 0.25, internal channel nozzle
+  0.241" — booster diameter stays 0.250, correct as-is. Resolved.
+- `342140e` — staged the drawing's inlet-cone (42°/60°, centerbody
+  85×62mm) and nozzle-station data (convergence/throat/exit stations)
+  in a new `vehicles/ramjet_rocket/cad_reference/drawing_dimensions_raw.yaml`
+  file rather than inventing schema fields under time pressure. Note:
+  the task instructions said `vehicle/cad_reference/...` (singular) —
+  used the repo's actual established `vehicles/` (plural) convention
+  instead, since `vehicle/` doesn't exist here (same mismatch pattern
+  flagged earlier this session in an untrusted prompt).
+
+NOT DONE / DEFERRED: nothing — all 5 planned tasks completed within
+the time box, no red-test items to defer.
+
+NEXT SESSION PRIORITY: design a proper schema section (e.g.
+`InletGeometry`/`NozzleStations` Pydantic models) for the staged raw
+drawing data in `cad_reference/drawing_dimensions_raw.yaml`, then wire
+it into the analyses that could use it (multi-cone inlet design vs.
+this drawing's as-built inlet geometry comparison).
+
+OPEN RISK: `docs/ramP/preliminary_analysis_report_2026-07-10.md` is
+STALE — the full analysis suite (stability, drag polar, inlet
+performance, operational envelope, staged mission) has not been
+re-run against the new geometry (body diameter 0.200m, fin sweep
+29.98°, nozzle area_ratio 1.317) beyond what the pytest suite itself
+touches. Every number in that report reflects the pre-geometry-update
+vehicle.
