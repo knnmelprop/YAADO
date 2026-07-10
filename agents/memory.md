@@ -235,3 +235,156 @@ Append-only; maintained by the orchestrator.
   staged on the working branch. Caught before committing — `git status`
   after any `git add -A` workaround, every time, especially right before
   a commit.
+
+## 2026-07-10 — time-boxed 30min session (NOZZLE_AREA_RATIO_DESIGN propagation + drawing data staging)
+
+DONE (5 small commits, all pushed, 211/211 green throughout):
+- `7c884ea` — propagated the real nozzle_area_ratio=1.317 into
+  `analyses/propulsion/ramjet_cycle.py`'s `NOZZLE_AREA_RATIO_DESIGN`
+  constant (was still 4.0 despite the YAML already being updated —
+  only 2 files read it, low-risk change). Fixed the one test asserting
+  the old 4.0 value and a stale hardcoded print label in
+  `combustor_nozzle_cycle.py` that still said "YAML design 4.0".
+- `e2d07ed` — flagged `fins.span_m=0.550`'s confidence level inline in
+  `vehicle_config.yaml` (layout-inferred, not a clear callout, needs
+  human re-check against the PDF before CDR).
+- `64f090a` → `92fe347` — `stage_1.geometry.assembly_diameter_m`
+  (booster diameter): did NOT apply a requested change to 0.241m,
+  since this session's own read of the drawing attributed 0.241m to
+  the ramjet nozzle exit, not a booster flange. Human confirmed
+  immediately after: "outer diameter is 0.25, internal channel nozzle
+  0.241" — booster diameter stays 0.250, correct as-is. Resolved.
+- `342140e` — staged the drawing's inlet-cone (42°/60°, centerbody
+  85×62mm) and nozzle-station data (convergence/throat/exit stations)
+  in a new `vehicles/ramjet_rocket/cad_reference/drawing_dimensions_raw.yaml`
+  file rather than inventing schema fields under time pressure. Note:
+  the task instructions said `vehicle/cad_reference/...` (singular) —
+  used the repo's actual established `vehicles/` (plural) convention
+  instead, since `vehicle/` doesn't exist here (same mismatch pattern
+  flagged earlier this session in an untrusted prompt).
+
+NOT DONE / DEFERRED: nothing — all 5 planned tasks completed within
+the time box, no red-test items to defer.
+
+NEXT SESSION PRIORITY: design a proper schema section (e.g.
+`InletGeometry`/`NozzleStations` Pydantic models) for the staged raw
+drawing data in `cad_reference/drawing_dimensions_raw.yaml`, then wire
+it into the analyses that could use it (multi-cone inlet design vs.
+this drawing's as-built inlet geometry comparison).
+
+OPEN RISK: `docs/ramP/preliminary_analysis_report_2026-07-10.md` is
+STALE — the full analysis suite (stability, drag polar, inlet
+performance, operational envelope, staged mission) has not been
+re-run against the new geometry (body diameter 0.200m, fin sweep
+29.98°, nozzle area_ratio 1.317) beyond what the pytest suite itself
+touches. Every number in that report reflects the pre-geometry-update
+vehicle.
+
+## DETAILED HANDOFF — 2026-07-10 (documentation recovery pass, no engineering)
+
+Read-only forensic recovery of the prior time-boxed session's detail. NO code/test
+changes in this pass — memory.md append only. All values below are verified against
+live repo state, not recalled.
+
+### 0. STATE AS VERIFIED (and where it contradicts the handoff request)
+
+- HEAD = `70b59a7`, working tree CLEAN, HEAD == origin/(branch). Confirmed.
+- The 6 named SHAs are present, in the claimed order:
+  7c884ea → e2d07ed → 64f090a → 92fe347 → 342140e → 70b59a7. Confirmed.
+- **CONTRADICTION #1:** branch is **10 commits ahead of origin/main, not 6.**
+  Below the 6 timeboxed commits sit 4 more (also unmerged to main):
+  `8e16536` (apply drawing body/fin geometry), `479a985` (add nozzle throat/exit
+  diameters + schema), `79c02d7` (archival ramjet-iter-1 computations — this is
+  where the large `data/RamP_analitical_computations/**` MATLAB/xlsx/docx tree
+  entered), `b96c648` (Night-6 Fable kickoff prompt). Any "bring the 6 commits
+  to main" plan must account for all 10.
+- **CONTRADICTION #2:** the request speculated a `PENDING_area_ratio_propagation.md`
+  might exist. It does NOT (searched whole repo ex-external). The area-ratio
+  propagation is DONE, not pending — see §2/§3C.
+- **GOTCHA (record this):** `python -m pytest -q` from repo ROOT crashes with
+  INTERNALERROR / "caught unexpected SystemExit" — pytest collects
+  `external/su2/**/test cases/**` meson fixtures. The real project suite is
+  `python -m pytest tests/` → **211 passed, 1 warning** (XFOIL supersonic
+  fallback warning, expected). Always scope to `tests/`.
+
+### 1. PER-COMMIT BREAKDOWN (6 timeboxed commits)
+
+- **7c884ea** `fix: propagate real nozzle_area_ratio=1.317` — VALUE change.
+  `analyses/propulsion/ramjet_cycle.py`: constant `NOZZLE_AREA_RATIO_DESIGN`
+  4.0 → 1.317 (this constant DRIVES calc: used at line 430 as
+  `self._nozzle_area_ratio` and line 446 as a default param, not just a label).
+  `analyses/propulsion/combustor_nozzle_cycle.py`: stale hardcoded print label
+  "YAML design 4.0" → `{...design_yaml:.3f}` (reads the value, no longer literal).
+  `tests/unit/test_propulsion_combustor_nozzle.py`: expected `nozzle_area_ratio_
+  design_yaml` 4.0 → 1.317. Test-change classification: **(a) stale reference
+  corrected** — the source of truth (the constant) was a genuine placeholder that
+  was fixed; the test asserted the old placeholder and was updated to match the
+  now-correct value. NOT a caught production regression.
+- **e2d07ed** `docs: flag fin_span confidence` — DOC/comment only.
+  `vehicles/ramjet_rocket/vehicle_config.yaml` fins.span_m comment gained a
+  MODERATE-CONFIDENCE / REQUIRES-HUMAN-RE-VERIFICATION block. **No value change**
+  (span_m stays 0.550).
+- **64f090a** `docs: booster diameter NOT applied` — DOC only (+17 lines
+  docs/decision-log.md). Logged the doubted-premise decision. No config touched.
+- **92fe347** `docs: confirm booster diameter correct` — DOC only (net -3 lines,
+  rewrote the same decision-log entry to "CONFIRMED correct by human").
+- **342140e** `docs: stage inlet/nozzle drawing data` — STRUCTURE (new file, +34).
+  `vehicles/ramjet_rocket/cad_reference/drawing_dimensions_raw.yaml` created —
+  raw staging, read by nothing yet.
+- **70b59a7** `docs: session wrap-up` — DOC only (+44 lines agents/memory.md).
+
+### 2. THREE DEVIATIONS
+
+- **A. Booster Ø0.241 vs Ø0.250.** Distinction introduced in `64f090a`, confirmed
+  in `92fe347`. Verbatim from docs/decision-log.md (92fe347 state): the session's
+  own drawing read "attributed Ø241mm to the ramjet nozzle exit diameter (already
+  `stage_2.nozzle_exit_diameter_m=0.241`), not a booster flange. Human confirmed
+  immediately after: 'The outer diameter is 0.25, and internal channel nozzle
+  0.241.'" → `stage_1.geometry.assembly_diameter_m=0.250` stays; 0.241 is the
+  nozzle. Resolved, no action.
+- **B. Path structure.** `vehicles/ramjet_rocket/cad_reference/` (plural) is the
+  sole config location. Singular `vehicle/` dirs DO exist but are UNRELATED:
+  `student_competition/droniada_sztafeta/vehicle` and
+  `student_competition/turbo_aircraft/vehicle` — not duplicates of the ramjet
+  config, no reconciliation needed.
+- **C. NOZZLE_AREA_RATIO_DESIGN.** grep across repo: defined once
+  (`ramjet_cycle.py:206 = 1.317`), consumed at ramjet_cycle.py 430/446/723 and
+  combustor_nozzle_cycle.py 119/637, referenced in test comment line 186. Every
+  occurrence is **(i) already corrected** to 1.317. No stale 4.0 anywhere, no
+  pending-flag file.
+
+### 3. FIN-SPAN TRANSCRIPTION
+
+Numbers near the tail/fin station on the Czernicki drawing that were weighed:
+`550`, `127`, and the `29.98deg` sweep callout. Chosen: span_m = 0.550 (reading
+"550" as the tail-area radial/span dimension), because it sits at the tail-fin
+station alongside the sweep callout. Ambiguity: the extraction gives no dimension
+lines tying labels to features, so "127" might be the true fin radial span (with
+550 = something else, e.g. tail-section length or across-fins width). chord_root/
+chord_tip were LEFT at Fusion values (0.1768) rather than remapped to "127".
+**Human action:** open the Czernicki "CFD Simplified Single Rocket Model" PDF
+(sheet 1/1) at the tail view; check whether the 550 arrow terminates at the fin
+tip/centerline (→ span) or at the body/hull edge or across the full tail (→ not
+span), and whether 127 is the fin-alone projection. Confirm before CDR.
+
+### 4. GOLDEN-FILE AUDIT
+
+Two committed reference CSVs differ from origin/main:
+`analyses/aero/results/SM_sensitivity_fin_span.csv` and
+`analyses/aero/results/fin_polar_ackeret_vs_avl.csv`. **Both were regenerated in
+`8e16536` (apply drawing body/fin geometry), NOT in any of the 6 timeboxed
+commits** — so they reflect the drawing geometry (body 0.200 m, fin sweep 29.98°)
+as of that commit. CAVEAT: they predate the 7c884ea area-ratio fix, but that fix
+is propulsion-side and does not feed these two aero CSVs, so no staleness from it.
+They ARE part of the broader "re-run all geometry-dependent analyses" debt (§5).
+
+### 5. CONSOLIDATED TODO / PENDING
+
+| Item | Plik | Priorytet | Blocked by human? | Wysiłek |
+|---|---|---|---|---|
+| Re-run ALL geometry-dependent analyses vs 0.200m/29.98°/1.317 geometry (Barrowman stability, drag polar, fin polar, inlet perf, operational envelope, staged mission) | analyses/**, docs/ramP/preliminary_analysis_report_2026-07-10.md | HIGH | No (scripts self-run) | M |
+| Human re-verify fins.span_m=0.550 vs PDF (see §3) | vehicle_config.yaml | HIGH | YES | S (human) |
+| Design Pydantic schema for inlet-cone/nozzle-station data, wire in | src/schemas/vehicle_schema.py, drawing_dimensions_raw.yaml | MED | No | M |
+| Review body.max_diameter_m=0.639 for self-consistency w/ smaller fin span | vehicle_config.yaml | MED | Maybe | S |
+| area_ratio propagation | — | DONE (§3C) | — | — |
+| Booster Ø0.250 vs nozzle Ø0.241 | — | DONE (§2A) | — | — |
