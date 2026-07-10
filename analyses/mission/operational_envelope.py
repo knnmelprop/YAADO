@@ -205,8 +205,9 @@ STATUS_UNABLE: str = "UNABLE_TO_SUSTAIN"
 def reference_area_m2(config_path: Path = VEHICLE_CONFIG_PATH) -> float:
     """Read the body diameter from the vehicle config and derive ``Aref``.
 
-    ``Aref = pi * d^2 / 4`` using ``body.diameter_m`` (0.250 m, Fusion-
-    verified). The config is read-only here (never modified).
+    ``Aref = pi * d^2 / 4`` using ``body.diameter_m`` (0.200 m as of
+    2026-07-10, drawing-verified — see vehicle_config.yaml cfd_notes).
+    The config is read-only here (never modified).
 
     Args:
         config_path: Path to ``vehicles/ramjet_rocket/vehicle_config.yaml``.

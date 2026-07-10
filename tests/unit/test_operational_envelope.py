@@ -89,10 +89,12 @@ def test_status_matches_net_thrust_sign() -> None:
         assert p.net_thrust_N == pytest.approx(p.Th2_N - p.drag_N)
 
 
-def test_reference_area_matches_body_diameter_0p250m() -> None:
-    """Aref = pi*d^2/4 with the Fusion-verified body diameter 0.250 m."""
+def test_reference_area_matches_body_diameter_0p200m() -> None:
+    """Aref = pi*d^2/4 with the drawing-verified body diameter 0.200 m
+    (updated 2026-07-10 from the Fusion-verified 0.250 m; see
+    vehicles/ramjet_rocket/vehicle_config.yaml cfd_notes."""
     aref_m2 = reference_area_m2()
-    expected_m2 = math.pi * 0.250**2 / 4.0
+    expected_m2 = math.pi * 0.200**2 / 4.0
     assert aref_m2 == pytest.approx(expected_m2, rel=1e-6)
 
 
