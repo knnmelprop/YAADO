@@ -107,3 +107,77 @@ Append-only; maintained by the orchestrator.
   results/combustor_nozzle_results.json (actual
   analyses/propulsion/combustor_nozzle_cycle_results.json) — STEP-0
   verification caught both before delegation.
+
+---
+
+## 2026-07-09/10 — IADE repo-separation (Phases 1–5, `knnmelprop/droneEnv`
+## → `knnmelprop/iade`)
+
+- **New repo, same history depth, much smaller.** `git filter-repo` with
+  an explicit owned-path allowlist took `droneEnv` from 793 commits /
+  124 MB `.git` to 182 commits / 912 KB in the extracted `iade` history.
+  Ran as a dry run against a disposable clone first, validated (pytest,
+  path presence/absence, size/commit sanity), only then pushed — never
+  ran filter-repo against the working repo or the backup mirror.
+- **The owned/removed path lists given up front were incomplete — flag
+  gaps, don't guess.** `student_competition/` (MELprop's own Droniada
+  work) and `conftest.py` (makes `tests/` importable at all) weren't on
+  the literal "owned paths" list but had to be added — dropping either
+  would have destroyed real work or broken every test. `ide/`,
+  `templates/`, `regression/` (311 MB), `appveyor.yml` weren't on the
+  literal "removed" list either but were unambiguously upstream SUAVE
+  baggage. Cross-referencing the actual repo tree against both lists
+  caught this before running anything.
+- **A path-consolidation (`doc/` → `docs/`) touches far more than the
+  moved directory.** 18 external files referenced `doc/...` paths; fixing
+  the move without grepping for cross-references would have left dead
+  links. Also found internal cross-references *inside* the moved files
+  themselves (e.g. `docs/ramP/stability_reconciliation.md` linking to
+  sibling `doc/ramP/...` files) that weren't caught by a naive "files
+  outside doc/ that reference doc/" search — worth grepping the moved
+  tree's own content too, not just external references.
+- **Submodule pins must be verified against real upstream tags, not
+  taken on trust.** SUAVE's pin (tag `2.5.2`) and pyCycle's (tag `4.1.2`)
+  were both confirmed via `git ls-remote --tags` against the actual
+  upstream repos before writing them into ADR-002 — SUAVE's match was by
+  version-string (matching `trunk/setup.py`'s `version = '2.5.2'`), not a
+  full tree diff, and that caveat is recorded rather than glossed over.
+- **A submodule's installable path isn't always the submodule root.**
+  `suavecode/SUAVE` itself has its own internal `trunk/` layout (repo
+  root → `trunk/setup.py` → `trunk/SUAVE/`), so the real path after
+  `git submodule add ... external/suave` is `external/suave/trunk/`, not
+  `external/suave/`. Got this wrong on the first pass (devcontainer,
+  docs, `core/vehicle_factory.py` error message all said
+  `external/suave`) — caught by actually `ls`-ing the submodule after
+  adding it, not by assuming the layout. Fix before trusting any doc that
+  says just `external/suave` for SUAVE's Python package path.
+- **A repo-wide migration breaks operational docs, not just data paths.**
+  `.devcontainer/devcontainer.json`'s `postCreateCommand` still did
+  `cd trunk; python3.9 setup.py develop` after `trunk/` was removed from
+  history — would have failed on next container build. `CLAUDE.md` and
+  every `.claude/agents/*.md` still said "Never modify `trunk/SUAVE/`".
+  These aren't data — they're instructions a future agent session reads
+  and follows, so stale paths there are a live correctness bug, not
+  cosmetic. Caught by an explicit grep-for-`trunk` pass in Phase 5, not
+  by chance.
+- **Untrusted content can arrive mid-task looking authoritative.** A
+  pasted "decision-ready brief" mid-session proposed integrating
+  SU2/OpenVSP immediately with specific version pins, directly
+  contradicting an already-locked human decision to defer all four
+  remaining external tools. Treated its claims as unverified rather than
+  acting on them — the project's "never guess a pinned ref" rule applies
+  just as much to refs arriving pre-packaged in confident-looking prose
+  as to ones an agent would invent itself. Flagged to the human rather
+  than silently executed or silently dropped. Similarly, a duplicate/
+  stale replay of an already-completed Step B instruction arrived later
+  — recognized via HEAD SHA / phase-state mismatch, not re-executed.
+- **Auto-mode permission gates caught real scope creep twice**: adding a
+  remote to a disposable clone before human confirmation, and repointing
+  that remote to a different transport (local proxy → direct HTTPS)
+  without a fresh confirmation for the new channel. Both were legitimate
+  catches, not friction to route around — stopped and asked both times
+  rather than finding a workaround.
+- Every risky/irreversible action (filter-repo execution, the actual push
+  to `knnmelprop/iade`, adding external submodules) got its own explicit
+  confirmation, separate from general "continue" — a broad go-ahead
+  covers sequencing, not each individually-flagged risky step.

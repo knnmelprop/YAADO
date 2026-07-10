@@ -22,7 +22,7 @@ After completing work, append key findings to MEMORY.md: new geometry configurat
 
 ## Constraints (MELprop-specific)
 
-- **Never modify `trunk/SUAVE/`** — it is read-only reference code for the fork.
+- **Never modify `external/suave/`** — it is read-only reference code for the fork.
 - **Never hard-code physical parameters without comment markers** — mark all empirical coefficients and correlation constants with either `# SZACOWANY [source]` (estimated from reference) or `# TODO_PHYSICAL_PARAM [geometry_data]` (placeholder awaiting real vehicle geometry).
 - **Never run AVL, XFOIL, or SU2 binaries** — they are not available in this environment. Generate config files and mock output for testing only; wrap execution in `try/except` with clear `NotImplementedError`.
 - **Every new function** must have:

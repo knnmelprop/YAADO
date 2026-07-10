@@ -32,8 +32,8 @@ SU2, OpenVSP remain deferred, unchanged.
   Wired into `scripts/bootstrap_submodules.sh` (Phase 3) and the
   environment-mode docs.
 - Neither submodule's Python package is installed into the environment by
-  adding the submodule alone — SUAVE needs `external/suave` added to
-  `PYTHONPATH` (or `pip install -e external/suave`, unverified — SUAVE
+  adding the submodule alone — SUAVE needs `external/suave/trunk` added to
+  `PYTHONPATH` (or `pip install -e external/suave/trunk`, unverified — SUAVE
   2.5.2 targets an older Python/setuptools combination per its own
   `INSTALL`/`setup.py`, not tested in this run) and pyCycle's runtime
   install is the separate `om-pycycle==4.1.2` pip entry in

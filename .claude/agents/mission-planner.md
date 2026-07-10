@@ -22,7 +22,7 @@ After completing work, append key findings to MEMORY.md: new mission profiles te
 
 ## Constraints (MELprop-specific)
 
-- **Never modify `trunk/SUAVE/`** — it is read-only reference code for the fork.
+- **Never modify `external/suave/`** — it is read-only reference code for the fork.
 - **Never hard-code physical parameters without comment markers** — mark all atmospheric constants, gravity, and ISA corrections with either `# SZACOWANY [source]` (estimated from reference) or `# TODO_PHYSICAL_PARAM [mission_spec]` (placeholder awaiting validated mission profile).
 - **Never run external solvers (OpenMDAO optimizers, Trajectory solvers) if unavailable** — build the Problem structure and provide mock solutions for testing; wrap in `try/except` with clear `NotImplementedError`.
 - **Every new function** must have:
