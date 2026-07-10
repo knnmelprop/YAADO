@@ -1,9 +1,10 @@
 # MELprop-IADE | core.vehicle_factory | v0.1.0
 """Factory translating MELprop-IADE vehicle configs into SUAVE vehicles.
 
-SUAVE lives in ``trunk/SUAVE`` of this repository and may not be
-installed in every environment, so the import is guarded — the factory
-raises a clear error only when SUAVE is actually needed.
+SUAVE lives in ``external/suave`` (git submodule, pinned tag 2.5.2 — see
+docs/EXTERNAL_TOOLS.md) and may not be installed in every environment, so
+the import is guarded — the factory raises a clear error only when SUAVE
+is actually needed.
 """
 
 from __future__ import annotations
@@ -55,7 +56,9 @@ class VehicleFactory:
         """
         if not SUAVE_AVAILABLE:
             raise RuntimeError(
-                "SUAVE is not importable; add trunk/ to PYTHONPATH or install it"
+                "SUAVE is not importable; run `git submodule update --init` "
+                "and add external/suave/trunk to PYTHONPATH, or `pip install "
+                "-e external/suave/trunk`"
             )
         vehicle_type = getattr(config, "vehicle_type", None)
         if vehicle_type not in self._builders:
