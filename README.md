@@ -1,7 +1,18 @@
 
-[SUAVE: An Aerospace Vehicle Environment for Designing Future Aircraft](http://suave.stanford.edu)
+MELprop-IADE
 =======
 
+> **Note (Phase 1/2, 2026-07-10):** this repo was extracted from a SUAVE
+> fork (`knnmelprop/droneEnv`) into a standalone MELprop-IADE repo. SUAVE
+> is now a pinned external dependency (`external/suave/`, submodule, see
+> `docs/EXTERNAL_TOOLS.md`), not this repo's identity — the SUAVE-authored
+> content below (badges, citation, contributor list) describes the
+> upstream project MELprop-IADE depends on and builds attribution for it,
+> not this repo itself. See "Stan projektu" further down for the
+> MELprop-IADE project description.
+
+[SUAVE: An Aerospace Vehicle Environment for Designing Future Aircraft](http://suave.stanford.edu)
+-------
 
 SUAVE is a multi-fidelity conceptual design environment.
 Its purpose is to credibly produce conceptual-level design conclusions
@@ -47,7 +58,7 @@ Contributing Institutions
 * Embraer ([www.embraer.com](http://www.embraer.com))
 * NASA ([www.nasa.gov](http://www.nasa.gov))
 
-Simple Setup
+Simple Setup (SUAVE itself, standalone)
 ------------
 
 ```
@@ -57,6 +68,10 @@ python setup.py install
 ```
 
 More information available at [download](http://suave.stanford.edu/download.html).
+
+**For MELprop-IADE (this repo), see the Environment Setup section below
+instead** — SUAVE is one pinned dependency among several, not installed
+standalone.
 
 
 Requirements
@@ -137,3 +152,21 @@ eprint = {https://arc.aiaa.org/doi/pdf/10.2514/6.2017-4437}
 - [Results Registry](docs/ramP/results_registry.md) — Unified artifact log (Nights 1–4 JSON/CSV).
 - [Nightly Run Report (2026-07-11)](docs/ramP/nightly_run_report_2026-07-11.md) — Agent outputs summary.
 - [Human Review (Night-4)](docs/ramP/human_review_night4.md) — Flagged issues, next steps.
+- [External Tools Registry](docs/EXTERNAL_TOOLS.md) — pinned refs, submodule vs pip rationale.
+- [Repo-separation ADR](docs/ADR/ADR-001-repo-separation.md) / [External-dependency ADR](docs/ADR/ADR-002-external-dependencies.md)
+
+## Environment Setup
+
+Three documented modes — pick one. See each doc for exactly what's
+verified vs unverified; don't assume a mode works beyond what's stated.
+
+| Mode | Setup doc | Status |
+|---|---|---|
+| Devcontainer / Codespaces | [`.devcontainer/`](.devcontainer/) | Config fixed for Phase 1/2 paths (`external/suave/` not `trunk/`); **not** container-built/run in this session — unverified end-to-end. |
+| Native Python venv | [`docs/environment-native.md`](docs/environment-native.md) | **Partially verified**: `pip install -r requirements.txt` + `pytest` confirmed 208/208 green this session (Python 3.11.15). SUAVE/pyCycle editable installs **not** tested. |
+| Conda | [`environment-conda.yml`](environment-conda.yml) | **Unverified** — no conda available in this session; package list derived from the verified pip set, not run through `conda env create`. |
+
+After cloning, always run first:
+```bash
+git submodule update --init --recursive   # or: scripts/bootstrap_submodules.sh
+```
