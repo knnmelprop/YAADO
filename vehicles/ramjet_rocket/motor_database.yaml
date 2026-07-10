@@ -1,0 +1,91 @@
+# MELprop-IADE | vehicles.ramjet_rocket.motor_database | v0.1.0
+# Candidate solid rocket motors for the stage-1 booster.
+# All values SI unless the field name says otherwise (…_mm, …_s).
+# Status legend: MOCKUP (geometry only), ESTIMATE (SZACOWANY), DATASHEET (verified).
+motors:
+  - designation: "R-13"
+    status: "MOCKUP"
+    diameter_mm: 1809          # bounding box incl. PRD-240 wings; body ~250 mm
+    length_mm: 2089            # booster assembly length (Fusion v6)
+    thrust_N: null             # TBD — mockup, no performance data
+    burn_time_s: null          # TBD
+    isp_s: null                # TBD
+    propellant_mass_kg: null   # TBD
+    source: "Fusion Assembly v6 'R-13 silnik - makieta' (geometry mockup only)"
+
+  - designation: "Generic-HTPB-Composite"
+    status: "ESTIMATE"
+    diameter_mm: 250           # body diameter
+    length_mm: 2089
+    thrust_peak_N: 29000       # SZACOWANY — corrected 2026-07-08, was 12000 (RESOLVED, see note)
+    thrust_mean_N: 25375       # SZACOWANY — impulse-consistent (Isp_sl*mdot*g0)
+    burn_time_s: 6.0           # SZACOWANY
+    isp_s: 220                 # SZACOWANY (mean of sl 207 / vac 230)
+    propellant_mass_kg: 75.0   # SZACOWANY
+    propellant_density_kg_m3: 1750
+    source: "HTPB/AP composite first-order estimate (Task 1); replace with datasheet"
+    note: "RESOLVED 2026-07-08: previous thrust_N=12000 was below the impulse-consistent mean (~25.4 kN), which is physically impossible for a peak value. Now split into independent thrust_peak_N/thrust_mean_N fields matching src.schemas.vehicle_schema.SolidRocketPropulsion, with thrust_peak_N set above the impulse-consistent mean. Still SZACOWANY — replace with a real datasheet."
+
+  - designation: "PRD-240"
+    status: "MOCKUP"
+    diameter_mm: 240           # reference wing/control-surface stub
+    length_mm: null            # TBD
+    thrust_N: null
+    burn_time_s: null
+    isp_s: null
+    propellant_mass_kg: null
+    source: "PRD-240 control-surface reference ('Skrzydło PRD-240 x4', Fusion v6)"
+
+# Motor candidates for ramP Stage-1 booster.
+# Authoritative source: physical datasheet. All SZACOWANY values need lab verification.
+#
+# The R-13 real datasheet is TODO_PHYSICAL_PARAM (human-required — see the
+# "R-13" entry above, status MOCKUP). The candidates below are NOT the R-13
+# datasheet and are NOT claimed to be any specific vendor's verified motor.
+# They are reference-class analogues (mean thrust 20-30 kN, burn 5-8 s,
+# Isp 200-240 s — the R-13/S-13 performance class for small unguided solid
+# boosters) used to bound Stage-1 sizing until a real datasheet is obtained.
+# Every numeric field below is SZACOWANY (confidence: estimated) unless
+# stated otherwise, and each has been checked for self-consistency:
+#   total_impulse_Ns  ≈ thrust_mean_N * burn_time_s        (exact by construction)
+#   isp_s             ≈ total_impulse_Ns / (propellant_mass_kg * 9.80665)  (exact by construction)
+#   thrust_peak_N     >= thrust_mean_N                     (schema rule)
+candidates:
+  - motor_id: "cand-A-htpb-22kN"
+    designation: "R-13/S-13-class analogue A (HTPB composite, reference-class)"
+    source_reference: "Generic performance envelope for small unguided solid boosters (air-launched / sounding-rocket class) with mean thrust 20-30 kN, burn 5-8 s, Isp 200-240 s. Not a specific vendor datasheet. TODO_PHYSICAL_PARAM: replace with verified data."
+    thrust_peak_N: 25000        # SZACOWANY — assumed ~1.14x mean (typical slightly regressive HTPB grain)
+    thrust_mean_N: 22000        # SZACOWANY — mid-low of 20-30 kN class
+    burn_time_s: 6.5            # SZACOWANY — mid of 5-8 s class
+    total_impulse_Ns: 143000    # SZACOWANY — derived: thrust_mean_N * burn_time_s = 22000 * 6.5
+    propellant_mass_kg: 67.8    # SZACOWANY — derived: total_impulse_Ns / (isp_s * 9.80665)
+    isp_s: 215                  # SZACOWANY — mid of 200-240 s class
+    outer_diameter_m: 0.25      # SZACOWANY — matches 250 mm body class (PRD-240 / Generic-HTPB geometry)
+    length_m: 2.0               # SZACOWANY — typical class length for this diameter/impulse
+    confidence: estimated
+
+  - motor_id: "cand-B-htpb-27kN"
+    designation: "R-13/S-13-class analogue B (HTPB composite, reference-class, short burn)"
+    source_reference: "Generic performance envelope for small unguided solid boosters (air-launched / sounding-rocket class) with mean thrust 20-30 kN, burn 5-8 s, Isp 200-240 s. Not a specific vendor datasheet. TODO_PHYSICAL_PARAM: replace with verified data."
+    thrust_peak_N: 31000        # SZACOWANY — assumed ~1.15x mean
+    thrust_mean_N: 27000        # SZACOWANY — mid-high of 20-30 kN class
+    burn_time_s: 5.5            # SZACOWANY — short end of 5-8 s class
+    total_impulse_Ns: 148500    # SZACOWANY — derived: thrust_mean_N * burn_time_s = 27000 * 5.5
+    propellant_mass_kg: 73.9    # SZACOWANY — derived: total_impulse_Ns / (isp_s * 9.80665)
+    isp_s: 205                  # SZACOWANY — low-mid of 200-240 s class (lower-performance composite)
+    outer_diameter_m: 0.25      # SZACOWANY — same body class as candidate A
+    length_m: 1.85              # SZACOWANY — shorter grain for shorter burn time at higher thrust
+    confidence: estimated
+
+  - motor_id: "cand-C-htpb-24kN"
+    designation: "R-13/S-13-class analogue C (HTPB composite, reference-class, long burn)"
+    source_reference: "Generic performance envelope for small unguided solid boosters (air-launched / sounding-rocket class) with mean thrust 20-30 kN, burn 5-8 s, Isp 200-240 s. Not a specific vendor datasheet. TODO_PHYSICAL_PARAM: replace with verified data."
+    thrust_peak_N: 27500        # SZACOWANY — assumed ~1.15x mean
+    thrust_mean_N: 24000        # SZACOWANY — mid of 20-30 kN class
+    burn_time_s: 7.0            # SZACOWANY — long end of 5-8 s class
+    total_impulse_Ns: 168000    # SZACOWANY — derived: thrust_mean_N * burn_time_s = 24000 * 7.0
+    propellant_mass_kg: 74.5    # SZACOWANY — derived: total_impulse_Ns / (isp_s * 9.80665)
+    isp_s: 230                  # SZACOWANY — high end of 200-240 s class (higher-performance composite)
+    outer_diameter_m: 0.26      # SZACOWANY — slightly larger body to hold more propellant at same length class
+    length_m: 2.1                # SZACOWANY — longer grain for longer burn time
+    confidence: estimated

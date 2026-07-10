@@ -1,0 +1,88 @@
+{
+  "f_fuel_air": 0.04482144410219242,
+  "thrust_N": 12307.482136978557,
+  "thrust_cylindrical_nozzle_N": 9854.182382868186,
+  "specific_thrust_Ns_per_kg": 811.4382620782538,
+  "tsfc_kg_per_Ns": 5.523703551690531e-05,
+  "isp_s": 1846.073387964211,
+  "mdot_air_kg_s": 15.167490506864516,
+  "mdot_fuel_kg_s": 0.6798288279239622,
+  "u9_m_s": 1493.1665505734445,
+  "M9": 2.3755439119681694,
+  "u9_cylindrical_nozzle_m_s": 809.2597157610455,
+  "M9_cylindrical_nozzle": 1.0,
+  "eta_inlet": 0.8740657315001767,
+  "pi_b": 0.95,
+  "eta_b": 0.95,
+  "tt4_K": 2000.0,
+  "tt2_K": 502.0875,
+  "mach0": 2.5,
+  "altitude_m": 10000.0,
+  "nozzle_area_ratio_design": 4.0,
+  "nozzle_area_ratio_cad_actual": 1.0,
+  "station_table": [
+    {
+      "station": "0_freestream",
+      "mach": 2.5,
+      "total_temperature_K": 502.0875,
+      "total_pressure_Pa": 451681.9209039105,
+      "static_temperature_K": 223.14999999999998,
+      "static_pressure_Pa": 26435.887460311165,
+      "velocity_m_s": 748.6541695769815
+    },
+    {
+      "station": "2_combustor_entry",
+      "mach": null,
+      "total_temperature_K": 502.0875,
+      "total_pressure_Pa": 394799.6886002815
+    },
+    {
+      "station": "4_combustor_exit",
+      "mach": null,
+      "total_temperature_K": 2000.0,
+      "total_pressure_Pa": 375059.7041702674
+    },
+    {
+      "station": "9_nozzle_exit_matched_design",
+      "mach": 2.3755439119681694,
+      "static_temperature_K": 1035.6633443981839,
+      "static_pressure_Pa": 26435.887460311165,
+      "velocity_m_s": 1493.1665505734445
+    },
+    {
+      "station": "9_nozzle_exit_cylindrical_cad",
+      "mach": 1.0,
+      "static_temperature_K": 1716.7381974248929,
+      "static_pressure_Pa": 202668.76859879642,
+      "velocity_m_s": 809.2597157610455,
+      "area_m2": 0.047577899187934806
+    }
+  ],
+  "loss_free_reference": {
+    "thrust_N": 12818.557780758336,
+    "tsfc_kg_per_Ns": 5.023268991496919e-05,
+    "specific_thrust_Ns_per_kg": 845.1337269640553,
+    "f_fuel_air": 0.04245334044326762,
+    "note": "Same two-gas (cp_t/gamma_t) model and (1+f) mass addition as the design point, but eta_inlet=pi_b=eta_b=1 -- isolates the thrust/TSFC cost of the modeled inlet/burner losses."
+  },
+  "ideal_closed_form_cross_check": {
+    "tt0_K": 502.0875,
+    "a0_m_s": 299.46166783079263,
+    "u0_m_s": 748.6541695769815,
+    "specific_thrust_Ns_per_kg": 745.5382916244229,
+    "f_fuel_air": 0.036617583077802926,
+    "tsfc_kg_per_Ns": 4.91156302622879e-05,
+    "isp_s": 2076.15418458936
+  },
+  "nozzle_discrepancy_note": "vehicle_config.yaml specifies nozzle_area_ratio=4.0 (a matched convergent-divergent design target), but the Fusion v6 CAD nozzle is a cylindrical exit stub with expansion_ratio 1.0 and the assembly notes state the 'full ramjet engine [is] NOT modeled'. Both thrust_N (design, matched) and thrust_cylindrical_nozzle_N (CAD, choked convergent-only) are reported here so this gap is quantified, not silently assumed away.",
+  "combustor_risk_baseline": "Liquid kerosene may not vaporize sufficiently before the flame holders; measured flame-holder cavity temperatures of ~2400 K exceed the melting point of the currently specified aluminium flame-holder material. tt4_K=2000 K here is a placeholder chosen BELOW that ~2400 K risk figure -- combustor design is BLOCKED pending flame-holder relocation and/or injector atomization redesign. Fusion v6 CAD lists the flame_holder material as STEEL, contradicting the 'aluminium' risk note -- flagged for human review, NOT resolved here.",
+  "reference_model_disclosure": "This is the new FidelityLevel.LEVEL_2 1-D cycle model. The Grzywka MATLAB 2-D baseline values are NOT available in this repository (TODO_PHYSICAL_PARAM). CFD studies (Dalek, Teltik) report exit velocity/Mach 20-30% higher than the MATLAB baseline -- an open discrepancy between methods. Thrust/TSFC numbers here are single-method L2 results pending a dual-check.",
+  "assumptions": [
+    "Burner total-pressure ratio pi_b=0.95 is a placeholder pending combustor duct-loss data.",
+    "Burner efficiency eta_b=0.95 is a placeholder pending flame-holder/atomization test data.",
+    "Full mass-flow capture assumed at the design Mach (mdot_air = rho0*u0*A_capture, no spillage), consistent with analyses.propulsion.inlet_performance.",
+    "Two-gas (cold/hot) calorically-perfect-gas model; no dissociation or variable-cp effects beyond the two fixed cp/gamma sets."
+  ],
+  "eta_inlet_source": "multi_cone_4preset_chain",
+  "fidelity": "LEVEL_2"
+}
