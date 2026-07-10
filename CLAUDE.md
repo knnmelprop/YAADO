@@ -1,7 +1,7 @@
 # MELprop-IADE — Integrated Aircraft Design Environment
 
 Projekt Koła Naukowego **KNN MELprop** (Politechnika Warszawska).
-Repo bazuje na forku **SUAVE** (kod SUAVE w `trunk/SUAVE/` — NIE modyfikuj go).
+Repo bazuje na forku **SUAVE** (kod SUAVE jako git submodule w `external/suave/trunk/SUAVE/`, pin 2.5.2 — NIE modyfikuj go).
 
 > 🧭 **Nowa sesja agenta?** Przeczytaj najpierw [`docs/AGENT_CONTEXT.md`](docs/AGENT_CONTEXT.md)
 > — pełny handoff: stan repo, setup zależności, jak uruchamiać analizy, wykonana
@@ -73,6 +73,6 @@ tests/unit/              # pytest
 python -m pytest tests/ -v --tb=short
 ```
 
-Zależności dev: `pydantic>=2`, `pyyaml`, `pytest`. SUAVE (z `trunk/`) jest
+Zależności dev: `pydantic>=2`, `pyyaml`, `pytest`. SUAVE (submodule w `external/suave/`) jest
 opcjonalne dla testów jednostkowych — importy SUAVE w `core/` są osłonięte
 (guarded) i moduły działają bez niego.

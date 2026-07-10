@@ -22,7 +22,7 @@ After completing work, append key findings to MEMORY.md: new cycle points tested
 
 ## Constraints (MELprop-specific)
 
-- **Never modify `trunk/SUAVE/`** — it is read-only reference code for the fork.
+- **Never modify `external/suave/`** — it is read-only reference code for the fork.
 - **Never hard-code physical parameters without comment markers** — mark all material limits, gas constants, and empirical coefficients with either `# SZACOWANY [source]` (estimated from reference) or `# TODO_PHYSICAL_PARAM [datasheet_name]` (placeholder awaiting real data).
 - **Never run SU2, AVL, or XFOIL binaries** — they are not available in this environment. Generate config files only; if you must mock results for testing, wrap in `try/except` with clear `NotImplementedError`.
 - **Every new function** must have:
