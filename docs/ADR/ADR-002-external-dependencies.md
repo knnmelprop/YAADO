@@ -1,7 +1,9 @@
 # ADR-002 — External dependency model (SUAVE, pyCycle, AVL/XFOIL/SU2/OpenVSP)
 
-- **Status:** Proposed (planning artifact — no submodule has been added yet;
-  `.gitmodules` draft below is not applied to the working tree)
+- **Status:** Accepted and executed (2026-07-10) — SUAVE and pyCycle
+  submodules added at the pinned commits below, human-approved separately
+  from the general Phase 2 go-ahead as this ADR required. AVL/XFOIL/SU2/
+  OpenVSP remain deferred, unchanged from the original proposal.
 - **Date:** 2026-07-10
 - **Deciders:** KNN MELprop human review (decisions logged 2026-07-09/10 in
   `knnmelprop/droneEnv`'s `docs/decision-log.md`), agent (planning + ref
