@@ -1,0 +1,6 @@
+[submodule "external/suave"]
+	path = external/suave
+	url = https://github.com/suavecode/SUAVE
+[submodule "external/pycycle"]
+	path = external/pycycle
+	url = https://github.com/OpenMDAO/pyCycle
