@@ -62,7 +62,10 @@ fins:
   # "127" might describe, but that mapping is even less certain than span
   # — flagged, not guessed.
   count: 4
-  span_m: 0.550             # drawing-inferred (was 0.6685, Fusion) — MODERATE confidence
+  span_m: 0.550             # MODERATE CONFIDENCE: layout-inferred from drawing near tail station,
+                              # NOT a clear dimension callout. Values '550' and '127' near tail
+                              # ambiguous — 127 may be fin_span_radial not diameter. REQUIRES HUMAN
+                              # RE-VERIFICATION against original PDF before CDR. (was 0.6685, Fusion)
   sweep_deg: 29.98          # drawing-verified (was 0.0, Fusion, rectangular)
   chord_root_m: 0.1768      # UNCHANGED — see note above, not confidently remapped
   chord_tip_m: 0.1768       # UNCHANGED — see note above, not confidently remapped
