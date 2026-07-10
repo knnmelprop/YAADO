@@ -1,0 +1,121 @@
+# encoding: utf-8
+# 2024 R1
+SetScriptVersion(Version="24.1.144")
+DesignModeler.CreateGeometrySystemWithActiveCAD(
+    FilePath=r"C:\Users\muszt\OneDrive\RamP\Ramp_NX\For_manufacturing_v15\For_manufacturing_v2\PES_frame.prt",
+    PlugInName="Unigraphics[22544]")
+template1 = GetTemplate(
+    TemplateName="Static Structural",
+    Solver="ANSYS")
+system1 = GetSystem(Name="Geometry")
+geometryComponent1 = system1.GetComponent(Name="Geometry")
+system2 = template1.CreateSystem(
+    ComponentsToShare=[geometryComponent1],
+    Position="Right",
+    RelativeTo=system1)
+modelComponent1 = system2.GetComponent(Name="Model")
+modelComponent1.Refresh()
+model1 = system2.GetContainer(ComponentName="Model")
+model1.Edit()
+geometry1 = system1.GetContainer(ComponentName="Geometry")
+geometry1.UpdateCAD()
+geometry1.UpdateCAD()
+favorites1 = EngData.LoadFavoriteItems()
+library1 = EngData.OpenLibrary(
+    Name="ANSYS GRANTA Materials Data for Simulation (Sample)",
+    Source="Granta_Design_Typical_Materials.xml")
+library2 = EngData.OpenLibrary(
+    Name="General Materials",
+    Source="General_Materials.xml")
+library3 = EngData.OpenLibrary(
+    Name="Additive Manufacturing Materials",
+    Source="Additive_Manufacturing_Materials.xml")
+engineeringData1 = system2.GetContainer(ComponentName="Engineering Data")
+matl1 = engineeringData1.ImportMaterial(
+    Name="Magnesium alloy, AZ31B, wrought",
+    Source="Granta_Design_Typical_Materials.xml")
+matl2 = engineeringData1.ImportMaterial(
+    Name="Stainless Steel",
+    Source="General_Materials.xml")
+matl3 = engineeringData1.ImportMaterial(
+    Name="Stainless Steel",
+    Source="General_Materials.xml")
+matl4 = engineeringData1.ImportMaterial(
+    Name="Stainless Steel",
+    Source="General_Materials.xml")
+matl5 = engineeringData1.ImportMaterial(
+    Name="Stainless Steel",
+    Source="General_Materials.xml")
+EngData.EnableFilter(Enable=False)
+EngData.EnableFilter()
+EngData.EnableFilter(Enable=False)
+EngData.EnableFilter()
+matl5.Delete()
+matl4.Delete()
+matl3.Delete()
+matl2.Delete()
+matl1.Delete()
+material1 = engineeringData1.GetMaterial(Name="LEAD3 2")
+material1.Delete()
+material2 = engineeringData1.GetMaterial(Name="LEAD3")
+material2.Delete()
+material3 = engineeringData1.GetMaterial(Name="LEAD")
+material3.Delete()
+matl6 = engineeringData1.CreateMaterial(Name="7750")
+matl7 = engineeringData1.CreateMaterial(Name="7750")
+matl7 = engineeringData1.ImportMaterial(
+    Name="Stainless Steel",
+    Source="General_Materials.xml")
+EngData.EnableFilter(Enable=False)
+matlProp1 = matl7.GetProperty(Name="Density")
+matlProp1.SetData(
+    SheetName="Density",
+    SheetQualifiers={"Definition": "", "Behavior": ""},
+    Variables=["Density"],
+    Values=[["11348 [kg m^-3]"]])
+matlProp2 = matl7.GetProperty(Name="Elasticity")
+matlProp2.BeginBatchUpdate()
+matlProp2.SetVariableProperty(
+    SheetName="Elasticity",
+    SheetQualifiers={"Definition": "", "Behavior": "Isotropic", "Derive from": "Young's Modulus and Poisson's Ratio"},
+    VariableName="Young's Modulus",
+    Property="Unit",
+    Value="GPa")
+matlProp2.SetData(
+    SheetName="Elasticity",
+    SheetQualifiers={"Definition": "", "Behavior": "Isotropic", "Derive from": "Young's Modulus and Poisson's Ratio"},
+    Variables=["Young's Modulus"],
+    Values=[["193 [GPa]"]])
+matlProp2.EndBatchUpdate()
+matlProp2.SetData(
+    SheetName="Elasticity",
+    SheetQualifiers={"Definition": "", "Behavior": "Isotropic", "Derive from": "Young's Modulus and Poisson's Ratio"},
+    Variables=["Young's Modulus"],
+    Values=[["16 [GPa]"]])
+matlProp2.SetData(
+    SheetName="Elasticity",
+    SheetQualifiers={"Definition": "", "Behavior": "Isotropic", "Derive from": "Young's Modulus and Poisson's Ratio"},
+    Variables=["Poisson's Ratio"],
+    Values=[["0.44"]])
+matlProp3 = matl7.GetProperty(Name="Tensile Yield Strength")
+matlProp3.BeginBatchUpdate()
+matlProp3.SetVariableProperty(
+    SheetName="Tensile Yield Strength",
+    SheetQualifiers={"Definition": "", "Behavior": ""},
+    VariableName="Tensile Yield Strength",
+    Property="Unit",
+    Value="MPa")
+matlProp3.SetData(
+    SheetName="Tensile Yield Strength",
+    SheetQualifiers={"Definition": "", "Behavior": ""},
+    Variables=["Tensile Yield Strength"],
+    Values=[["207 [MPa]"]])
+matlProp3.EndBatchUpdate()
+matl7.DisplayName = "lead"
+matl6.Delete()
+geometry1.UpdateCAD()
+geometry1.UpdateCAD()
+geometry1.UpdateCAD()
+Save(Overwrite=True)
+model1.Exit()
+Save(Overwrite=True)

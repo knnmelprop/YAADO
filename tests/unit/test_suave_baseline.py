@@ -70,12 +70,21 @@ def test_fallback_cruise_thrust_matches_night3_reference_within_5_percent() -> N
 
 
 def test_fallback_cruise_drag_matches_night3_reference_within_5_percent() -> None:
-    """Cruise segment drag_N matches the Night-3 / P1-C drag (3546.3 N, ±5%)."""
+    """Cruise segment drag_N matches the post-2026-07-10-geometry reference
+    (2269.65 N, +/-5%).
+
+    2026-07-10: body diameter dropped from 0.250 m (Fusion) to 0.200 m
+    (drawing-verified), shrinking Aref by (0.200/0.250)^2 = 0.64. Drag
+    scales directly with Aref (drag = 0.5*rho*V^2*Aref*CD0), so the old
+    Night-3 reference (3546.3 N) * 0.64 = 2269.6 N -- matches the new
+    computed value almost exactly, confirming this is a clean consequence
+    of the confirmed diameter change, not a code bug.
+    """
     mission_data = suave_baseline.build_mission_fallback(_sample_burnout_state())
     cruise_segment = next(
         s for s in mission_data["segments"] if s["name"] == "cruise_stage_2_ramjet"
     )
-    assert cruise_segment["drag_N"] == pytest.approx(3546.3, rel=0.05)
+    assert cruise_segment["drag_N"] == pytest.approx(2269.65, rel=0.05)
 
 
 def test_fallback_segment_names_and_order() -> None:
