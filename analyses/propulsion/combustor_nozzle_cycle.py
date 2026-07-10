@@ -826,7 +826,7 @@ def main() -> None:
     print(f"Brayton T2 cross-check: {b['brayton_estimate_tt2_K']:.1f} K vs {b['station_model_tt2_K']:.1f} K (delta {b['delta_frac']*100:+.1f}%, >5%={b['exceeds_5pct']})")
     t = output["teltik_v3_cross_check"]
     print(f"V3 vs Teltik CFD ({t['condition']}): {t['model_v3_m_s']:.1f} vs {t['teltik_cfd_v3_m_s']:.1f} m/s (delta {t['delta_frac']*100:+.1f}%)")
-    print(f"Nozzle area ratio A3/A21 model: {output['nozzle_area_ratio_model']:.2f} | YAML design 4.0 | CAD cylindrical 1.0")
+    print(f"Nozzle area ratio A3/A21 model: {output['nozzle_area_ratio_model']:.2f} | YAML design {output['nozzle_area_ratio_design_yaml']:.3f} | CAD cylindrical {output['nozzle_area_ratio_cad_cylindrical']:.2f}")
     print(f"\nJSON written to: {json_path}")
 
 
