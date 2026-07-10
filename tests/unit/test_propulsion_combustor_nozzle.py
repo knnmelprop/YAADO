@@ -181,9 +181,13 @@ def test_teltik_v3_cross_check_logged(design_results: AnalysisResults) -> None:
 def test_nozzle_area_ratio_reports_all_three(
     design_results: AnalysisResults,
 ) -> None:
-    """Model / YAML-design / CAD area ratios are all surfaced."""
+    """Model / YAML-design / CAD area ratios are all surfaced.
+
+    2026-07-10: NOZZLE_AREA_RATIO_DESIGN updated 4.0 -> 1.317 (real
+    drawing value, throat 0.210m / exit 0.241m). See HR-3/HR-7.
+    """
     assert design_results["nozzle_area_ratio_model"] > 0.0
-    assert design_results["nozzle_area_ratio_design_yaml"] == pytest.approx(4.0)
+    assert design_results["nozzle_area_ratio_design_yaml"] == pytest.approx(1.317)
     assert design_results["nozzle_area_ratio_cad_cylindrical"] == pytest.approx(1.0)
 
 
