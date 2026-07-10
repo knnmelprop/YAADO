@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from src.schemas.vehicle_schema import (
     BaseVehicleConfig,
+    RamjetConfig,
     RocketConfig,
     UAVConfig,
     WingConfig,
@@ -141,6 +142,46 @@ def test_from_yaml_ramjet_repo_config() -> None:
     rocket = BaseVehicleConfig.from_yaml(path)
     assert isinstance(rocket, RocketConfig)
     assert rocket.fins.count == 4
+
+
+def test_ramjet_repo_config_nozzle_diameters_from_drawing() -> None:
+    """Committed config's nozzle throat/exit diameters and area_ratio match
+    the "CFD Simplified Single Rocket Model" drawing (Aleks Czernicki,
+    2026-07-10): throat 0.210 m, exit 0.241 m, area_ratio = (241/210)**2.
+    """
+    path = REPO_ROOT / "vehicles" / "ramjet_rocket" / "vehicle_config.yaml"
+    rocket = BaseVehicleConfig.from_yaml(path)
+    assert rocket.stage_2.nozzle_throat_diameter_m == pytest.approx(0.210)
+    assert rocket.stage_2.nozzle_exit_diameter_m == pytest.approx(0.241)
+    assert rocket.stage_2.nozzle_area_ratio == pytest.approx(
+        (0.241 / 0.210) ** 2, rel=1e-3
+    )
+
+
+def test_ramjet_nozzle_diameters_consistent_with_area_ratio() -> None:
+    """Throat/exit diameters implying the same area_ratio validate fine."""
+    ramjet = RamjetConfig(
+        design_mach=2.5,
+        fuel_type="kerosene",
+        combustor_temp_K=2000.0,
+        nozzle_area_ratio=1.317,
+        nozzle_throat_diameter_m=0.210,
+        nozzle_exit_diameter_m=0.241,
+    )
+    assert ramjet.nozzle_throat_diameter_m == pytest.approx(0.210)
+
+
+def test_ramjet_nozzle_diameters_inconsistent_with_area_ratio_rejected() -> None:
+    """Throat/exit diameters implying a different area_ratio are rejected."""
+    with pytest.raises(ValidationError):
+        RamjetConfig(
+            design_mach=2.5,
+            fuel_type="kerosene",
+            combustor_temp_K=2000.0,
+            nozzle_area_ratio=4.0,
+            nozzle_throat_diameter_m=0.210,
+            nozzle_exit_diameter_m=0.241,
+        )
 
 
 def test_inconsistent_solid_rocket_thrust_rejected() -> None:
