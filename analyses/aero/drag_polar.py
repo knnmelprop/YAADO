@@ -40,9 +40,10 @@ cross-section area ``Aref = pi*d^2/4``, matching
    and viscosity ratios (``Cf/Cf_incomp = (rho*/rho_e)*(mu_e/mu*)``,
    here reduced with a Sutherland viscosity-law temperature exponent
    for compactness). Wetted areas: body (cylinder + cone, from
-   ``body.diameter_m=0.250 m``, ``body.total_length_m=4.377 m``,
-   ``body.nose_length_m=0.293 m``) and 4 rectangular fins (span
-   ``0.6685 m`` x chord ``0.1768 m``, both sides wetted), all read from
+   ``body.diameter_m=0.200 m``, ``body.total_length_m=4.35501 m``,
+   ``body.nose_length_m=0.293 m`` -- drawing-verified as of 2026-07-10,
+   was 0.250 m/4.377 m Fusion) and 4 swept fins (span ``0.550 m`` x chord
+   ``0.1768 m``, sweep ``29.98 deg``, both sides wetted), all read from
    ``vehicles/ramjet_rocket/vehicle_config.yaml`` /
    ``fusion_extraction_v6.yaml`` per the task spec.
 
@@ -130,34 +131,41 @@ from analyses.mission.operational_envelope import (  # noqa: E402
 from core.component_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
 
 # --------------------------------------------------------------------------
-# Geometry constants (Fusion 360 Assembly v6 extraction; read-only source of
-# truth is vehicles/ramjet_rocket/vehicle_config.yaml /
-# fusion_extraction_v6.yaml -- values duplicated here as plain floats since
-# this module's component functions are pure/standalone, mirroring the
-# convention in analyses.aero.xfoil_runner).
+# Geometry constants (read-only source of truth is
+# vehicles/ramjet_rocket/vehicle_config.yaml -- values duplicated here as
+# plain floats since this module's component functions are pure/standalone,
+# mirroring the convention in analyses.aero.xfoil_runner). Drawing-verified
+# as of 2026-07-10 ("CFD Simplified Single Rocket Model", Aleks Czernicki,
+# DWG 10/07/2026); superseded the earlier Fusion 360 Assembly v6 values
+# (0.250 m / 4.377 m / 0.6685 m, see vehicle_config.yaml's fusion_extraction
+# note for provenance).
 # --------------------------------------------------------------------------
 
-BODY_DIAMETER_M: float = 0.250
-"""Body (cylindrical section) diameter [m], Fusion-verified."""
+BODY_DIAMETER_M: float = 0.200
+"""Body (cylindrical section) diameter [m], drawing-verified."""
 
-BODY_TOTAL_LENGTH_M: float = 4.377
-"""Total rocket length [m] (nose + cylindrical body), Fusion Assembly v6."""
+BODY_TOTAL_LENGTH_M: float = 4.35501
+"""Total rocket length [m] (nose + cylindrical body), drawing-verified."""
 
 NOSE_LENGTH_M: float = 0.293
-"""Conical nose length [m], Fusion Assembly v6."""
+"""Conical nose length [m], Fusion Assembly v6 (unchanged by the drawing)."""
 
 BODY_CYLINDER_LENGTH_M: float = BODY_TOTAL_LENGTH_M - NOSE_LENGTH_M
-"""Cylindrical-body length [m] = total - nose (4.377 - 0.293 = 4.084 m,
+"""Cylindrical-body length [m] = total - nose (4.35501 - 0.293 = 4.06201 m,
 matches ``vehicle_config.yaml body.length_m``)."""
 
 FIN_COUNT: int = 4
 """Number of fins."""
 
-FIN_SPAN_M: float = 0.6685
-"""Exposed span of one fin [m], Fusion Assembly v6."""
+FIN_SPAN_M: float = 0.550
+"""Exposed span of one fin [m]. MODERATE CONFIDENCE: layout-inferred from
+the drawing's tail-area dimension, not a labeled callout -- see
+``vehicle_config.yaml`` fins.span_m provenance comment and
+``docs/decision-log.md``; pending human re-verification against the PDF."""
 
 FIN_CHORD_M: float = 0.1768
-"""Fin chord [m] (rectangular planform, root=tip), Fusion Assembly v6."""
+"""Fin chord [m] (rectangular planform, root=tip), Fusion Assembly v6
+(unchanged -- not confidently remapped from the swept-planform drawing)."""
 
 # --------------------------------------------------------------------------
 # Empirical correlation constants.
