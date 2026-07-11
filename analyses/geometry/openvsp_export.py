@@ -20,28 +20,31 @@ All dimensions are read from the committed vehicle configuration
 hard-coded, so the generated script stays in sync with the vehicle
 definition:
 
-- ``body.total_length_m`` (4.377 m) -- total rocket length used for the
+- ``body.total_length_m`` (4.35501 m) -- total rocket length used for the
   fuselage geom.
-- ``body.diameter_m`` (0.250 m) -- cylindrical body diameter.
+- ``body.diameter_m`` (0.200 m) -- cylindrical body diameter (drawing-verified
+  as of 2026-07-10; was 0.250 m, Fusion).
 - ``body.nose_length_m`` (0.293 m) and ``body.nose_diameter_m`` -- conical
   nose section (a ``BodyConfig.nose_type == "conical"`` is required; other
   nose types are rejected in :meth:`OpenVSPExporter.setup`, see
   ``TODO_PHYSICAL_PARAM`` note below for ogive/hemispherical support).
-- ``fins.count`` (4), ``fins.span_m`` (0.6685 m), ``fins.chord_root_m`` /
+- ``fins.count`` (4), ``fins.span_m`` (0.550 m), ``fins.chord_root_m`` /
   ``fins.chord_tip_m`` (0.1768 m, rectangular planform) and
-  ``fins.sweep_deg`` (0 deg) -- the 4-fin WING geom set.
+  ``fins.sweep_deg`` (29.98 deg) -- the 4-fin WING geom set.
 
-HUMAN_REVIEW (HR-1) -- fin span suspected export artifact
-----------------------------------------------------------
-``fins.span_m = 0.6685`` m is flagged for human CAD verification: it was
-extracted from the Fusion 360 assembly export and is suspected of being
-an artifact of that export step (e.g. a bounding-box or duplicate-surface
-measurement rather than the true exposed semi-span) -- see
-``vehicles/ramjet_rocket/vehicle_config.yaml`` provenance comments and
-prior aero-analyst memory notes on the Diederich/Ackeret fin-polar ratio
-divergence at high Mach, which is consistent with an overestimated
-aspect ratio. **This script encodes the current YAML value as-is and
-must be regenerated once the CAD dimension is verified/corrected.**
+HUMAN_REVIEW (HR-1) -- fin span layout-inferred, not a labeled callout
+------------------------------------------------------------------------
+``fins.span_m = 0.550`` m is flagged for human CAD/drawing verification: it
+is this project's best-effort reading of the "CFD Simplified Single Rocket
+Model" drawing (Aleks Czernicki, DWG 10/07/2026)'s tail-area "550"
+dimension, inferred from layout position (near the tail fin, alongside a
+"127" value and the "29.98deg" sweep callout) rather than a clearly labeled
+dimension line -- see ``vehicles/ramjet_rocket/vehicle_config.yaml``
+provenance comments and ``docs/decision-log.md``. A 2026-07-11 independent
+DATCOM/Ackeret stability rerun flagged the resulting semi-span/diameter
+ratio (2.75) as physically extreme, corroborating the concern. **This
+script encodes the current YAML value as-is and must be regenerated once
+the drawing dimension is confirmed against the source PDF.**
 
 AngelScript API reference (OpenVSP scripting):
     OpenVSP API documentation, ``AddGeom``, ``SetParmValUpdate``,
@@ -84,12 +87,12 @@ SCRIPT_FILENAME: str = "ramp_rocket.vspscript"
 #: Filename of the companion JSON manifest.
 MANIFEST_FILENAME: str = "ramp_rocket_manifest.json"
 
-#: HUMAN_REVIEW tag propagated into the manifest for the suspected
-#: fin-span export artifact (HR-1).
+#: HUMAN_REVIEW tag propagated into the manifest for the layout-inferred
+#: fin-span reading (HR-1).
 HR1_FIN_SPAN_NOTE: str = (
-    "HUMAN_REVIEW (HR-1): fins.span_m is a suspected Fusion-export "
-    "artifact (bounding-box vs. true exposed semi-span); regenerate this "
-    "script after CAD verification."
+    "HUMAN_REVIEW (HR-1): fins.span_m=0.550 is a layout-inferred drawing "
+    "reading, not a labeled dimension callout; regenerate this script "
+    "after the drawing dimension is confirmed."
 )
 
 
@@ -387,7 +390,7 @@ class OpenVSPExporter(BaseAnalysis):
                 "method": "openvsp_angelscript_export_stub",
                 "script_path": str(script_path),
                 "manifest_path": str(manifest_path),
-                "human_review": "HR-1: fins.span_m suspected export artifact",
+                "human_review": "HR-1: fins.span_m=0.550 is a layout-inferred drawing reading",
                 "note": (
                     "OpenVSP binary was NOT invoked (not installed in this "
                     "environment); run manually with `vsp -script "
