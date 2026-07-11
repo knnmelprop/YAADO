@@ -340,3 +340,30 @@ sweep" line above is not read as a resolved verdict:
   submodule can be built) at Ma 2.5, y+<1, alpha-sweep, per Stage 1 Dispatch B.
   Until then, treat the vehicle's Ma 2.5 static stability as **UNRESOLVED**, not
   as the analytical +5…+11 cal. Do not gate CDR on the analytical margin.
+
+## 2026-07-11 — Stage 2 — Ramjet cycle / V3 rebuilt (Heiser & Pratt, station-wise gamma)
+
+New model `analyses/propulsion/cycle_v2/hp_stream_thrust_cycle.py` (Heiser &
+Pratt stream-thrust station cycle) added alongside the untouched legacy Grzywka
+model. Carries cold gamma (1.40) through inlet, hot gamma (swept 1.20–1.40,
+nominal 1.28 CEA-class PROVISIONAL, A19) through combustor+nozzle, and expands
+through the REAL area ratio AR=1.317 (not fully-expanded).
+
+**Result (nominal gamma_hot=1.28):** V3 = 1200 m/s (was 1474 legacy, −18.6 %);
+delta vs Teltik CFD 1047 m/s cut from **+40.8 % to +14.6 %**. Exit under-expanded
+(p_e/p0 ≈ 3.0) ⇒ explicit pressure-thrust term 3585 N that the legacy
+fully-expanded model omitted. Th hierarchy Thi≥Th1≥Th2 = 11801/11606/11439 N.
+
+**Key finding (nuances the research hypothesis):** V3 moves only ~0.5 % across
+the whole gamma sweep at fixed geometry — **gamma is a WEAK lever**. The nozzle
+**area-ratio geometry correction (implied 2.44 → real 1.317) is what closed
+~26 of the ~41 gap-points**, not gamma. A residual +14.6 % vs CFD remains and is
+the expected home of 1-D-model limitations (nozzle BL/divergence, real-gas /
+variable-cp, spillage) — to be closed by a real CEA run and/or SU2, NOT by
+tuning gamma. HR-7 status: `RECALCULATED_WITH_CORRECTED_GAMMA_AND_GEOMETRY`,
+still pending independent verification (CEA/SU2 both BLOCKED_BY_ENVIRONMENT).
+
+Gate: pytest green; V3>0 all gamma; V3 monotonic (weakly increasing) with gamma;
+combustor exit hotter than inlet; thrust hierarchy holds. Files:
+`analyses/propulsion/validation/v3_recalc_post_geometry_and_gamma.{md,csv}`,
+`gamma_sensitivity.{py,csv}`, `tests/unit/test_gamma_sensitivity.py`.
