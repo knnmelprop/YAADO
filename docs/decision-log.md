@@ -367,3 +367,36 @@ Gate: pytest green; V3>0 all gamma; V3 monotonic (weakly increasing) with gamma;
 combustor exit hotter than inlet; thrust hierarchy holds. Files:
 `analyses/propulsion/validation/v3_recalc_post_geometry_and_gamma.{md,csv}`,
 `gamma_sensitivity.{py,csv}`, `tests/unit/test_gamma_sensitivity.py`.
+
+## 2026-07-11 — Stage 3 — Inlet (Taylor–Maccoll) + Nozzle (coupled to Stage 2 gamma)
+
+**Inlet** (`analyses/propulsion/inlet_performance_v2.py`, supersedes the wedge
+model in `inlet_performance.py`): proper Taylor–Maccoll conical flow for the
+external cone. Key correction — a 2-D wedge detaches at ~29.8° at M2.5 (the old
+model), but the axisymmetric conical shock stays attached to ~46.1°, so the
+as-drawn **42° cone is ATTACHED at design** (solver validated vs Anderson:
+M2.0/20°→β=37.80°). Findings:
+
+- 42° cone @ M2.5: attached but a strong near-normal shock (β=58.5°, pt=0.66) →
+  overall recovery **0.639 vs MIL-E-5007D reference 0.870** (a GOAL, not a hard
+  limit). The 21° (included-angle) reading gives 0.667 — also below. Both single
+  external-cone readings fall short at every Mach, consistent with the design's
+  established need for the staged **4-cone chain** (0.874, A9). The as-drawn
+  42°/60° two-surface intake's true recovery needs the internal duct area
+  schedule (not in the drawing) → PROVISIONAL.
+- **Off-design/starting: the 42° cone DETACHES at M2.0** → bow shock, subcritical
+  spillage, buzz risk. Minimum starting Mach ≈ 2.1 → a hard constraint on the
+  booster→ramjet **staging Mach** the old wedge model could not surface.
+- Also flagged: no boundary-layer bleed modeled (recovery optimistic);
+  shock-on-lip unverified (cowl-lip position not in drawing) → PROVISIONAL.
+
+**Nozzle** (`analyses/propulsion/nozzle_expansion_check.py`): uses the SAME
+Stage 2 γ (1.28), NOT 1.4. AR=1.317 is **under-expanded (p_e/p0 ≈ 3.0) across
+the whole 4–10 km band** (constant, since pt0 ∝ p0 at fixed Mach). Matched AR
+would be ≈2.48 — essentially the legacy model's implied AR≈2.44, confirming the
+old cycle silently assumed a fully-expanded nozzle (why legacy V3 was inflated).
+Design lever: lengthening toward AR≈2.5 raises exit momentum and cuts the
+under-expansion loss, traded against mass and off-design over-expansion.
+
+Gate: pytest green (237). Files: `inlet_performance_v2.{py,md,csv}`,
+`nozzle_expansion_check.{py,md,csv}`, `tests/unit/test_inlet_nozzle_v2.py`.
