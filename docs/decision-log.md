@@ -221,3 +221,122 @@ Branch `claude/melprop-iade-night-run-by9c2l`, draft PR #12.
   0.25, and internal channel nozzle 0.241." `stage_1.geometry.
   assembly_diameter_m=0.250` stays unchanged, correct as-is; 0.241 is
   the nozzle, not the booster. No further action needed on this item.
+
+---
+
+## 2026-07-11 — Stage 1 — Barrowman supersonic retired as CDR stability gate
+
+**Decision:** Barrowman's supersonic static-margin result (+8.99 cal basic /
++4.594 cal extended at Ma 2.5) is **RETIRED as the CDR stability gate** and
+marked **HISTORICAL / OUT-OF-REGIME**, not reconciled with the Teltik CFD
+(-2.75 cal @ Ma 2.5). Supersonic stability analysis is replaced by a
+three-method gate:
+
+1. **DATCOM-class supersonic component buildup** (`datcom_class_sweep.py`)
+   — intermediate fidelity, Mach 1.2–3.0.
+2. **Ackeret / slender-body independent fin CP hand-check** (`ackeret_fin_check.py`)
+   — closed-form cross-check.
+3. **SU2 RANS-SST** (authoritative, deferred where SU2 is not buildable).
+
+**Rationale:**
+
+1. **Barrowman slender-body theory is validated only to ~Mach 0.7**. The
+   ramP cruise condition (Mach 2.5) is well outside this validated envelope.
+
+2. **The ramP fins violate the small-fin assumption**:
+   - Fin semi-span: 0.550 m
+   - Body diameter: 0.200 m
+   - Ratio: 0.550 / 0.200 = **2.75** (fin extends ~2.67× a body diameter
+     from the centerline).
+   - Classical Barrowman assumes fins are "small perturbations" on the body
+     (fin span comparable to or smaller than body radius).
+
+**Implementation (2026-07-11 session, aero-analyst subagent):**
+
+- **New modules:**
+  - `analyses/stability/datcom_class_sweep.py`: DATCOM/RASAero-style
+    supersonic component buildup. Sweeps Mach [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    × CG fractions [0.37, 0.45, 0.55, 0.64] of total length (CG is
+    TBD_PHYSICAL_PARAM — uncertain, not definitive). Body terms: nose cone
+    (supersonic CP factor 2/3, NOT 0.466 ogive), shoulder transition (reused
+    from Barrowman). Fin terms: Ackeret 2D slope `4/beta`, Puckett
+    rectangular-tip finite-span correction (PROVISIONAL), fin-body
+    interference `K_fb=1+R/(s+R)`, supersonic fin CP at 50% MAC. Outputs:
+    CSV (24 grid points), JSON summary, PNG (SM vs Mach, lines per CG).
+  - `analyses/stability/ackeret_fin_check.py`: Independent Ackeret
+    slender-body fin CP hand-check at Ma 2.5, config CG. Classical low-AR
+    downwash correction (NOT Puckett, genuinely independent method). Outputs:
+    Markdown report (`ackeret_fin_check.md`).
+  - **Tests:** `tests/unit/test_stability_datcom.py` (11 tests: sweep grid
+    coverage, CSV columns, SM monotonic with CG, beta guards at M=1,
+    components positive, Ackeret vs DATCOM fin CP agreement within one
+    caliber at Ma 2.5). All 11 tests pass. Full suite: 222 passed (was 211,
+    +11).
+
+- **Barrowman module marked HISTORICAL:**
+  - `analyses/stability/barrowman_stability.py`: Added module-level
+    "SUPERSONIC REGIME: HISTORICAL / OUT-OF-REGIME (2026-07-11 decision)"
+    section documenting the retirement rationale. Added docstring note in
+    `fin_mach_correction_factor()` (supersonic branch) stating numerics are
+    UNCHANGED (for historical reproducibility) but output is not used as a
+    CDR gate. No numeric changes to Barrowman; it remains executable for
+    historical comparison.
+
+**Results (DATCOM-class sweep at Ma 2.5, all CG positions):**
+
+- **Static margin range: +5.13 to +11.01 calibers** (CG sweep 0.37–0.64 L).
+- **Stability conclusion: STABLE across the entire CG sweep.** Margin is
+  positive at all supersonic Mach values (1.5, 2.0, 2.5, 3.0) and all CG
+  positions tested.
+- **Ackeret vs DATCOM fin CP agreement:** Fin CP location is **byte-identical**
+  (both methods use 50% MAC + sweep formula for the supersonic fin CP).
+  Fin CN_alpha differs (11.595 DATCOM vs 7.590 Ackeret, due to different
+  tip-loss models: Puckett vs classical low-AR downwash), but **both agree
+  on sign** (fins push CP aft, stabilizing) and **CP location** (4.425253 m
+  from nose, exactly the same).
+
+**Source references:**
+
+- Research findings: `docs/references/ramp_analysis_plan_2026-07-11.md` (Section 1).
+- Theory: Missile-DATCOM (1997), RASAero II methodology, Puckett (1946)
+  supersonic tip-loss, Ackeret (1925) linearized supersonic theory, Kopal
+  (1947) conical-flow CP factor.
+
+**Next steps (per research plan):**
+
+- Stage 2 (ramjet cycle, V3 gap): rebuild on Heiser & Pratt stream-thrust
+  framework with NASA-CEA-derived γ per station.
+- Stage 3 (inlet): Taylor–Maccoll 42°/60° cone, MIL-E-5007D recovery check.
+- Stage 4 (nozzle): over/under-expansion check with corrected γ (coupled to
+  Stage 2 cycle analysis).
+
+### Orchestrator addendum (2026-07-11) — Stage 1 gate is NOT green: 2 analytical vs 1 CFD sign conflict is UNRESOLVED
+
+The DATCOM-class and Ackeret results above **agree with each other** (both give
+large POSITIVE static margin: DATCOM +5.13 to +11.01 cal over the CG sweep,
+Ackeret +9.71 cal at the config CG). But that agreement does **not** clear the
+CDR stability gate, and this entry exists so the "STABLE across the entire CG
+sweep" line above is not read as a resolved verdict:
+
+- **Both analytical methods still CONFLICT WITH the Teltik 2024 CFD** (CP 0.92 m
+  from nose ⇒ **−2.75 cal, UNSTABLE at Ma 2.5**, assumptions A15). The sign
+  disagreement that motivated retiring Barrowman is therefore **not** resolved
+  by replacing Barrowman with two more linear methods — it is reproduced by them.
+- **Why they agree with Barrowman and not CFD (structural, not a bug):** all
+  three linear methods place the fin CP far aft (4.425 m, essentially at the
+  tail) with the fins dominating CN_alpha, so the net CP sits well aft of any
+  swept CG ⇒ big positive margin. The fins are very large (semi-span/body-dia =
+  2.75); linear supersonic theory cannot capture the nonlinear fin-effectiveness
+  loss / shock–boundary-layer separation on such fins that the CFD shows moving
+  the net CP forward to 0.92 m. This is a **fidelity-class limitation of every
+  analytical method here**, which is exactly why the research plan makes SU2 the
+  authoritative arbiter — not a reason to trust the analytical +margin.
+- **The CDR gate = all THREE methods agree on sign AND positive margin.** Status
+  is a **2-analytical-vs-1-CFD split**, and the tie-breaker (SU2 RANS-SST,
+  Stage 1 Dispatch B) is **BLOCKED_BY_ENVIRONMENT** this session (no SU2 binary;
+  submodule `external/su2` not checked out; heavy C++/meson build not available
+  in the cloud sandbox). **Gate verdict: NOT SATISFIED — pending SU2.**
+- **Next human action:** run the SU2 RANS-SST cross-check locally (where the
+  submodule can be built) at Ma 2.5, y+<1, alpha-sweep, per Stage 1 Dispatch B.
+  Until then, treat the vehicle's Ma 2.5 static stability as **UNRESOLVED**, not
+  as the analytical +5…+11 cal. Do not gate CDR on the analytical margin.
