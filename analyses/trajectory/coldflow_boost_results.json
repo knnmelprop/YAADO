@@ -12,14 +12,14 @@
     "ground_impact_before_burnout": false
   },
   {
-    "case_name": "FULL355",
-    "launch_mass_kg": 355.02,
-    "launch_angle_deg": 50.0,
+    "case_name": "OFFICIAL100",
+    "launch_mass_kg": 100.0,
+    "launch_angle_deg": 83.0,
     "burnout_time_s": 5.5522,
-    "burnout_altitude_m": 379.5355703246092,
-    "burnout_velocity_ms": 127.64648770967663,
-    "burnout_mach": 0.37672449791187246,
-    "range_at_burnout_m": 361.11215665166094,
+    "burnout_altitude_m": 2016.746329400501,
+    "burnout_velocity_ms": 540.7754526160198,
+    "burnout_mach": 1.6265796678131044,
+    "range_at_burnout_m": 253.01604775070814,
     "total_impulse_Ns": 56377.05266999999,
     "ground_impact_before_burnout": false
   }

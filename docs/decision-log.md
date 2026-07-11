@@ -814,3 +814,86 @@ should be treated as stale until the team resolves: single-motor
 insufficient (needs a cluster?), vehicle mass needs to come down, or
 PRD-240 is the wrong motor after all despite the CAD-name confirmation.
 Not resolved by this session — flagged as the top next human action.
+
+---
+
+## 2026-07-11 — Mass correction: Fusion CAD estimate wrong, real vehicle mass ~100 kg
+
+**Human decision, same day, follow-up to the PRD-240 motor-identity
+entry above.** Two statements from the human:
+
+1. PRD-240 propulsion data is still partly estimated (isp_sl_s=212.84s
+   remains the archive author's assumed, not measured, value) — already
+   correctly flagged, no action needed.
+2. **"100 kg full assembly booster + ramP is possible."**
+
+**Verified before acting** (not accepted blind): checked
+`fusion_extraction_v6.yaml`'s own component mass breakdown, previously
+sanity-checked by an earlier session as "✓ 78% booster, 22% ramjet" —
+booster section alone: 277.80 kg, ramjet section: 15.18 kg, total:
+355.02 kg. A 100 kg full assembly directly contradicts this: the booster
+section alone is 2.78× the proposed total. Surfaced this contradiction
+explicitly and asked which side was wrong before touching anything.
+
+**Human resolution:** the Fusion 360 physics-engine mass estimate
+(277.80 kg booster) is considered **wrong/oversized**; the archive's own
+100.0 kg reference mass (used throughout its PRD-240 flight-simulation
+sheets) is the real target.
+
+**Action taken:**
+- `vehicle_config.yaml` (official) `mass_properties.total_mass_kg`:
+  355.02 → **100.0 kg**. `cg_from_nose_m`/`cg_source` **left unchanged**
+  — the human correction addressed mass specifically, not CG, even
+  though CG was derived from the same now-suspect Fusion source. Flagged
+  in `tbd`, not silently revised. The booster/ramjet 277.80/15.18 kg
+  component split is likewise flagged as now-suspect, with no
+  replacement split derived (not guessed).
+- `vehicle_config_coldflow_PRD240.yaml`: same correction (355.02 → 100.0
+  kg), for consistency with the official config.
+- `analyses/trajectory/coldflow_boost_prd240.py`: with both configs now
+  at the same 100 kg mass, the two cases collapsed to differing only by
+  launch angle. Renamed `FULL355` → `OFFICIAL100` (83°, the official
+  `LAUNCH_ANGLE_DEG` default) alongside `ARCHIVE100` (50°, unchanged).
+  Module/config header comments and the affected test
+  (`test_trajectory_coldflow_prd240.py`, 2 tests updated) rewritten to
+  match.
+
+**Cascade** (same discipline as every prior geometry/motor update this
+session — recompute and verify physically, never guess-patch):
+- With the real motor **and** the real (much lighter) mass together,
+  booster burnout **reverts to supersonic** (~Mach 1.69–1.76 across
+  15°–83°, was ~0.34–0.47 subsonic under the same real motor at the old
+  355.02 kg mass). This **resolves** the design-gate concern raised in
+  the prior entry.
+- `tests/unit/test_trajectory_launch_angle.py`: reverted
+  `test_burnout_mach_stays_subsonic_with_real_prd240_impulse` back to
+  `test_burnout_mach_supersonic_for_steep_enough_angles` (`Mach > 1.0`),
+  now with real data backing both the motor and mass sides instead of
+  the original SZACOWANY placeholders.
+- `tests/unit/test_missions_staged.py`: reverted
+  `test_booster_burnout_state_is_subsonic_with_real_prd240_motor` back
+  to `test_booster_burnout_state_is_supersonic`; reverted the burnout
+  altitude sanity bound from the temporary [200, 1000] m back to the
+  original [500, 3000] m (real burnout altitude now ≈1520 m at 83°,
+  comfortably inside).
+- Regenerated 4 stale cached outputs by rerunning their unchanged
+  scripts: `burnout_state.json`, `launch_angle_sweep.csv`,
+  `staged_mission_profile.json`, `suave_baseline_mission.json`.
+
+`pytest tests/`: **245 passed** throughout (no test count change — the
+same tests that were renamed/inverted in the prior entry were renamed
+back, with fresh, real-data-backed docstrings explaining the full
+history rather than silently reverting).
+
+**Still open (not resolved by this correction):**
+- `cg_from_nose_m=1.6084` and the booster/ramjet component mass split
+  both trace to the same Fusion physics engine now known to be wrong for
+  total mass — neither was re-derived this session; both need
+  independent verification before CDR.
+- `isp_sl_s=212.84s` (hence `propellant_mass_kg=27.01`) remains the
+  archive author's assumed, not measured, design value.
+- The *booster* itself now implies a very light structure (100 kg total
+  minus 27.01 kg propellant minus the ramjet stage's share ≈ well under
+  73 kg inert booster mass) — worth a sanity check against the real
+  PRD-240 motor's physical size/casing mass once available, not derived
+  or guessed this session.
