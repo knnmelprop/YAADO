@@ -1,0 +1,5 @@
+# MELprop-IADE | .dvcignore
+# Patterns DVC should not track (mirrors .gitignore for build/cache noise).
+__pycache__/
+*.pyc
+.pytest_cache/
