@@ -418,3 +418,25 @@ explicitly NOT a validated capability; cold-flow mixing must not feed the cycle
 model as a validated combustor input.
 
 Gate: pytest green (240). +3 tests.
+
+## 2026-07-11 — Stage 5 — Integration, validation, handoff
+
+Full `pytest tests/` green: **240 passed** (baseline 211 → +11 stability, +6
+cycle, +9 inlet/nozzle, +3 cold-flow). Import audit: all 8 new/touched modules
+import cleanly. Per-stage commits pushed to `claude/ramp-full-analysis-rerun-up6lcz`
+(draft PR #4). Environment: venv/system-pip (pinned deps installed fresh);
+pycycle NOT installed (not needed for the plain-Python H&P model); **SU2 and
+NASA-CEA both BLOCKED_BY_ENVIRONMENT** (no binaries, submodule not built).
+
+**No `vehicle_config.yaml` changes** — nothing was CONFIRMED this session:
+stability is an unresolved analytical-vs-CFD split, cycle/inlet results rest on
+PROVISIONAL γ / interpretation. CG and MOI remain `TBD_PHYSICAL_PARAM` (swept,
+not defaulted). Assumptions register updated with the full PROVISIONAL table
+(A21–A25); `agents/memory.md` and `docs/ramP/analysis_status.md` updated with the
+handoff and next human actions.
+
+**Net verdict:** the V3 gap is largely explained (geometry, not γ); the inlet and
+nozzle have concrete, actionable findings (starting Mach ≈2.1; under-expanded,
+matched AR≈2.48); the **stability sign conflict is the one open safety-critical
+item and needs SU2 run locally**. Nothing is presented as more settled than the
+physics supports.
