@@ -88,11 +88,19 @@ def test_staging_event_receives_burnout_state_as_initial_conditions() -> None:
 
 
 def test_booster_trajectory_survives_to_nominal_burnout() -> None:
-    """The fixed 83-degree launch angle allows the booster to reach 6 s burnout.
+    """The fixed 83-degree launch angle allows the booster to reach nominal burnout.
 
     This test verifies that the trajectory fix (LAUNCH_ANGLE_DEG = 83.0)
-    prevents premature ground impact before the nominal burn_time_s = 6.0 s.
-    The test reads the burnout_state.json produced by booster_burnout.py.
+    prevents premature ground impact before the nominal
+    ``stage_1.propulsion.burn_time_s``. The test reads the
+    burnout_state.json produced by booster_burnout.py.
+
+    2026-07-11: the nominal burn time changed from the SZACOWANY 6.0 s to
+    the real PRD-240 static-test curve's 5.18 s (vehicle_config.yaml
+    updated to the real archived thrust curve -- see docs/decision-log.md
+    "Real PRD-240 booster thrust curve found in archive"). Updated the
+    expected value to match; the ground-impact and launch-angle checks are
+    unaffected by this change.
     """
     this_dir = Path(__file__).resolve().parent
     burnout_json = this_dir.parents[1] / "analyses" / "trajectory" / "burnout_state.json"
@@ -112,19 +120,29 @@ def test_booster_trajectory_survives_to_nominal_burnout() -> None:
         "Booster hit ground before burnout; launch angle fix failed"
     )
 
-    # Check that burnout occurred at the nominal 6.0 s (not cut short)
-    assert data["burnout_time_s"] == pytest.approx(6.0, abs=0.01)
+    # Check that burnout occurred at the nominal 5.18 s (real PRD-240 curve, not cut short)
+    assert data["burnout_time_s"] == pytest.approx(5.18, abs=0.01)
 
     # Check that the launch angle was indeed updated to 83 deg
     assert data["metadata"]["launch_angle_deg"] == pytest.approx(83.0, abs=0.1)
 
-    # Sanity-check the burnout state: Mach > 1.0, altitude > 0
-    assert data["burnout_mach"] > 1.0, "Booster should reach supersonic by burnout"
+    # Sanity-check the burnout state: altitude > 0 (Mach checked separately below --
+    # see test_booster_burnout_state_is_subsonic_with_real_prd240_motor)
     assert data["burnout_altitude_m"] > 0.0, "Booster altitude should be > 0 at burnout"
 
 
-def test_booster_burnout_state_is_supersonic() -> None:
-    """The booster reaches Mach > 1.0 by burnout (typical small rocket performance)."""
+def test_booster_burnout_state_is_subsonic_with_real_prd240_motor() -> None:
+    """The booster stays below Mach 1.0 by burnout, given the real PRD-240 impulse.
+
+    2026-07-11: was ``test_booster_burnout_state_is_supersonic``, asserting
+    Mach > 1.0. vehicle_config.yaml's stage_1.propulsion was updated from a
+    SZACOWANY placeholder (implied total impulse ~152 kN*s) to the real
+    PRD-240 static-test thrust curve (total impulse 56.38 kN*s, ~2.7x
+    lower). Under this real, much lower impulse, the 355.02 kg vehicle's
+    booster-phase burnout Mach drops to ~0.34 -- a genuine physical
+    finding flagged for human review in docs/decision-log.md ("Real
+    PRD-240 booster thrust curve found in archive"), not a test bug.
+    """
     this_dir = Path(__file__).resolve().parent
     burnout_json = this_dir.parents[1] / "analyses" / "trajectory" / "burnout_state.json"
 
@@ -134,7 +152,7 @@ def test_booster_burnout_state_is_supersonic() -> None:
     import json
 
     data = json.loads(burnout_json.read_text(encoding="utf-8"))
-    assert data["burnout_mach"] > 1.0
+    assert 0.0 < data["burnout_mach"] < 1.0
 
 
 def _sample_burnout_state() -> BurnoutState:
@@ -340,7 +358,18 @@ def test_cruise_segment_note_discloses_reference_model() -> None:
 
 
 def test_booster_burnout_altitude_is_positive_and_reasonable() -> None:
-    """Burnout altitude should be in the range [500, 3000] m for this booster."""
+    """Burnout altitude should be in the range [200, 1000] m for this booster.
+
+    2026-07-11: range widened downward from [500, 3000] m. With the real
+    PRD-240 static-test thrust curve (total impulse 56.38 kN*s, ~2.7x
+    lower than the prior SZACOWANY placeholder), the 355.02 kg vehicle's
+    booster-phase burnout altitude drops to ~387 m -- a genuine physical
+    consequence of the real, lower-impulse motor data (see
+    docs/decision-log.md "Real PRD-240 booster thrust curve found in
+    archive"), not a bug. [200, 1000] m keeps this a meaningful sanity
+    bound (positive, not implausibly large or small) rather than a fixed
+    check tied to the old placeholder's performance.
+    """
     this_dir = Path(__file__).resolve().parent
     burnout_json = this_dir.parents[1] / "analyses" / "trajectory" / "burnout_state.json"
 
@@ -351,6 +380,6 @@ def test_booster_burnout_altitude_is_positive_and_reasonable() -> None:
 
     data = json.loads(burnout_json.read_text(encoding="utf-8"))
     h_burnout = data["burnout_altitude_m"]
-    assert 500.0 < h_burnout < 3000.0, (
-        f"Burnout altitude {h_burnout:.1f} m is outside expected range [500, 3000] m"
+    assert 200.0 < h_burnout < 1000.0, (
+        f"Burnout altitude {h_burnout:.1f} m is outside expected range [200, 1000] m"
     )
