@@ -36,6 +36,39 @@ boundary-layer/viscous effects, or fin-fin interference between the
 four panels. Per project rules, AVL (a subsonic VLM solver) is never
 used for this vehicle's supersonic flight regime; empirical DATCOM-style
 correlations are used throughout instead.
+
+**SUPERSONIC REGIME: HISTORICAL / OUT-OF-REGIME (2026-07-11 decision)**
+------------------------------------------------------------------------
+The supersonic output of this module (Mach > 1.2) is **RETIRED as the CDR
+stability gate** and marked HISTORICAL / OUT-OF-REGIME per the following
+reasoning:
+
+1. **Barrowman slender-body theory is validated only to ~Mach 0.7**. The
+   ramP cruise condition (Mach 2.5) is well outside this validated envelope.
+
+2. **The ramP fins violate the small-fin assumption**:
+   - Fin semi-span: 0.550 m
+   - Body diameter: 0.200 m
+   - Ratio: 0.550 / 0.200 = **2.75** (fin extends ~2.67× a body diameter
+     from the centerline).
+   - Classical Barrowman assumes fins are "small perturbations" on the body
+     (fin span comparable to or smaller than body radius).
+
+For these reasons, the supersonic static-margin results produced by this
+module (+8.99 cal basic / +4.594 cal extended at Ma 2.5) are **NOT
+reconciled** with the Teltik CFD (-2.75 cal @ Ma 2.5) or other supersonic
+methods. Instead, the supersonic stability analysis is replaced by:
+
+- **datcom_class_sweep.py**: DATCOM/RASAero-class supersonic component
+  buildup (intermediate fidelity, Mach 1.2–3.0).
+- **ackeret_fin_check.py**: Independent Ackeret / slender-body fin CP
+  hand-check.
+- **SU2 RANS-SST** (authoritative cross-check, deferred where SU2 is not
+  buildable).
+
+See ``docs/decision-log.md`` (2026-07-11 entry) for the full rationale and
+``docs/references/ramp_analysis_plan_2026-07-11.md`` for the research
+findings that motivate this retirement.
 """
 
 from __future__ import annotations
@@ -313,6 +346,16 @@ def fin_cn_alpha_base_and_cp(geometry: RocketGeometry) -> tuple[float, float]:
 
 def fin_mach_correction_factor(mach: float) -> float:
     """Rogers-extended compressibility correction on fin CN_alpha.
+
+    **NOTE (2026-07-11): The supersonic branch (mach > MACH_SUPERSONIC_LIMIT)
+    of this function is HISTORICAL / OUT-OF-REGIME for the ramP vehicle
+    (see module-level docstring "SUPERSONIC REGIME" section). Barrowman
+    is valid only to ~Mach 0.7; the ramP fins violate the small-fin
+    assumption (fin span / body diameter = 2.75). Supersonic stability
+    analysis is now performed by datcom_class_sweep.py (DATCOM-class
+    component buildup) and ackeret_fin_check.py (independent Ackeret
+    hand-check). This function's numerics are UNCHANGED (for historical
+    reproducibility), but its supersonic output is not used as a CDR gate.**
 
     Anchored at 1.0 for ``mach -> 0`` (matching the incompressible
     Barrowman fin formula):
