@@ -400,3 +400,21 @@ under-expansion loss, traded against mass and off-design over-expansion.
 
 Gate: pytest green (237). Files: `inlet_performance_v2.{py,md,csv}`,
 `nozzle_expansion_check.{py,md,csv}`, `tests/unit/test_inlet_nozzle_v2.py`.
+
+## 2026-07-11 — Stage 4 — Cold-flow instrumentation plan + CO2-surrogate limitation
+
+Wrote `docs/cold_flow_test_plan.md` (AIP total-pressure rake on equal-area radii,
+centerbody/cowl static taps, high-speed Z-type Schlieren + Kulite dynamic
+pressure for buzz, test matrix incl. the M2.5→1.8 start/buzz sweep that probes
+the predicted ~M2.1 detachment). The plan is scoped to measure shock structure,
+recovery, and buzz DIRECTLY, to cross-check the Taylor–Maccoll prediction.
+
+Wrote `analyses/cold_flow/co2_surrogate_mismatch.py` + `_note.md`: quantifies why
+cold CO2 + optics verify shocks/recovery but NOT reacting mixing. Screening
+result — cold CO2 is ~11× denser than hot kerosene products and carries ~11× the
+momentum-flux ratio at equal injection velocity, so penetration/mixing is not
+representative. Documented as a KNOWN LIMITATION (qualitative/screening only),
+explicitly NOT a validated capability; cold-flow mixing must not feed the cycle
+model as a validated combustor input.
+
+Gate: pytest green (240). +3 tests.
