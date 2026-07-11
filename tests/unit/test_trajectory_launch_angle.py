@@ -43,10 +43,24 @@ def test_thirty_degree_launch_avoids_ground_impact() -> None:
 
 
 @pytest.mark.parametrize("angle_deg", [15.0, 20.0, 25.0, 30.0])
-def test_burnout_mach_supersonic_for_steep_enough_angles(angle_deg: float) -> None:
-    """Burnout Mach exceeds 1.0 for launch angles >= 15 deg."""
+def test_burnout_mach_stays_subsonic_with_real_prd240_impulse(angle_deg: float) -> None:
+    """Burnout Mach stays below 1.0 for launch angles 15-30 deg, real motor.
+
+    2026-07-11: was ``test_burnout_mach_supersonic_for_steep_enough_angles``,
+    asserting Mach > 1.0. That premise no longer holds: vehicle_config.yaml's
+    stage_1.propulsion was updated from a SZACOWANY placeholder (implied
+    total impulse ~152 kN*s) to the real PRD-240 static-test thrust curve
+    (total impulse 56.38 kN*s, ~2.7x lower -- see docs/decision-log.md
+    "Real PRD-240 booster thrust curve found in archive"). Under this real,
+    much lower impulse, the 355.02 kg vehicle's booster-phase burnout Mach
+    is well below 1.0 at every angle tested (15-83 deg; max ~0.47 at 15deg).
+    This is a genuine physical finding flagged for human review (motor
+    cluster? lighter vehicle? different motor?), not a bug in this test or
+    the trajectory model -- see the decision-log entry for next actions.
+    """
     entry = _sweep_entry_for(angle_deg)
-    assert entry["burnout_mach"] > 1.0
+    assert entry["burnout_mach"] < 1.0
+    assert entry["burnout_mach"] > 0.0
 
 
 def test_sweep_result_has_required_fields() -> None:
