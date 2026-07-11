@@ -730,3 +730,87 @@ placeholder-vs-real update.
 No official vehicle config or existing analysis output was changed this
 session; everything above is additive and clearly separated by name
 (`_coldflow_PRD240` suffix throughout).
+
+---
+
+## 2026-07-11 — PRD-240 motor identity CONFIRMED; real data promoted into official vehicle_config.yaml
+
+**Human decision, follow-up to the entry above:** the two open questions
+from "Real PRD-240 booster thrust curve found in archive" are resolved:
+
+1. **Archive data (`acceleration_macro.xls`) is authoritative** — treated
+   as ground truth per explicit instruction, not re-derived or guessed.
+2. **PRD-240 motor-vs-wing-name identity CONFIRMED**: the Fusion CAD
+   wing/control-surface component this designation was previously
+   catalogued from ("Skrzydło PRD-240 x4") **is this same motor's own fin
+   hardware** — not a coincidental name collision. The prior "keep
+   separate pending confirmation" posture is superseded.
+
+**Action taken:**
+- `motor_database.yaml`'s `PRD-240` entry: `status: MOCKUP` → `DATASHEET`,
+  populated with the real curve's derived values (same numbers as the
+  separate coldflow config: peak 17250 N, mean 10878 N, burn 5.18 s,
+  total impulse 56377 N·s, propellant 27.01 kg derived from the archive's
+  own assumed isp_sl_s=212.84 s).
+- `vehicle_config.yaml` (official) `stage_1.propulsion`: promoted from
+  the SZACOWANY placeholder to the same real values. Full provenance and
+  the isp-assumption caveat recorded in the field's `note`.
+- `vehicles/ramjet_rocket/vehicle_config_coldflow_PRD240.yaml` and
+  `analyses/trajectory/coldflow_boost_prd240.py` (from the prior entry)
+  are **kept** — not deleted or made redundant — since they still provide
+  something the official config's constant-mean-thrust model doesn't: a
+  real time-varying-thrust integration and the ARCHIVE100 (100 kg)
+  cross-validation case. Only their "kept separate pending confirmation"
+  framing is now stale (motor identity is resolved); the files themselves
+  remain useful as the higher-fidelity real-curve capability.
+
+**Test/cache cascade** (mirrors the same discipline used for the
+2026-07-10 drawing-geometry update — recompute and verify physically,
+never guess-patch expected values):
+- `tests/unit/test_trajectory_launch_angle.py`: renamed
+  `test_burnout_mach_supersonic_for_steep_enough_angles` →
+  `test_burnout_mach_stays_subsonic_with_real_prd240_impulse` (15–30° all
+  now genuinely subsonic, max ~0.47 at 15°).
+- `tests/unit/test_missions_staged.py`: 3 fixes — burnout-time expectation
+  6.0s→5.18s; renamed `test_booster_burnout_state_is_supersonic` →
+  `..._is_subsonic_with_real_prd240_motor`; widened the burnout-altitude
+  sanity bound from [500, 3000] m to [200, 1000] m (real burnout altitude
+  ≈387 m, down from ≈1289 m). `_sample_burnout_state()` (self-contained
+  synthetic fixture for cruise-segment tests, independent of the live
+  config) left untouched — not stale, by design.
+- **Real bug found and fixed**, not just cache staleness:
+  `workflows/ramp_staged_mission.py::build_ramp_staged_mission` had two
+  hardcoded literals (`burn_time_s=6.0`, `initial_mass_kg=355.02`) with
+  comments claiming they tracked `vehicle_config.yaml` but never actually
+  read it (same anti-pattern as PR #2 closeout's `drag_polar.py` finding).
+  `initial_mass_kg` happened to still be correct; `burn_time_s` had gone
+  stale. Fixed by adding `_vehicle_stage1_boost_params()` (mirrors the
+  existing `_vehicle_body_diameter_m()` pattern) and reading both fields
+  from the live config.
+- Regenerated 3 mechanically-stale cached outputs by rerunning their
+  unchanged scripts: `analyses/trajectory/burnout_state.json` +
+  `launch_angle_sweep.csv` (booster_burnout.py),
+  `workflows/staged_mission_profile.json` + `docs/ramP/cruise_summary_night3.md`
+  (ramp_staged_mission.py), `analyses/suave/results/suave_baseline_mission.json`
+  (ramp_suave_baseline.py — only the stale booster-handoff altitude field
+  changed; cruise-phase numbers are booster-independent, unaffected).
+- `docs/ramP/results_registry.md` deliberately **left unchanged** — it's a
+  hand-maintained historical tracker explicitly scoped to "Nights 1–4";
+  retroactively editing a dated historical record to reflect today's new
+  number would misrepresent what was actually true at the time it was
+  written.
+
+`pytest tests/`: **245 passed** (unchanged count — 3 renamed/fixed tests,
+no new or deleted tests this pass).
+
+**The real physical finding stands and is now load-bearing in the
+official config**: the 355.02 kg vehicle's booster-phase burnout Mach is
+~0.34–0.47 across all tested launch angles (15–83°) on the real PRD-240
+motor's impulse — well below the design's implicit supersonic-staging
+assumption. **This is now the official model's answer, not a side
+analysis.** Every downstream trajectory/staging assumption that presumed
+supersonic booster burnout (e.g. the staging handoff Mach used elsewhere)
+should be treated as stale until the team resolves: single-motor
+insufficient (needs a cluster?), vehicle mass needs to come down, or
+PRD-240 is the wrong motor after all despite the CAD-name confirmation.
+Not resolved by this session — flagged as the top next human action.
