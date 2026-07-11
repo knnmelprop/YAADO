@@ -19,15 +19,19 @@ regardless, for the real time-varying-thrust integrator (vs. the official
 config's constant-mean-thrust default model) and the ARCHIVE100
 cross-validation case -- see ``docs/decision-log.md``.
 
-Two mass cases are run and clearly named throughout outputs:
-    - ``ARCHIVE100``: 100.0 kg, matching the archive spreadsheet's own
-      reference mass -- used to cross-validate this module's integration
+Two cases are run and clearly named throughout outputs. Both use the same
+100.0 kg mass (2026-07-11: total_mass_kg corrected 355.02 -> 100.0 kg in
+both this config and the official one -- the Fusion physics-engine mass
+estimate is considered wrong/oversized; the archive's own reference mass
+is the real target), differentiated by launch angle:
+    - ``ARCHIVE100``: 50 deg, the archive spreadsheet's own worked-example
+      launch angle -- used to cross-validate this module's integration
       against the archive's own independently-computed altitude/velocity
       numbers at the "Separation" event (t=5.0 s).
-    - ``FULL355``: 355.02 kg, the real two-stage vehicle's total mass
-      (``vehicle_config_coldflow_PRD240.yaml``'s ``mass_properties.
-      total_mass_kg``, unchanged from the official config) -- the ramjet
-      stage is physically present (as dead mass) but not firing.
+    - ``OFFICIAL100``: 83 deg, the official ``vehicle_config.yaml``'s
+      nominal near-vertical launch angle (``LAUNCH_ANGLE_DEG`` in
+      :mod:`analyses.trajectory.booster_burnout`) -- the ramjet stage is
+      physically present (as dead mass) but not firing.
 
 Higher fidelity than :func:`analyses.trajectory.booster_burnout.
 boost_dynamics`'s constant-mean-thrust model: thrust here is the real
@@ -69,6 +73,7 @@ from analyses.trajectory.booster_burnout import (  # noqa: E402
     BoosterParams,
     G0_MS2,
     H0_M,
+    LAUNCH_ANGLE_DEG,
     V0_MS,
     X0_M,
     drag_coefficient,
@@ -319,10 +324,17 @@ def plot_cases(cases: list[dict[str, Any]], output_path: Path = OUTPUT_PNG_PATH)
 
 
 def main() -> dict[str, Any]:
-    """Run both mass cases, print a comparison, and write JSON + PNG."""
+    """Run both cases (same mass, different launch angle), print a
+    comparison, and write JSON + PNG.
+
+    2026-07-11: both cases now use the same 100.0 kg mass (see module
+    docstring); the remaining distinction is launch angle -- ARCHIVE100
+    (50deg, the archive's own worked example) vs OFFICIAL100 (83deg, the
+    official vehicle_config.yaml's nominal near-vertical angle).
+    """
     cases = [
         run_case("ARCHIVE100", ARCHIVE_REFERENCE_MASS_KG, launch_angle_deg=50.0),
-        run_case("FULL355", None, launch_angle_deg=50.0),
+        run_case("OFFICIAL100", None, launch_angle_deg=LAUNCH_ANGLE_DEG),
     ]
 
     print("Boost-only, cold-ramjet mission -- real PRD-240 thrust curve")

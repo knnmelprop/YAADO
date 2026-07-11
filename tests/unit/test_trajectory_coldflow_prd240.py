@@ -26,13 +26,28 @@ def test_thrust_curve_loads_real_positive_data() -> None:
     assert (np.diff(cum_impulse) >= -1e-9).all()  # monotonically non-decreasing
 
 
-def test_coldflow_config_loads_and_differs_from_official() -> None:
-    """The separate cold-flow config has the real PRD-240 propulsion values."""
+def test_coldflow_config_matches_official_prd240_and_mass_values() -> None:
+    """The cold-flow config's propulsion + mass now match the official config.
+
+    2026-07-11: originally this config was kept deliberately separate from
+    (and different in value from) the official vehicle_config.yaml pending
+    confirmation of the PRD-240 motor identity. That identity is now
+    confirmed and the same real data was promoted into the official
+    config, including the mass_properties.total_mass_kg correction
+    (355.02 -> 100.0 kg). This test now checks the two configs agree,
+    not that they differ -- the cold-flow config is kept for its
+    real-time-varying-thrust integrator and ARCHIVE100 cross-validation
+    case, not because its values are unique anymore.
+    """
     params = load_booster_params(config_path=COLDFLOW_VEHICLE_CONFIG_PATH)
     assert params.thrust_mean_yaml_N == pytest.approx(10878.0)
-    # Real motor burn is much shorter and lighter than the SZACOWANY placeholder.
     assert params.burn_time_s == pytest.approx(5.18)
     assert params.propellant_mass_kg == pytest.approx(27.01)
+    assert params.launch_mass_kg == pytest.approx(100.0)
+
+    official_params = load_booster_params()
+    assert params.thrust_mean_yaml_N == pytest.approx(official_params.thrust_mean_yaml_N)
+    assert params.launch_mass_kg == pytest.approx(official_params.launch_mass_kg)
 
 
 def test_mass_at_time_real_curve_depletes_monotonically() -> None:
@@ -53,22 +68,28 @@ def test_mass_at_time_real_curve_depletes_monotonically() -> None:
     )
 
 
-def test_archive_mass_case_reaches_higher_mach_than_full_vehicle() -> None:
-    """Real PRD-240 curve: the light archive-reference mass goes supersonic;
-    the full 355 kg vehicle (ramjet stage present but cold) does not.
+def test_both_cases_reach_supersonic_with_real_mass_and_motor() -> None:
+    """Real PRD-240 curve + corrected 100 kg mass: both launch-angle cases
+    go supersonic by burnout.
 
-    This is the real, physical finding this module exists to surface --
-    not asserted as a design verdict, only as the module's own consistent
-    output (see docs/decision-log.md for the human-flagged interpretation).
+    2026-07-11: was ``test_archive_mass_case_reaches_higher_mach_than_
+    full_vehicle`` -- asserted the light 100 kg archive mass goes
+    supersonic while the (then-official) 355.02 kg vehicle does not.
+    After mass_properties.total_mass_kg was corrected to 100.0 kg in
+    both configs (Fusion physics-engine estimate considered wrong/
+    oversized), both cases now use the same real mass and differ only by
+    launch angle (ARCHIVE100 @ 50deg vs OFFICIAL100 @ 83deg) -- this is
+    the real, physical finding this module now surfaces (see
+    docs/decision-log.md for the full reasoning).
     """
     archive_case = run_case("ARCHIVE100", ARCHIVE_REFERENCE_MASS_KG, launch_angle_deg=50.0)
-    full_case = run_case("FULL355", None, launch_angle_deg=50.0)
+    official_case = run_case("OFFICIAL100", None, launch_angle_deg=83.0)
 
-    assert archive_case["burnout_mach"] > full_case["burnout_mach"]
-    assert archive_case["launch_mass_kg"] == pytest.approx(ARCHIVE_REFERENCE_MASS_KG)
-    assert full_case["launch_mass_kg"] == pytest.approx(355.02)
-    # Both must be physically sane (positive altitude gain, no NaNs).
-    for case in (archive_case, full_case):
+    assert archive_case["launch_mass_kg"] == pytest.approx(100.0)
+    assert official_case["launch_mass_kg"] == pytest.approx(100.0)
+    # Both must be physically sane and supersonic (positive altitude gain, no NaNs).
+    for case in (archive_case, official_case):
+        assert case["burnout_mach"] > 1.0
         assert case["burnout_altitude_m"] > 0.0
         assert case["burnout_velocity_ms"] > 0.0
         assert not case["ground_impact_before_burnout"]
