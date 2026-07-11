@@ -388,3 +388,69 @@ They ARE part of the broader "re-run all geometry-dependent analyses" debt (§5)
 | Review body.max_diameter_m=0.639 for self-consistency w/ smaller fin span | vehicle_config.yaml | MED | Maybe | S |
 | area_ratio propagation | — | DONE (§3C) | — | — |
 | Booster Ø0.250 vs nozzle Ø0.241 | — | DONE (§2A) | — | — |
+
+## 2026-07-11 — RamP full-analysis rerun (cloud sandbox, Opus 4.8 orchestrator)
+
+Reran the full engineering suite post-research (Stages 1–5). Cloud/ephemeral,
+no NAS/Fusion; committed+pushed per stage. Suite 211 → 240 green. Draft PR #4.
+
+**DONE (each its own pushed commit, green suite):**
+- Stage 1: retired Barrowman supersonic as CDR gate; added DATCOM-class buildup +
+  Ackeret hand-check over a CG sweep (`analyses/stability/datcom_class_sweep.py`,
+  `ackeret_fin_check.py`). Delegated to aero-analyst (sonnet) under a tight spec.
+- Stage 2: Heiser & Pratt stream-thrust rebuild `analyses/propulsion/cycle_v2/`
+  with station-wise γ + γ sweep. Did this myself (coupled physics).
+- Stage 3: Taylor–Maccoll `inlet_performance_v2.py` (supersedes wedge model) +
+  `nozzle_expansion_check.py` (coupled to Stage 2 γ). Myself.
+- Stage 4: `docs/cold_flow_test_plan.md` + `co2_surrogate_mismatch` note. Myself.
+
+**KEY COUPLED FINDINGS (the non-obvious ones):**
+- **Stability gate is NOT green — it's a 2-analytical-vs-1-CFD split.** DATCOM +
+  Ackeret both give +5…+11 cal (stable) but that REPRODUCES Barrowman's
+  optimism; both still conflict with Teltik CFD (−2.75 cal). Linear methods
+  structurally can't capture the fin-effectiveness collapse on the huge fins
+  (span/d=2.75) that moves CFD's CP forward. SU2 is the arbiter and is BLOCKED.
+  Do NOT report "stable" as resolved (I added an orchestrator addendum to the
+  decision-log because the subagent stopped at "STABLE").
+- **γ is a WEAK lever on V3 (~0.5% across 1.20–1.40).** The research named
+  constant-γ as the primary V3-gap suspect; the rerun shows the **nozzle
+  area-ratio geometry correction** (implied 2.44 → real 1.317) closed ~26 of the
+  ~41 gap-points, γ < 1. Residual +14.6% vs CFD is 1-D-model limitation, to be
+  closed by CEA/SU2, not γ tuning.
+- **Nozzle matched-AR ≈ 2.48 ≈ the legacy implied 2.44** → the old cycle silently
+  assumed a fully-expanded nozzle; the real AR=1.317 is under-expanded (p_e/p0≈3).
+- **Inlet: the wedge model was qualitatively wrong.** 42° cone DETACHES as a
+  wedge (~30° limit) but is ATTACHED conically (~46° limit) at M2.5 — yet with a
+  strong shock (recovery 0.64 < MIL 0.87). It DETACHES at M2.0 → **min starting
+  Mach ≈2.1 constrains the staging Mach** (new, actionable).
+
+**PROVISIONAL (documented, in docs/assumptions.md 2026-07-11 table):** γ_hot 1.28,
+fuel LHV 43 MJ/kg, Tt4 2000 K, η_inlet 0.8741, altitude band 4–10 km, cone-angle
+interpretation (42° vs 21°), Puckett tip-loss, K_fb subsonic form, CO2-rig
+conditions. CG was SWEPT (0.37–0.64 L), never defaulted.
+
+**BLOCKED_BY_ENVIRONMENT (cloud sandbox):**
+- SU2: no binary, `external/su2` submodule not checked out, C++/meson build not
+  feasible here. Blocks the authoritative stability arbiter (Stage 1 Dispatch B).
+- NASA-CEA: no rocketcea/cantera; used literature γ (PROVISIONAL). Blocks the
+  real equilibrium-γ V3 verification.
+
+**NO vehicle_config.yaml changes this session** — nothing was CONFIRMED (stability
+inconclusive, cycle/inlet provisional). CG/MOI deliberately left
+`TBD_PHYSICAL_PARAM`, exactly as before. Did not fabricate any safety-critical value.
+
+**CONCRETE NEXT HUMAN ACTIONS (one per open item):**
+1. Stability: run the SU2 RANS-SST cross-check LOCALLY (M2.5, y+<1, α-sweep) to
+   break the analytical-vs-CFD sign tie — until then treat Ma2.5 stability as
+   UNRESOLVED, not the analytical +margin.
+2. Cycle: run a real NASA-CEA case (confirm fuel + equivalence ratio) to replace
+   the PROVISIONAL γ_hot=1.28 and close the +14.6% V3 residual.
+3. Inlet: confirm the 42° vs 21° drawing reading; treat **M≈2.1 as the minimum
+   inlet starting Mach** when setting the staging Mach; design the InletGeometry
+   schema so the 60° internal contraction can be modeled.
+4. Nozzle: decide whether to lengthen toward AR≈2.5 (full expansion) vs keep 1.317
+   (lighter, under-expanded) once the mission altitude profile is fixed.
+5. Cold-flow: build the rig per docs/cold_flow_test_plan.md; keep CO2 mixing data
+   as screening-only for the reacting flight.
+6. Extract CG + Ixx/Iyy/Izz from Fusion GUI to replace the CG sweep with a real
+   value (needed to convert the stability sweep into a single margin).
