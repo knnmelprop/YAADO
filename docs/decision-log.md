@@ -624,3 +624,109 @@ genuine local/CFD session request is handled as its own deliberate task.
 `pytest tests/`: **240 passed** (unchanged count from the pre-existing PR #4
 baseline; this session only refreshed cached outputs and fixed the
 `drag_polar.py` staleness bug, no new tests added — in scope, narrow task).
+
+---
+
+## 2026-07-11 — Real PRD-240 booster thrust curve found in archive; boost-only cold-ramjet mission run separately
+
+**Request:** run a boost-only mission (solid booster only, ramjet stage
+cold — no fuel injected into the combustor) using real data from the
+team's archived spreadsheets.
+
+**Found:** `data/RamP_analitical_computations/acceleration_macro.xls`
+contains a real static-test thrust-vs-time curve, sheet `PRD-240`
+(31 points, `Time [s]` / `Thrust [kN]` / `Total impuls [kNs]`): peak
+17.25 kN at t=0.072s, burn ≈5.18-5.55s, total impulse 56.38 kN·s
+(trapezoidal integral matches the sheet's own "Sum" cell). Also present:
+`PRD-80` (a second, smaller real motor curve, not used this session), and
+two full flight-simulation sheets built on the same PRD-240 curve —
+`booster test at angle` (Boost → Separation → **Unpowered ascent** →
+parachute recovery — no ramjet firing) and `booster test at angle with
+ramj` (ramjet fires after separation). Both use a reference vehicle mass
+of **100 kg**, not the current vehicle's real 355.02 kg total.
+
+**Motor-identity conflict, NOT resolved:** `vehicles/ramjet_rocket/
+motor_database.yaml` already has a "PRD-240" entry from an earlier
+session, catalogued as a Fusion CAD **wing/control-surface** component
+("Skrzydło PRD-240 x4"), status MOCKUP — explicitly not a confirmed
+motor. The archive's `PRD-240` sheet is unambiguously motor performance
+data (kN, kN·s), and other cells in the same workbook reference "Mach
+number with PRD-240 booster" — but nothing in the repo independently
+confirms these two "PRD-240"s are the same physical part.
+
+**Human decision (2026-07-11, mid-session):** given that ambiguity plus a
+much bigger physical finding below, **keep the real PRD-240 data as a
+separate, clearly-named vehicle/analysis rather than overwriting the
+official `vehicle_config.yaml`.** A first attempt at editing the official
+config directly was reverted (`git checkout --`) before commit; no
+official file was changed.
+
+**What was built (all new, nothing existing modified):**
+- `vehicles/ramjet_rocket/motor_data/PRD-240_thrust_curve.csv` — the raw
+  curve, extracted verbatim (time_s, thrust_N).
+- `vehicles/ramjet_rocket/vehicle_config_coldflow_PRD240.yaml` — a
+  separate, explicitly-non-official `RocketConfig` (same body/fins/stage_2
+  geometry as the real vehicle; only `stage_1.propulsion` differs, with the
+  real curve's derived values: `thrust_peak_N=17250` REAL,
+  `thrust_mean_N=10878` REAL (impulse/burn_time), `burn_time_s=5.18` REAL,
+  `propellant_mass_kg=27.01` DERIVED from the real impulse using the
+  archive's own **assumed, not measured**, `isp_sl_s=212.84s`). File header
+  documents the wing-name ambiguity and the "why separate" rationale.
+- `analyses/trajectory/coldflow_boost_prd240.py` — new module, reuses
+  `booster_burnout.py`'s drag/ISA/flow-state helpers, adds a real
+  time-varying-thrust integrator (linear interpolation of the curve,
+  cumulative-impulse-fraction mass depletion) instead of the existing
+  constant-mean-thrust model. Runs two named cases:
+  - **ARCHIVE100** (100 kg, matches the spreadsheet's own reference mass,
+    50° launch angle matching its own worked example) — for cross-
+    validation against the archive's own numbers.
+  - **FULL355** (355.02 kg, the real two-stage vehicle's actual total
+    mass, ramjet stage physically present but unlit) — the actual mission
+    asked for.
+- `tests/unit/test_trajectory_coldflow_prd240.py` — 5 new tests (curve
+  sanity, config isolation from the official one, mass-depletion
+  monotonicity, case comparison, cross-check vs. the archive's reported
+  Separation altitude). `pytest tests/`: **245 passed** (240 → +5, no
+  existing test touched or broken — this work is purely additive).
+
+**Results:**
+
+| Case | Mass | Launch angle | Burnout time | Altitude | Velocity | Mach |
+|---|---:|---:|---:|---:|---:|---:|
+| ARCHIVE100 | 100.0 kg | 50° | 5.55 s | 1544 m | 550.5 m/s | **1.647** |
+| FULL355 | 355.02 kg | 50° | 5.55 s | 379.5 m | 127.6 m/s | **0.377** |
+
+**Cross-validation:** ARCHIVE100 at t=5.0s gives altitude≈1319 m vs. the
+archive's own reported 1177 m at its "Separation" event (50°) — same
+order of magnitude (~12% high), not exact, expected since this module's
+drag model (`booster_burnout.py`'s stepped-CD body+fin buildup) differs
+from the archive's own separate empirical drag lookup table. Confirms the
+new integrator isn't fundamentally wrong, not a precise reproduction.
+
+**The real finding (flagged, not resolved):** with the REAL PRD-240
+curve, the **355.02 kg real vehicle (FULL355) stays well subsonic**
+(Mach 0.38 peak) at burnout — a materially different, much more
+consequential result than "some placeholder numbers were off." The real
+total impulse (56.38 kN·s) is ~2.7× smaller than what the SZACOWANY
+placeholder implied (mean 25,375 N × 6.0 s ≈ 152 kN·s). The 100 kg
+archive-reference mass DOES go supersonic (Mach 1.65) on the same motor,
+strongly suggesting that mass belongs to a different, lighter test
+article than the current 355 kg two-stage vehicle — not a simple
+placeholder-vs-real update.
+
+**Next human action (do not resolve by guessing):**
+1. Confirm whether PRD-240 (archive motor curve) and PRD-240 (Fusion CAD
+   wing panel, `motor_database.yaml`) are the same physical part.
+2. If confirmed as the real stage-1 motor: the 355 kg vehicle's inability
+   to reach supersonic on this motor's real impulse is a genuine design
+   gate item (cluster motors? lighter vehicle? wrong motor?) — needs team
+   review before any further trajectory/staging work assumes PRD-240
+   single-motor boost reaches the current design's staging Mach.
+3. `isp_sl_s=212.84s` used to derive `propellant_mass_kg=27.01` is the
+   archive author's own assumed design value, not an independently
+   measured Isp — a real measured Isp would remove that remaining
+   assumption layer.
+
+No official vehicle config or existing analysis output was changed this
+session; everything above is additive and clearly separated by name
+(`_coldflow_PRD240` suffix throughout).
