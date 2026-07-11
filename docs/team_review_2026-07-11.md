@@ -86,6 +86,32 @@ Source: `analyses/propulsion/validation/v3_recalc_post_geometry_and_gamma.md`,
 - Residual +14.6% vs CFD is attributed to 1-D model limitations (nozzle boundary-layer/divergence loss, real-gas effects, spillage) — expected to be closed by a real NASA-CEA run and/or SU2, not by further gamma tuning.
 - **Status: PROVISIONAL.** Both CEA and SU2 cross-checks are `BLOCKED_BY_ENVIRONMENT` in every cloud session so far.
 
+### 4b. Cycle station table (detailed breakdown)
+
+Requested addendum: station-by-station breakdown of the `cycle_v2` (Heiser &
+Pratt) model at its nominal design point (Mach 2.5 / 10,000 m ISA,
+gamma_hot=1.28), read directly off `CycleResult` fields already computed by
+`evaluate_cycle()` — no new station-level modeling added, this is exactly
+what the model already produces.
+
+| Station | Name | T_static [K] | p_static [Pa] | Mach | Area [cm²] | Note |
+|---|---|---|---|---|---|---|
+| 0 | Freestream | 223.1 | 26,436 | 2.500 | — | static; tt0=502.1 K, pt0=451,682 Pa |
+| 2 | Diffuser exit | — | — | — | — | **total only**: tt2=502.1 K (=tt0, adiabatic), pt2=394,800 Pa (eta_inlet=0.8741 applied) |
+| 4 | Combustor exit | — | — | — | — | **total only**: tt4=2000.0 K (input), pt4=352,319 Pa (pi_cc=0.8924 applied). f_fuel_air=0.0555 |
+| throat | Nozzle throat (choked) | — | — | 1.000 | 518.79 | Ma=1 by construction |
+| e / 9 | Nozzle exit | 1451.4 | 78,908 | 1.643 | 683.25 | v_exit=1199.9 m/s; AR=1.317 (real, drawing) |
+
+**Why stations 2 and 4 have no static T/p/Mach:** this 1-D model (like the
+Heiser & Pratt framework it's built on) tracks **total (stagnation)
+conditions** through the diffuser and combustor and only resolves static
+conditions where a duct Mach number is actually computed — the throat
+(choked, Ma=1 by construction) and the exit (from the real area ratio).
+Duct-internal static conditions/Mach at stations 2 and 4 are **not modeled
+anywhere in this repo**; reporting a static value there would be invented,
+not read from the model. **Status: PROVISIONAL** (same basis as Section 4 —
+CEA/SU2 cross-checks not yet run). Full CSV: `team_review_2026-07-11/cycle_v2_station_table.csv`.
+
 ---
 
 ## 5. Inlet / nozzle panel
@@ -116,7 +142,32 @@ Source: `analyses/mission/results/operational_envelope.csv`.
 
 ---
 
-## 7. Roadmap position
+## 7. Trajectory (requested addendum)
+
+![Trajectory panel](team_review_2026-07-11/trajectory_panel.png)
+
+Source: `analyses/trajectory/booster_burnout.py` (called directly for the
+boost-phase dense time series — the same `solve_ivp` RK45 3-DOF ODE integration
+`main()` runs, not a new model) and `workflows/staged_mission_profile.json`
+(the existing quasi-steady cruise design point, parameterized over its own
+already-computed duration).
+
+- **Boost phase (0–6.0 s): CONFIRMED, real 3-DOF ODE.** Point-mass, fixed launch angle, `scipy.integrate.solve_ivp` (RK45), ends at burnout: altitude 1289.3 m, Mach 1.233, velocity 413.5 m/s.
+- **Staging coast (6.0–6.5 s, 0.5 s duration): BLOCKED/TBD placeholder.** Booster-burnout-to-ramjet-ignition handoff — coast under drag+gravity is flagged "not yet integrated" in the source file; shown as a flat span, not a real trajectory segment.
+- **GAP (unmodeled): climb from 1289 m to the 10,000 m cruise altitude, and acceleration from Mach 1.23 to Mach 2.5.** This repo has **no model anywhere** for this segment — cruise is defined as a fixed design point (Mach 2.5 / 10 km ISA), not reached by any integrated trajectory from the boost/staging end state. The dotted red line in the chart marks this honestly as a gap, not an interpolation to be trusted.
+- **Cruise (22.06 s duration): PROVISIONAL, quasi-steady only.** Constant Mach 2.5, constant altitude 10 km — matches Section 4/5's design point exactly. Duration and range (16,518.6 m) are derived from the SZACOWANY 15 kg fuel budget and the cycle model's `mdot_fuel_kg_s`, not from an integrated flight path.
+- **Cruise mass depletion** (below): mass decreases linearly from 280.0 kg to 265.0 kg over the cruise duration at constant `mdot_fuel=0.6798 kg/s` — but Mach/altitude are held fixed throughout, so this mass change is **not fed back** into thrust or drag (no acceleration/climb response to lightening). A real coupled trajectory (mass-varying EOM) does not exist in this repo.
+
+![Cruise mass panel](team_review_2026-07-11/cruise_mass_panel.png)
+
+**Bottom line:** the only part of "trajectory" that's a genuine integrated
+simulation is the 6-second boost phase. Everything from staging onward is a
+single design point held constant, not a time-evolving flight path — this is
+a real gap for the team to weigh, not a rendering limitation.
+
+---
+
+## 8. Roadmap position
 
 No formal PDR/CDR/FRR schedule document is committed to this repo — this section
 is a qualitative status marker only, not a sourced schedule.
@@ -141,7 +192,7 @@ PDR ────────────────●────────�
 
 ---
 
-## 8. Open questions for the team
+## 9. Open questions for the team
 
 - **Fin-span drawing reading (HR-1):** does the drawing's "550" dimension terminate at the fin tip or at the body/hull edge, and is "127" the true fin-alone radial dimension? Two sessions in a row could not access the source PDF to check. **Someone with the PDF needs to look at the tail-fin view directly.**
 - **`max_diameter_m` (0.639 m):** does the booster's own wing bounding box change along with the ramjet-stage fin span, or does this field stay as-is? No evidence either way was found in the repo.
@@ -150,6 +201,7 @@ PDR ────────────────●────────�
 - **Fin sweep in the drag buildup:** `drag_polar.py`'s Ackeret wave-drag term has no sweep-angle dependence, even though the fins are now swept 29.98° (were 0°). Does this need a modeling update, or is the current buildup considered good enough pre-CDR?
 - **`barrowman_results.json` (historical cache):** now that Barrowman is retired as the CDR gate, should the cached result stay frozen at the pre-drawing-update geometry (as a historical artifact) or be refreshed on the current geometry (still historical either way)? A documentation-policy call, not a physics one.
 - **Local SU2/PyFluent execution:** this is the single highest-leverage next step (it's the designated arbiter for the #1 blocker) but requires a local machine/build — status of that effort as of this snapshot is not reflected in this repo (no commits found on any local-CFD branch as of the source commit below).
+- **Mission trajectory gap (Section 7):** the climb-to-cruise-altitude and acceleration-to-cruise-Mach segment has no model anywhere in this repo. Is closing that gap (a real coupled EOM integration from staging handoff to cruise onset) worth doing before CDR, or is the quasi-steady cruise design point sufficient for the current design questions?
 
 ---
 
@@ -160,13 +212,20 @@ This snapshot was generated on branch `docs/team-review-2026-07-11`, based on
 (includes PR #2's merge, PR #4's full 5-stage rerun, and the PR #2 closeout
 reconciliation — `pytest tests/`: 240 passed at that commit). All charts and
 tables above are generated directly from files at that commit by
-`docs/team_review_2026-07-11/generate_charts.py` (visualization only, no new
-analysis).
+`docs/team_review_2026-07-11/generate_charts.py` (Sections 1–6) and
+`docs/team_review_2026-07-11/generate_trajectory_and_stations.py` (Sections
+4b and 7 — added on request; both call existing model functions directly,
+e.g. `booster_burnout.integrate_boost_phase()`/`postprocess()` and
+`cycle_v2.evaluate_cycle()`, and introduce no new physics or assumptions
+beyond what those modules already compute).
 
 **Known in-flight ambiguity as of this commit:**
 - PR #6 (PR #2 closeout) is open/draft, not yet merged to `main`.
 - PR #3 (open/draft) and PR #5 (open/draft) exist with real content but are
-  **not merged** and **not reflected** in the numbers above — see Section 8.
+  **not merged** and **not reflected** in the numbers above — see Section 9.
 - No evidence of local SU2/PyFluent execution results was found in the repo
   as of this commit; the stability and cycle/CEA cross-checks remain
   `BLOCKED_BY_ENVIRONMENT` everywhere this snapshot could check.
+- Section 7's trajectory is a genuine gap, not a solved-but-unshown result:
+  no file in this repo integrates a flight path from staging handoff to
+  cruise onset.
