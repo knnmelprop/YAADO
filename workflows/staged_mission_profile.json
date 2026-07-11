@@ -59,16 +59,16 @@
         "eta_inlet": 0.8740657315001767,
         "thrust_upper_bound_N": 12467.629227569254,
         "thrust_lower_bound_N": 12008.96485105987,
-        "net_thrust_margin_N": 10120.852139955508,
+        "net_thrust_margin_N": 10836.19195085141,
         "net_thrust_margins_N": {
-          "vs_cd0_placeholder_N": 10120.852139955508,
+          "vs_cd0_placeholder_N": 10836.19195085141,
           "vs_teltik_cfd_N": 9655.957170221896
         },
         "drag_estimates": {
           "cd0_placeholder": 0.35,
           "q_pa": 115657.00763886132,
-          "aref_m2": 0.04908738521234052,
-          "cd0_placeholder_N": 1987.0550302663883,
+          "aref_m2": 0.031415926535897934,
+          "cd0_placeholder_N": 1271.7152193704885,
           "teltik_cfd_N": 2451.95
         },
         "thrust_scenarios": {
