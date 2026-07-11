@@ -90,15 +90,19 @@ fins:
   chord_root_m: 0.1768
   chord_tip_m: 0.1768
 mass_properties:
-  # Two mass cases run against this config (see
-  # analyses/trajectory/coldflow_boost_prd240.py): "FULL355" uses this
-  # file's total_mass_kg as-is (the real two-stage vehicle, ramjet stage
-  # physically present but cold); "ARCHIVE100" overrides to 100.0 kg to
-  # match the archive spreadsheet's own reference mass for cross-validation
-  # against its independently-computed altitude/velocity/Mach numbers.
+  # 2026-07-11: total_mass_kg corrected 355.02 -> 100.0 kg, matching the
+  # same correction applied to the official vehicle_config.yaml (the
+  # Fusion 360 physics-engine mass estimate is considered wrong/oversized;
+  # the real target mass is the archive's own reference value). The two
+  # cases run against this config (see
+  # analyses/trajectory/coldflow_boost_prd240.py) are now both 100.0 kg,
+  # differentiated only by launch angle: "ARCHIVE100" (50deg, the
+  # archive's own worked-example angle, for cross-validation against its
+  # independently-computed numbers) and "OFFICIAL100" (83deg, the
+  # official vehicle_config.yaml's nominal near-vertical launch angle).
   cg_from_nose_m: 1.6084
   cg_source: "Fusion 360 Assembly v6, verified by component breakdown (unchanged from official config)"
-  total_mass_kg: 355.02    # "FULL355" case; script overrides to 100.0 kg for "ARCHIVE100"
+  total_mass_kg: 100.0    # CORRECTED 2026-07-11 (was 355.02) -- matches official vehicle_config.yaml
 cfd_notes:
   coldflow_prd240_note_2026_07_11: >
     This file supports ONE mission only: stage-1 boost with the real
@@ -114,4 +118,5 @@ cfd_notes:
 tbd:
   - "RESOLVED 2026-07-11: PRD-240 confirmed by human as the real stage-1 motor (the Fusion CAD wing-panel entry is this motor's own fin hardware). Data promoted into the official vehicle_config.yaml -- see docs/decision-log.md."
   - "CONFIRM: isp_sl_s=212.84s is the archive author's assumed design value, not measured -- a real static-test Isp measurement would let propellant_mass_kg drop the DERIVED caveat."
-  - "The real finding this data surfaces (355.02kg vehicle stays subsonic, ~Mach 0.34-0.47, at every launch angle 15-83deg on this motor's real impulse) is now load-bearing in the official config too -- see docs/decision-log.md for next actions (motor cluster? lighter vehicle? wrong motor?)."
+  - "RESOLVED 2026-07-11 (same day, later): mass_properties.total_mass_kg corrected 355.02 -> 100.0 kg (Fusion CAD mass estimate considered wrong/oversized; archive's own reference mass is the real target) in both this config and the official one. With the real motor AND real mass together, booster burnout is supersonic (~Mach 1.7) at every angle tested -- the earlier subsonic-burnout concern no longer applies. See docs/decision-log.md."
+  - "VERIFY: mass_properties.cg_from_nose_m=1.6084 comes from the same Fusion physics engine now considered wrong for mass -- not re-derived this session, flagged for independent re-check (same caveat as the official vehicle_config.yaml)."

@@ -2,14 +2,14 @@
   "mission_name": "ramp_two_stage",
   "burnout_handoff_state": {
     "time_s": 5.18,
-    "mass_kg": 328.01,
-    "velocity_ms": 114.69104588118067,
-    "velocity_x_ms": 20.085033662255004,
-    "velocity_h_ms": 112.91867617053067,
-    "altitude_m": 387.2031287810779,
-    "range_m": 51.39704390532229,
-    "mach": 0.3385184880359004,
-    "dynamic_pressure_pa": 7761.657874590327
+    "mass_kg": 72.99,
+    "velocity_ms": 566.1452603913808,
+    "velocity_x_ms": 74.69692551479451,
+    "velocity_h_ms": 561.1958884224488,
+    "altitude_m": 1519.8644441474617,
+    "range_m": 189.92892264209618,
+    "mach": 1.6929775567634018,
+    "dynamic_pressure_pa": 169233.0395603326
   },
   "segments": [
     {
@@ -18,10 +18,10 @@
       "parameters": {
         "propulsion_type": "solid_rocket",
         "burn_time_s": 5.18,
-        "initial_mass_kg": 355.02,
-        "final_mass_kg": 328.01,
-        "final_velocity_ms": 114.69104588118067,
-        "final_altitude_m": 387.2031287810779,
+        "initial_mass_kg": 100.0,
+        "final_mass_kg": 72.99,
+        "final_velocity_ms": 566.1452603913808,
+        "final_altitude_m": 1519.8644441474617,
         "note": "Pre-integrated by analyses.trajectory.booster_burnout; burnout state fed forward"
       }
     },
@@ -30,13 +30,13 @@
       "segment_type": "staging_event",
       "parameters": {
         "event_type": "booster_burnout_to_ramjet_ignition",
-        "initial_mass_kg": 328.01,
-        "initial_velocity_ms": 114.69104588118067,
-        "initial_velocity_x_ms": 20.085033662255004,
-        "initial_velocity_h_ms": 112.91867617053067,
-        "initial_altitude_m": 387.2031287810779,
-        "initial_range_m": 51.39704390532229,
-        "initial_mach": 0.3385184880359004,
+        "initial_mass_kg": 72.99,
+        "initial_velocity_ms": 566.1452603913808,
+        "initial_velocity_x_ms": 74.69692551479451,
+        "initial_velocity_h_ms": 561.1958884224488,
+        "initial_altitude_m": 1519.8644441474617,
+        "initial_range_m": 189.92892264209618,
+        "initial_mach": 1.6929775567634018,
         "coast_time_s": 0.5,
         "separation_delta_v_ms": 0.0,
         "note": "Stage-1 burnout -> stage-2 ignition handoff. Coast phase under drag + gravity (not yet integrated; placeholder). Ramjet inlet start and combustor ignition transient not modeled (TBD)."
