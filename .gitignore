@@ -80,3 +80,30 @@ ide/Wing/SUAVE.wpr
 
 # Generated solver run configs/outputs (SU2 config generator writes here)
 /runs/
+
+# --- CFD pipeline large artifacts (2026-07-11): NEVER commit these directly.
+# Track them via DVC (pointer *.dvc files ARE committed; the data is not).
+# Meshes
+*.vtu
+*.vtk
+*.cgns
+*.msh
+*.cas
+*.cas.h5
+*.msh.h5
+# Solver results / restarts / field data
+*.dat
+*.dat.h5
+*.szplt
+*.plt
+*.csv.gz
+# SU2 solver run outputs (*.su2 mesh and *.cfg already ignored above)
+flow.vtu
+surface_flow.vtu
+restart_flow.dat
+history.csv
+# Fluent
+*.trn
+*.out.h5
+# NOTE: *.dvc pointer files are intentionally NOT ignored — they are the git-
+# tracked metadata that points DVC at the real (external) mesh/result data.
