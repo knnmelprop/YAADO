@@ -10,11 +10,14 @@ unreacted air throughout. This module never models ramjet combustion (only
 condition is exactly what integrating this module represents; nothing
 extra needed to "turn off" the ramjet.
 
-Uses ``vehicles/ramjet_rocket/vehicle_config_coldflow_PRD240.yaml`` -- a
-SEPARATE, non-official vehicle config kept apart from
-``vehicle_config.yaml`` pending human confirmation of the PRD-240
-motor-vs-Fusion-CAD-wing-panel name collision (see that config file's
-header comment and ``docs/decision-log.md``).
+Uses ``vehicles/ramjet_rocket/vehicle_config_coldflow_PRD240.yaml``. The
+PRD-240 motor-vs-Fusion-CAD-wing-panel name collision that originally
+motivated keeping this config separate is RESOLVED (2026-07-11, human
+confirmed) -- the same real thrust-curve data now also lives in the
+official ``vehicle_config.yaml``. This module and its config are kept
+regardless, for the real time-varying-thrust integrator (vs. the official
+config's constant-mean-thrust default model) and the ARCHIVE100
+cross-validation case -- see ``docs/decision-log.md``.
 
 Two mass cases are run and clearly named throughout outputs:
     - ``ARCHIVE100``: 100.0 kg, matching the archive spreadsheet's own

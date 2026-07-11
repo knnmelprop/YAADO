@@ -1,25 +1,32 @@
 # MELprop-IADE | vehicles.ramjet_rocket.vehicle_config_coldflow_PRD240 | v0.1.0
 #
-# SEPARATE, NON-OFFICIAL vehicle config. Do NOT confuse with the official
-# `vehicle_config.yaml` (SZACOWANY placeholder motor) -- this file exists
-# specifically for the "boost-only, no fuel injected into the ramjet
-# combustor, cold flow through the ramjet duct" mission, using the REAL
-# PRD-240 static-test thrust curve found in the team archive
+# UPDATE 2026-07-11: PRD-240 motor identity CONFIRMED by human (the Fusion
+# CAD "Skrzydlo PRD-240 x4" wing/control-surface entry IS this same
+# motor's own fin hardware, not a coincidental name collision) and the
+# same real thrust-curve data has been PROMOTED into the official
+# `vehicle_config.yaml` -- see docs/decision-log.md "PRD-240 motor
+# identity CONFIRMED; real data promoted into official vehicle_config.yaml".
+# This file is KEPT (not redundant): it still provides two things the
+# official config's constant-mean-thrust model doesn't --
+# `analyses/trajectory/coldflow_boost_prd240.py`'s real time-varying-thrust
+# integration, and the ARCHIVE100 (100 kg) cross-validation case against
+# the archive spreadsheet's own computed numbers.
+#
+# This file exists specifically for the "boost-only, no fuel injected into
+# the ramjet combustor, cold flow through the ramjet duct" mission, using
+# the REAL PRD-240 static-test thrust curve found in the team archive
 # (data/RamP_analitical_computations/acceleration_macro.xls, sheet
 # "PRD-240"; extracted to motor_data/PRD-240_thrust_curve.csv).
 #
-# WHY A SEPARATE FILE (not an edit to vehicle_config.yaml):
-# `vehicles/ramjet_rocket/motor_database.yaml` already has a "PRD-240" entry
-# from an earlier session, catalogued as a WING/CONTROL-SURFACE component
-# ("Skrzydlo PRD-240 x4" in Fusion CAD), status MOCKUP -- explicitly NOT
-# confirmed as a motor. The archive sheet used here is unambiguously motor
-# thrust-vs-time data (units kN, kN*s), and cross-references elsewhere in
-# the same workbook ("Mach number with PRD-240 booster") support treating
-# it as the real stage-1 motor -- but the wing-name collision is NOT
-# resolved, so this data is kept OUT of the official vehicle_config.yaml
-# until a human confirms the identity. Human decision, 2026-07-11: keep
-# both analyses as clearly-separate vehicles rather than overwrite the
-# official config.
+# WHY A SEPARATE FILE (historical rationale, motor identity now resolved):
+# `vehicles/ramjet_rocket/motor_database.yaml` had a "PRD-240" entry from
+# an earlier session, catalogued as a WING/CONTROL-SURFACE component
+# ("Skrzydlo PRD-240 x4" in Fusion CAD), status MOCKUP. The archive sheet
+# used here is unambiguously motor thrust-vs-time data (units kN, kN*s).
+# Before the identity was confirmed, this data was kept OUT of the
+# official vehicle_config.yaml as a precaution; now confirmed and also
+# present in the official config. This file remains for its real-curve
+# and ARCHIVE100-cross-validation capabilities specifically.
 #
 # Geometry (body/fins/stage_2) is otherwise IDENTICAL to vehicle_config.yaml
 # -- only stage_1.propulsion and mass_properties differ, per this mission's
@@ -98,9 +105,13 @@ cfd_notes:
     PRD-240 thrust curve, ramjet stage present but unlit (cold flow, no
     fuel injected). It is intentionally NOT wired into any other analysis
     (stability, cycle, inlet, operational envelope) -- those all still use
-    the official vehicle_config.yaml. Do not treat this file's
-    stage_1.propulsion values as authoritative for the design vehicle
-    until the PRD-240 motor-vs-wing-name question is resolved by a human.
+    the official vehicle_config.yaml. UPDATE 2026-07-11: the PRD-240
+    motor-vs-wing-name identity question below IS resolved (confirmed by
+    human) and this same data is now also in the official
+    vehicle_config.yaml -- this file's stage_1.propulsion values ARE the
+    authoritative real motor data, kept here specifically for the
+    real-time-varying-thrust integrator and ARCHIVE100 cross-validation.
 tbd:
-  - "CONFIRM: is PRD-240 the real stage-1 motor, or only a Fusion CAD wing-panel name (see motor_database.yaml)? Blocks promoting this file's propulsion data into the official vehicle_config.yaml."
+  - "RESOLVED 2026-07-11: PRD-240 confirmed by human as the real stage-1 motor (the Fusion CAD wing-panel entry is this motor's own fin hardware). Data promoted into the official vehicle_config.yaml -- see docs/decision-log.md."
   - "CONFIRM: isp_sl_s=212.84s is the archive author's assumed design value, not measured -- a real static-test Isp measurement would let propellant_mass_kg drop the DERIVED caveat."
+  - "The real finding this data surfaces (355.02kg vehicle stays subsonic, ~Mach 0.34-0.47, at every launch angle 15-83deg on this motor's real impulse) is now load-bearing in the official config too -- see docs/decision-log.md for next actions (motor cluster? lighter vehicle? wrong motor?)."
