@@ -897,3 +897,64 @@ history rather than silently reverting).
   73 kg inert booster mass) — worth a sanity check against the real
   PRD-240 motor's physical size/casing mass once available, not derived
   or guessed this session.
+
+---
+
+## 2026-07-11 — Two separate cases: required combustor Tt4 (powered) vs cold-flow dummy-mass (unpowered)
+
+**Request:** split the analysis into two clearly separate cases —
+(1) an inverted cycle calculation asking how good combustion actually has
+to be to sustain steady flight, vs. (2) the existing cold-flow/mass-dummy
+boost-only mission (no combustion at all).
+
+**Context (from the mid-turn physics question):** `hp_stream_thrust_cycle
+.evaluate_cycle()` runs FORWARD — it takes `tt4_K=2000` (vehicle_config.
+yaml's `combustor_temp_K`, SZACOWANY/HR-7, sourced from "Grzywka MATLAB
+T_fuel(Ma)", never independently confirmed) as a fixed input and solves
+the burner energy balance for the fuel-air ratio `f` needed to reach it:
+`f = (cp_hot*Tt4 - cp_cold*Tt2) / (eta_b*LHV - cp_hot*Tt4)`. Heat IS
+inserted (that's what `f` represents), but 2000 K itself is an assumed
+design target, not computed from real combustion kinetics.
+
+### Case 1 — Required Tt4 for steady, unaccelerated cruise (powered)
+
+New module `analyses/propulsion/cycle_v2/required_combustor_temp.py`:
+inverts the forward model via root-find (`scipy.optimize.brentq`,
+`thrust_real_N` is monotonically increasing in `tt4_K` over any sane
+bracket [600, 3000] K) — given a required thrust (= drag, for level
+flight), solves for the `tt4_K` that actually produces it, instead of
+assuming 2000 K and reporting whatever thrust falls out.
+
+Two independent drag targets used (neither is uniquely "official" — see
+HR-2, still open):
+- **Real `drag_polar.py` buildup** at Mach 2.5/10,000 m: 6448.5 N →
+  required Tt4 = **1281 K** (assumed 2000 K is 56% higher than needed).
+- **Teltik 2024 CFD reference** (2451.95 N, a different condition/model):
+  required Tt4 = **796 K** (assumed 2000 K is 151% higher than needed).
+
+**Finding:** under BOTH independent drag estimates, the assumed 2000 K
+combustor design point exceeds what's actually required for steady
+cruise — i.e., the vehicle has thrust margin at this condition either
+way. Consistent with the existing `net_thrust_margin_N` finding in
+`docs/ramP/cruise_summary_night3.md` (~9.6–10.8 kN margin), now
+cross-validated via a genuinely different (inverse) calculation route.
+Not a design verdict — flags that either a lower Tt4 (less demanding
+combustion) could suffice, or the 2000 K target has deliberate margin
+built in; which one is a human/team call, not decided here.
+
+6 new tests (`test_propulsion_required_combustor_temp.py`): monotonicity
+of the forward model (justifies the root-find), round-trip solve/forward
+consistency, solving back the assumed 2000 K exactly at its own thrust,
+real-drag sanity, the margin finding itself, and out-of-bracket error
+handling (raises, does not silently clamp).
+
+### Case 2 — Cold-flow / mass-dummy boost-only flight (unpowered)
+
+No new engineering needed — this IS
+`analyses/trajectory/coldflow_boost_prd240.py` (real PRD-240 curve, 100 kg
+corrected mass, ARCHIVE100/OFFICIAL100 cases), which never involves
+combustion at all (only integrates the booster stage). Kept as the
+explicitly separate, simpler counterpart case per the request.
+
+`pytest tests/`: **251 passed** (245 baseline + 6 new, nothing existing
+touched).

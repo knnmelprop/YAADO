@@ -1,0 +1,30 @@
+[
+  {
+    "case_name": "real_drag_polar",
+    "mach0": 2.5,
+    "altitude_m": 10000.0,
+    "required_thrust_N": 6448.508489433887,
+    "required_tt4_K": 1281.0339651035322,
+    "required_f_fuel_air": 0.03003842049519171,
+    "required_v_exit_m_s": 960.3428947066353,
+    "assumed_tt4_K": 2000.0,
+    "assumed_thrust_N": 11439.500759162695,
+    "assumed_f_fuel_air": 0.05546088362217971,
+    "tt4_delta_K": -718.9660348964678,
+    "tt4_delta_pct": -35.94830174482339
+  },
+  {
+    "case_name": "teltik_cfd_reference",
+    "mach0": 2.5,
+    "altitude_m": 10000.0,
+    "required_thrust_N": 2451.95,
+    "required_tt4_K": 795.7134922245995,
+    "required_f_fuel_air": 0.013558894692476831,
+    "required_v_exit_m_s": 756.8753585037524,
+    "assumed_tt4_K": 2000.0,
+    "assumed_thrust_N": 11439.500759162695,
+    "assumed_f_fuel_air": 0.05546088362217971,
+    "tt4_delta_K": -1204.2865077754004,
+    "tt4_delta_pct": -60.21432538877002
+  }
+]
