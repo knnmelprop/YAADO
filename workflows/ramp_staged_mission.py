@@ -123,6 +123,33 @@ def load_burnout_state_from_json(
     )
 
 
+def _vehicle_stage1_boost_params() -> tuple[float, float]:
+    """Load stage-1 burn time and launch mass from vehicle_config.yaml.
+
+    Loaded via :class:`src.schemas.vehicle_schema.BaseVehicleConfig` (NOT
+    hardcoded) -- mirrors :func:`_vehicle_body_diameter_m`'s pattern.
+    2026-07-11: this replaces two literals (``burn_time_s=6.0``,
+    ``initial_mass_kg=355.02``) that had gone stale after
+    ``vehicle_config.yaml``'s stage_1.propulsion was updated to the real
+    PRD-240 thrust curve (burn_time_s dropped from the SZACOWANY 6.0 to
+    the real 5.18) -- the comments claimed they tracked the YAML but never
+    actually read it.
+
+    Returns:
+        Tuple ``(burn_time_s, initial_mass_kg)``.
+    """
+    from src.schemas.vehicle_schema import BaseVehicleConfig
+
+    this_dir = Path(__file__).resolve().parent
+    config_path = (
+        this_dir.parent / "vehicles" / "ramjet_rocket" / "vehicle_config.yaml"
+    )
+    config = BaseVehicleConfig.from_yaml(config_path)
+    burn_time_s = config.stage_1.propulsion.burn_time_s  # type: ignore[union-attr]
+    initial_mass_kg = config.mass_properties.total_mass_kg  # type: ignore[union-attr]
+    return burn_time_s, initial_mass_kg
+
+
 def build_ramp_staged_mission(burnout_state: BurnoutState) -> list[MissionSegment]:
     """Build the two-stage ramjet rocket mission profile.
 
@@ -136,6 +163,8 @@ def build_ramp_staged_mission(burnout_state: BurnoutState) -> list[MissionSegmen
     """
     builder = MissionBuilder("ramp_two_stage")
 
+    burn_time_s, initial_mass_kg = _vehicle_stage1_boost_params()
+
     # Segment 1: Solid booster boost phase (already integrated offline by
     # booster_burnout.py; this segment is a "completed" reference that logs
     # the initial boost but does not re-integrate during mission solve)
@@ -143,8 +172,8 @@ def build_ramp_staged_mission(burnout_state: BurnoutState) -> list[MissionSegmen
         name="boost_stage_1",
         segment_type="boost",
         propulsion_type="solid_rocket",
-        burn_time_s=6.0,  # from vehicle_config.yaml stage_1.propulsion.burn_time_s
-        initial_mass_kg=355.02,  # SZACOWANY, from vehicle_config mass_properties
+        burn_time_s=burn_time_s,
+        initial_mass_kg=initial_mass_kg,
         final_mass_kg=burnout_state.mass_kg,
         final_velocity_ms=burnout_state.velocity_ms,
         final_altitude_m=burnout_state.altitude_m,
