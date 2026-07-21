@@ -18,7 +18,7 @@
   "tt2_K": 502.0875,
   "mach0": 2.5,
   "altitude_m": 10000.0,
-  "nozzle_area_ratio_design": 4.0,
+  "nozzle_area_ratio_design": 1.317,
   "nozzle_area_ratio_cad_actual": 1.0,
   "station_table": [
     {

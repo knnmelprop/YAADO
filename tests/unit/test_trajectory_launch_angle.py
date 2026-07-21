@@ -44,9 +44,28 @@ def test_thirty_degree_launch_avoids_ground_impact() -> None:
 
 @pytest.mark.parametrize("angle_deg", [15.0, 20.0, 25.0, 30.0])
 def test_burnout_mach_supersonic_for_steep_enough_angles(angle_deg: float) -> None:
-    """Burnout Mach exceeds 1.0 for launch angles >= 15 deg."""
+    """Burnout Mach exceeds 1.0 for launch angles >= 15 deg.
+
+    History (both changes 2026-07-11, see docs/decision-log.md):
+    (1) vehicle_config.yaml's stage_1.propulsion was updated from a
+        SZACOWANY placeholder (implied total impulse ~152 kN*s) to the
+        real PRD-240 static-test thrust curve (56.38 kN*s, ~2.7x lower).
+        On its own, with the vehicle mass still at the (Fusion-derived)
+        355.02 kg, this made burnout subsonic at every angle -- the test
+        was temporarily changed to assert Mach < 1.0 to match.
+    (2) Separately, mass_properties.total_mass_kg was corrected
+        355.02 -> 100.0 kg: the Fusion 360 physics-engine mass estimate
+        (booster 277.80 + ramjet 15.18 kg) is considered wrong/oversized;
+        the real target mass is the archive's own reference value (used
+        throughout its PRD-240 flight-simulation sheets).
+    With both real values in effect, burnout Mach is back above 1.0 at
+    every angle 15-83 deg (~1.7-1.76) -- this test reverts to its
+    original supersonic assertion, now backed by real data on both axes
+    (motor AND mass) rather than the original SZACOWANY placeholders.
+    """
     entry = _sweep_entry_for(angle_deg)
     assert entry["burnout_mach"] > 1.0
+    assert entry["burnout_mach"] > 0.0
 
 
 def test_sweep_result_has_required_fields() -> None:

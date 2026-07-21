@@ -121,3 +121,22 @@ Tree clean. Six commits, one per phase:
 **Human-review items:** 9 items listed in docs/ramP/human_review_night4.md (HR-1 through HR-9), blocks: stability geometry (fin span, HR-1), CFD mesh revision confirmation (HR-2), nozzle design decision (HR-3, PRIMARY root cause), stage-1 motor datasheet (HR-4), moments of inertia extraction (HR-5); non-blocking but ACTIVE: max_rpm units convention (HR-6), T04 source confirmation (HR-7), gamma_products composition (HR-8), drag-polar for nominal cruise selection (HR-9).
 
 **Artifact note:** PNG plots (barrowman_extended.png, envelope.png, v3_discrepancy.png, etc.) are gitignored repo-wide; regenerate by running analysis scripts directly (e.g., `python analyses/aero/barrowman_extended.py`).
+
+## 2026-07-11 rerun checkpoint (post-research, cloud sandbox)
+
+Full analysis suite rerun on the corrected geometry (body 0.200 m, fins 0.550 m
+/ 29.98°, nozzle AR 1.317). Suite 211 → **240 green**. Draft PR #4. Per-stage
+commits. SU2 + CEA `BLOCKED_BY_ENVIRONMENT`.
+
+| # | Rerun analysis | Module | Status | Result |
+|---|---|---|---|---|
+| S1 | Stability (retire Barrowman gate) | `analyses/stability/datcom_class_sweep.py`, `ackeret_fin_check.py` | DONE (gate NOT satisfied) | DATCOM +5.13..+11.01 cal & Ackeret +9.71 cal, but conflict with Teltik CFD −2.75 cal; SU2 arbiter BLOCKED |
+| S2 | Ramjet cycle / V3 (H&P, station γ) | `analyses/propulsion/cycle_v2/hp_stream_thrust_cycle.py` | DONE | V3=1200 m/s; +40.8%→+14.6% vs CFD; γ weak, geometry closed the gap; HR-7 RECALCULATED |
+| S3a | Inlet (Taylor–Maccoll) | `analyses/propulsion/inlet_performance_v2.py` | DONE | 42° attached@M2.5 (0.639<MIL 0.870), DETACHES@M2.0 → min start Mach ≈2.1 |
+| S3b | Nozzle expansion (coupled γ) | `analyses/propulsion/nozzle_expansion_check.py` | DONE | under-expanded p_e/p0≈3 across 4–10 km; matched AR≈2.48 |
+| S4 | Cold-flow test plan + CO2 mismatch | `docs/cold_flow_test_plan.md`, `analyses/cold_flow/co2_surrogate_mismatch.py` | DONE | verifies shocks/recovery; NOT reacting mixing (~11× density & momentum-flux mismatch) |
+
+**Open safety-critical item:** Ma2.5 static stability sign conflict — run SU2
+locally to break the 2-analytical-vs-1-CFD tie. Do not gate CDR on the
+analytical +margin. See docs/decision-log.md (Stage 1 orchestrator addendum) and
+agents/memory.md (next human actions).

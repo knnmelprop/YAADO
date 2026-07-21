@@ -3,13 +3,13 @@
   "segments": [
     {
       "name": "boost_stage_1",
-      "duration_s": 6.0,
-      "range_m": 167.46366604857533,
+      "duration_s": 5.18,
+      "range_m": 189.92892264209618,
       "mach_start": 0.0,
-      "mach_end": 1.2331842209591797,
-      "altitude_m": 1289.3437240001513,
-      "thrust_N": 25374.706875,
-      "drag_N": 1804.470296807639
+      "mach_end": 1.6929775567634018,
+      "altitude_m": 1519.8644441474617,
+      "thrust_N": 10883.504227000001,
+      "drag_N": 1584.350596005687
     },
     {
       "name": "cruise_stage_2_ramjet",
@@ -19,12 +19,12 @@
       "mach_end": 2.5,
       "altitude_m": 6000.0,
       "thrust_N": 19107.352487726544,
-      "drag_N": 3546.3356928511203,
+      "drag_N": 2269.654843424717,
       "mdot_fuel_kg_s": 1.1034085625261307,
       "fuel_burn_kg": 66.20451375156784
     }
   ],
-  "total_range_m": 47631.48147164527,
+  "total_range_m": 47653.946728238785,
   "notes": [
     "0D fallback mission integrator (SUAVE not importable in this container -- see _probe_suave_available).",
     "Cruise segment reuses analyses.mission.operational_envelope's exact Th2/drag pipeline (Night-3 / P1-C grid point at Mach 2.5 / 6000 m ISA).",

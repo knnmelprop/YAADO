@@ -27,14 +27,17 @@ motors:
     note: "RESOLVED 2026-07-08: previous thrust_N=12000 was below the impulse-consistent mean (~25.4 kN), which is physically impossible for a peak value. Now split into independent thrust_peak_N/thrust_mean_N fields matching src.schemas.vehicle_schema.SolidRocketPropulsion, with thrust_peak_N set above the impulse-consistent mean. Still SZACOWANY — replace with a real datasheet."
 
   - designation: "PRD-240"
-    status: "MOCKUP"
-    diameter_mm: 240           # reference wing/control-surface stub
-    length_mm: null            # TBD
-    thrust_N: null
-    burn_time_s: null
-    isp_s: null
-    propellant_mass_kg: null
-    source: "PRD-240 control-surface reference ('Skrzydło PRD-240 x4', Fusion v6)"
+    status: "DATASHEET"
+    diameter_mm: 240           # Fusion CAD wing/control-surface reference is this motor's own hardware (human-confirmed 2026-07-11)
+    length_mm: null            # not given by the archive thrust-curve sheet; still TBD
+    thrust_peak_N: 17250       # REAL — static-test curve peak (t=0.072s)
+    thrust_mean_N: 10878       # REAL — total impulse / burn_time_s
+    burn_time_s: 5.18          # REAL — curve duration above 100 N (0.02s to 5.20s)
+    total_impulse_Ns: 56377    # REAL — trapezoidal integral of the full curve, matches the sheet's own "Sum" cell
+    isp_s: 212.84               # spreadsheet-assumed design Isp (not an independently measured value)
+    propellant_mass_kg: 27.01  # DERIVED — total_impulse_Ns / (isp_s * 9.80665); inherits the isp_s assumption above
+    source: "data/RamP_analitical_computations/acceleration_macro.xls, sheet 'PRD-240' (real static-test thrust-vs-time curve); vehicles/ramjet_rocket/motor_data/PRD-240_thrust_curve.csv (extraction)"
+    note: "2026-07-11: CONFIRMED by human as the real stage-1 motor -- the Fusion CAD wing/control-surface component ('Skrzydlo PRD-240 x4') this entry was previously catalogued from IS this same motor's fin hardware, not a coincidental name collision. Archive data treated as ground truth per explicit human instruction. Promoted status MOCKUP -> DATASHEET; propagated into the official vehicle_config.yaml stage_1.propulsion. total_impulse_Ns and the curve shape are real measured data; propellant_mass_kg still carries the archive author's own assumed (not independently measured) isp_s."
 
 # Motor candidates for ramP Stage-1 booster.
 # Authoritative source: physical datasheet. All SZACOWANY values need lab verification.
