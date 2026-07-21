@@ -1,0 +1,6 @@
+station,name,T_static_K,p_static_Pa,Mach,area_cm2,note
+0,Freestream,223.1,26436,2.500,-,"static; tt0=502.1 K, pt0=451682 Pa"
+2,Diffuser exit,-,-,-,-,"total only: tt2=502.1 K (=tt0, adiabatic), pt2=394800 Pa (eta_inlet=0.8741 applied). Static T/p/Mach at station 2 NOT tracked by this 1-D total-condition model."
+4,Combustor exit,-,-,-,-,"total only: tt4=2000.0 K (input), pt4=352319 Pa (pi_cc=0.8924 applied). f_fuel_air=0.0555. Static T/p/Mach at station 4 NOT tracked."
+throat,Nozzle throat (choked),-,-,1.000,518.79,Ma=1 by construction (choked)
+e / 9,Nozzle exit,1451.4,78908,1.643,683.25,"v_exit=1199.9 m/s; AR=1.317 (real, drawing)"
