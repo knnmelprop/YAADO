@@ -958,3 +958,31 @@ explicitly separate, simpler counterpart case per the request.
 
 `pytest tests/`: **251 passed** (245 baseline + 6 new, nothing existing
 touched).
+
+---
+
+## 2026-07-11 — Stage-1 two-session merge collision resolved (branch un-redded)
+
+- **Context:** two parallel sessions (`claude/ramp-full-analysis-rerun-nkqwp1`
+  and `...-up6lcz`, merged via PR #4/#6) independently implemented Stage 1 using
+  the SAME filenames (`analyses/stability/datcom_class_sweep.py`,
+  `ackeret_fin_check.py`) with different APIs, plus different test files
+  (`test_stability_datcom_class.py` vs `test_stability_datcom.py`). The merge
+  kept the `0d55435` (nkqwp1) modules but ALSO the `960f89a` (up6lcz) test, which
+  imported names (`CRUISE_MACH`, `compute_static_margin_datcom`, ...) that the
+  surviving modules do not define → **collection ImportError, whole suite red.**
+- **Resolution:** removed the orphaned `tests/unit/test_stability_datcom.py`
+  (dead — it targets an overwritten module API and can never run). Coverage of
+  the surviving modules is retained by `test_stability_datcom_class.py`. No
+  production code deleted; fully reversible via git. Suite restored to
+  **249 passed**. Chose the surviving (nkqwp1) modules as-is rather than
+  restoring the up6lcz implementation, because they carry an orchestrator-
+  reviewed crossflow-linearization fix (secant vs tangent slope; see the
+  2026-07-11 Stage-1 entry above).
+- **Note for the team:** NASA CEA is buildable in this cloud sandbox
+  (`apt-get install gfortran && pip install rocketcea`), which the parallel
+  Stage 2 (literature γ_hot=1.28, flagged PROVISIONAL) did not use. Real CEA
+  gives γ=1.254 at φ=0.7 (validated live) — but γ is a <1% lever on V3 once
+  AR=1.317 is fixed, so 1.28 is a <0.2% approximation and no rewiring was done.
+  Real CEA station-γ table + recipe preserved in
+  `docs/ramP/rerun_session_2026-07-11_checkpoint.md`.
