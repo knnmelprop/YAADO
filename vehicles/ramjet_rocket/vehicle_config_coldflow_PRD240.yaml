@@ -1,0 +1,122 @@
+# MELprop-IADE | vehicles.ramjet_rocket.vehicle_config_coldflow_PRD240 | v0.1.0
+#
+# UPDATE 2026-07-11: PRD-240 motor identity CONFIRMED by human (the Fusion
+# CAD "Skrzydlo PRD-240 x4" wing/control-surface entry IS this same
+# motor's own fin hardware, not a coincidental name collision) and the
+# same real thrust-curve data has been PROMOTED into the official
+# `vehicle_config.yaml` -- see docs/decision-log.md "PRD-240 motor
+# identity CONFIRMED; real data promoted into official vehicle_config.yaml".
+# This file is KEPT (not redundant): it still provides two things the
+# official config's constant-mean-thrust model doesn't --
+# `analyses/trajectory/coldflow_boost_prd240.py`'s real time-varying-thrust
+# integration, and the ARCHIVE100 (100 kg) cross-validation case against
+# the archive spreadsheet's own computed numbers.
+#
+# This file exists specifically for the "boost-only, no fuel injected into
+# the ramjet combustor, cold flow through the ramjet duct" mission, using
+# the REAL PRD-240 static-test thrust curve found in the team archive
+# (data/RamP_analitical_computations/acceleration_macro.xls, sheet
+# "PRD-240"; extracted to motor_data/PRD-240_thrust_curve.csv).
+#
+# WHY A SEPARATE FILE (historical rationale, motor identity now resolved):
+# `vehicles/ramjet_rocket/motor_database.yaml` had a "PRD-240" entry from
+# an earlier session, catalogued as a WING/CONTROL-SURFACE component
+# ("Skrzydlo PRD-240 x4" in Fusion CAD), status MOCKUP. The archive sheet
+# used here is unambiguously motor thrust-vs-time data (units kN, kN*s).
+# Before the identity was confirmed, this data was kept OUT of the
+# official vehicle_config.yaml as a precaution; now confirmed and also
+# present in the official config. This file remains for its real-curve
+# and ARCHIVE100-cross-validation capabilities specifically.
+#
+# Geometry (body/fins/stage_2) is otherwise IDENTICAL to vehicle_config.yaml
+# -- only stage_1.propulsion and mass_properties differ, per this mission's
+# scope. stage_2 is present in the schema (required by RocketConfig) but is
+# NOT ignited in this mission -- no fuel is injected into the ramjet
+# combustor; the ramjet duct only sees cold, unreacted air during the boost
+# phase. analyses/trajectory/booster_burnout.py structurally never models
+# ramjet combustion in the first place (it only integrates the stage-1
+# boost phase), so this "cold flow" condition is exactly what running that
+# module against this config already represents.
+name: "MELprop-Ramjet-Missile-COLDFLOW-PRD240"
+vehicle_type: "Rocket"
+description: "Boost-only mission, ramjet stage cold (no fuel injected) -- real PRD-240 static-test thrust curve, NOT the official SZACOWANY-motor config"
+stage_1:
+  type: "solid_rocket"
+  geometry:
+    assembly_diameter_m: 0.250
+    assembly_diameter_body_m: 0.250
+    assembly_diameter_bbox_m: 1.809
+    wings_halfspan_est_m: 0.780
+    booster_length_m: 2.089
+  propulsion:
+    # REAL PRD-240 static-test thrust curve (2026-07-11 archive find):
+    # data/RamP_analitical_computations/acceleration_macro.xls, sheet
+    # "PRD-240" -> vehicles/ramjet_rocket/motor_data/PRD-240_thrust_curve.csv.
+    # thrust_peak_N/thrust_mean_N/burn_time_s are REAL (read directly off the
+    # curve). propellant_mass_kg is DERIVED: real total impulse (56.38 kN*s,
+    # trapezoidal integral of the curve, matches the sheet's own "Sum" cell)
+    # divided by isp_sl_s -- and isp_sl_s=212.84s is itself the spreadsheet
+    # author's ASSUMED design Isp (used consistently in its "booster isp [s]"
+    # cells), not an independently measured value. So: impulse and the shape
+    # of the curve are real; propellant mass carries one remaining assumption.
+    isp_vacuum_s: 230                 # SZACOWANY -- no archive data, unchanged from official config
+    isp_sl_s: 212.84                  # spreadsheet-assumed (not measured) -- see note above
+    thrust_peak_N: 17250              # REAL -- PRD-240 curve peak (t=0.072s)
+    thrust_mean_N: 10878              # REAL -- total impulse / burn_time_s
+    burn_time_s: 5.18                 # REAL -- curve duration above 100N (0.02s to 5.20s)
+    propellant_mass_kg: 27.01         # DERIVED -- real impulse / (isp_sl_s * g0); see isp caveat
+    propellant_density_kg_m3: 1750    # SZACOWANY -- no archive data, unchanged
+    note: "Real PRD-240 static-test thrust curve, kept OUT of the official vehicle_config.yaml pending motor-identity confirmation (PRD-240 is also a Fusion CAD wing-panel name -- see file header). thrust_peak_N/thrust_mean_N/burn_time_s/total-impulse are real; propellant_mass_kg still depends on the archive's own assumed (not measured) isp_sl_s."
+stage_2:
+  type: "ramjet"
+  design_mach: 2.5
+  fuel_type: "kerosene"
+  combustor_temp_K: 2000.0
+  nozzle_area_ratio: 1.317
+  nozzle_throat_diameter_m: 0.210
+  nozzle_exit_diameter_m: 0.241
+body:
+  length_m: 4.06201
+  diameter_m: 0.200
+  nose_type: "conical"
+  nose_length_m: 0.293
+  nose_diameter_m: 0.150
+  total_length_m: 4.35501
+  max_diameter_m: 0.639
+fins:
+  count: 4
+  span_m: 0.550
+  sweep_deg: 29.98
+  chord_root_m: 0.1768
+  chord_tip_m: 0.1768
+mass_properties:
+  # 2026-07-11: total_mass_kg corrected 355.02 -> 100.0 kg, matching the
+  # same correction applied to the official vehicle_config.yaml (the
+  # Fusion 360 physics-engine mass estimate is considered wrong/oversized;
+  # the real target mass is the archive's own reference value). The two
+  # cases run against this config (see
+  # analyses/trajectory/coldflow_boost_prd240.py) are now both 100.0 kg,
+  # differentiated only by launch angle: "ARCHIVE100" (50deg, the
+  # archive's own worked-example angle, for cross-validation against its
+  # independently-computed numbers) and "OFFICIAL100" (83deg, the
+  # official vehicle_config.yaml's nominal near-vertical launch angle).
+  cg_from_nose_m: 1.6084
+  cg_source: "Fusion 360 Assembly v6, verified by component breakdown (unchanged from official config)"
+  total_mass_kg: 100.0    # CORRECTED 2026-07-11 (was 355.02) -- matches official vehicle_config.yaml
+cfd_notes:
+  coldflow_prd240_note_2026_07_11: >
+    This file supports ONE mission only: stage-1 boost with the real
+    PRD-240 thrust curve, ramjet stage present but unlit (cold flow, no
+    fuel injected). It is intentionally NOT wired into any other analysis
+    (stability, cycle, inlet, operational envelope) -- those all still use
+    the official vehicle_config.yaml. UPDATE 2026-07-11: the PRD-240
+    motor-vs-wing-name identity question below IS resolved (confirmed by
+    human) and this same data is now also in the official
+    vehicle_config.yaml -- this file's stage_1.propulsion values ARE the
+    authoritative real motor data, kept here specifically for the
+    real-time-varying-thrust integrator and ARCHIVE100 cross-validation.
+tbd:
+  - "RESOLVED 2026-07-11: PRD-240 confirmed by human as the real stage-1 motor (the Fusion CAD wing-panel entry is this motor's own fin hardware). Data promoted into the official vehicle_config.yaml -- see docs/decision-log.md."
+  - "CONFIRM: isp_sl_s=212.84s is the archive author's assumed design value, not measured -- a real static-test Isp measurement would let propellant_mass_kg drop the DERIVED caveat."
+  - "RESOLVED 2026-07-11 (same day, later): mass_properties.total_mass_kg corrected 355.02 -> 100.0 kg (Fusion CAD mass estimate considered wrong/oversized; archive's own reference mass is the real target) in both this config and the official one. With the real motor AND real mass together, booster burnout is supersonic (~Mach 1.7) at every angle tested -- the earlier subsonic-burnout concern no longer applies. See docs/decision-log.md."
+  - "VERIFY: mass_properties.cg_from_nose_m=1.6084 comes from the same Fusion physics engine now considered wrong for mass -- not re-derived this session, flagged for independent re-check (same caveat as the official vehicle_config.yaml)."

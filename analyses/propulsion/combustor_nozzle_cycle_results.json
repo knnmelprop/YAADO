@@ -28,7 +28,7 @@
   "mach0": 2.5,
   "altitude_m": 10000.0,
   "nozzle_area_ratio_model": 2.440388412883607,
-  "nozzle_area_ratio_design_yaml": 4.0,
+  "nozzle_area_ratio_design_yaml": 1.317,
   "nozzle_area_ratio_cad_cylindrical": 1.0,
   "eta_inlet_source": "multi_cone_4preset_chain",
   "station_table": [

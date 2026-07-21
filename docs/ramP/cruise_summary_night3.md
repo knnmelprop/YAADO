@@ -22,10 +22,10 @@ All three are always present under `thrust_scenarios` — the project verificati
 
 | Drag estimate | Value [N] | Net margin vs Th1 [N] |
 |---|---|---|
-| 0-order CD0*q*Aref (CD0=0.35 SZACOWANY) | 1987.0550302663883 | 10120.852139955508 |
+| 0-order CD0*q*Aref (CD0=0.35 SZACOWANY) | 1271.7152193704885 | 10836.19195085141 |
 | Teltik 2024 CFD | 2451.95 | 9655.957170221896 |
 
-- q = 115657.00763886132 Pa, Aref = 0.04908738521234052 m^2 (pi/4*d^2, d = `vehicle_config.yaml` `body.diameter_m`, loaded via `BaseVehicleConfig`)
+- q = 115657.00763886132 Pa, Aref = 0.031415926535897934 m^2 (pi/4*d^2, d = `vehicle_config.yaml` `body.diameter_m`, loaded via `BaseVehicleConfig`)
 
 ## Fuel-based cruise time / range (Th1, nominal)
 
