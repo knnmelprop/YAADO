@@ -13,14 +13,29 @@ stage_1:
     wings_halfspan_est_m: 0.780       # (1.809 - 0.250) / 2
     booster_length_m: 2.089           # booster assembly (47.7% of rocket)
   propulsion:
-    isp_vacuum_s: 230                 # SZACOWANY
-    isp_sl_s: 207                     # SZACOWANY
-    thrust_peak_N: 29000              # SZACOWANY — was 12000 (physically impossible: below mean); see note
-    thrust_mean_N: 25375              # SZACOWANY — impulse-consistent (Isp_sl * mdot * g0)
-    burn_time_s: 6.0                  # SZACOWANY
-    propellant_mass_kg: 75.0          # SZACOWANY
-    propellant_density_kg_m3: 1750    # SZACOWANY
-    note: "HTPB/AP composite estimate; R-13 motor is a Fusion mockup — replace with datasheet. thrust_peak_N corrected 2026-07-08: previous value (12000 N) was below the impulse-consistent mean (~25.4 kN), which is physically impossible; schema now rejects peak<mean at load time."
+    # 2026-07-11: real PRD-240 static-test thrust-time curve (team archive,
+    # data/RamP_analitical_computations/acceleration_macro.xls, sheet
+    # "PRD-240" -> vehicles/ramjet_rocket/motor_data/PRD-240_thrust_curve.csv),
+    # promoted into the official config. PRD-240 CONFIRMED by human
+    # (2026-07-11) as the real stage-1 motor -- the Fusion CAD wing/
+    # control-surface component this designation was previously catalogued
+    # from ("Skrzydlo PRD-240 x4") is this same motor's own fin hardware,
+    # not a coincidental name collision; archive data treated as ground
+    # truth per explicit human instruction. See motor_database.yaml's
+    # PRD-240 entry (status DATASHEET) and docs/decision-log.md.
+    # thrust_peak_N/thrust_mean_N/burn_time_s/total impulse are REAL,
+    # directly read off the curve. propellant_mass_kg is DERIVED from the
+    # real total impulse (56.38 kN*s, matches the sheet's own "Sum" cell)
+    # using isp_sl_s=212.84s -- the archive author's own assumed design
+    # Isp, not an independently measured value.
+    isp_vacuum_s: 230                 # SZACOWANY — no archive data
+    isp_sl_s: 212.84                  # spreadsheet-assumed design Isp (not measured); see note above
+    thrust_peak_N: 17250              # REAL — PRD-240 static-test curve peak (t=0.072s)
+    thrust_mean_N: 10878              # REAL — total impulse / burn_time_s from the same curve
+    burn_time_s: 5.18                 # REAL — curve duration above 100 N (0.02s to 5.20s)
+    propellant_mass_kg: 27.01         # DERIVED — real total impulse / (isp_sl_s * g0); see isp caveat above
+    propellant_density_kg_m3: 1750    # SZACOWANY — no archive data
+    note: "PRD-240 real static-test thrust curve (2026-07-11, archive), replacing the prior SZACOWANY placeholders (was: peak 29000N, mean 25375N, burn 6.0s, propellant 75.0kg). Total impulse 56.38 kN*s is REAL. thrust_peak_N/thrust_mean_N/burn_time_s are directly REAL. propellant_mass_kg is DERIVED using the archive's own assumed (not measured) isp_sl_s=212.84s. UPDATE 2026-07-11 (same day, later): this real impulse alone made booster burnout subsonic at the vehicle's then-current 355.02kg mass (Fusion CAD estimate) -- that concern is RESOLVED by the separate mass_properties.total_mass_kg correction below (355.02 -> 100.0 kg, the Fusion mass estimate is considered wrong/oversized); with both real values together, burnout is supersonic (~Mach 1.7) at every launch angle tested. See docs/decision-log.md for both entries."
 stage_2:
   type: "ramjet"
   design_mach: 2.5         # TBD — decyzja projektowa
@@ -70,9 +85,21 @@ fins:
   chord_root_m: 0.1768      # UNCHANGED — see note above, not confidently remapped
   chord_tip_m: 0.1768       # UNCHANGED — see note above, not confidently remapped
 mass_properties:
-  cg_from_nose_m: 1.6084   # Fusion (cm-bug fixed, Y-axis longitudinal); 36.7% L
+  # 2026-07-11: total_mass_kg corrected 355.02 -> 100.0 kg per explicit
+  # human decision: the Fusion 360 Assembly v6 physics-engine mass estimate
+  # (booster 277.80 + ramjet 15.18 = 355.02 kg) is considered WRONG/
+  # OVERSIZED; the real full-assembly target mass (booster + ramP) is the
+  # archive's own reference value (data/RamP_analitical_computations/
+  # acceleration_macro.xls -- the same 100.0 kg used throughout its
+  # PRD-240 flight-simulation sheets). See docs/decision-log.md "PRD-240
+  # motor identity CONFIRMED..." follow-up entry for the full reasoning.
+  # cg_from_nose_m/cg_source below are UNCHANGED -- they come from the
+  # same now-suspect Fusion physics engine, but the human correction this
+  # session addressed mass specifically, not CG; flagged in tbd below,
+  # not silently revised.
+  cg_from_nose_m: 1.6084   # Fusion (cm-bug fixed, Y-axis longitudinal); 36.7% L -- UNCHANGED, see note above
   cg_source: "Fusion 360 Assembly v6, verified by component breakdown"
-  total_mass_kg: 355.02    # Fusion physics engine (booster 277.8 + ramjet 15.18 + other)
+  total_mass_kg: 100.0     # CORRECTED 2026-07-11 (was 355.02, Fusion physics engine, now considered wrong) -- real target mass per archive reference (booster 277.80/ramjet 15.18 component split is now ALSO suspect, not re-derived)
 cfd_notes:
   booster_diameter_note: "Body diameter 0.250m; bbox 1.809m includes PRD-240 fins. NOTE: this describes stage_1 (booster) specifically and is UNCHANGED — the 2026-07-10 drawing update below applies to the overall/ramjet-stage body, not necessarily the booster; needs review (see tbd)."
   ramjet_inlet_note: "Axisymmetric conical spike: cone L=0.293m base 0.150m; capture area 0.0491 m^2; diffuser expansion 2.98. Superseded/extended by the 2026-07-10 drawing's inlet cone 42/60deg + centerbody 85x62mm — not yet reconciled into this note's numbers."
@@ -105,7 +132,9 @@ cfd_notes:
     values and has NOT been re-run against this update yet. Treat all of
     those committed results as stale pending a re-run.
 tbd:
-  - "stage_1 motor datasheet (Isp, thrust curve, propellant mass) — currently SZACOWANY"
+  - "RESOLVED 2026-07-11: stage_1 motor datasheet — real PRD-240 static-test thrust curve (peak/mean/burn_time) now in propulsion.*, from data/RamP_analitical_computations/acceleration_macro.xls. isp_sl_s=212.84s remains the archive's own assumed (not measured) design value; propellant_mass_kg is still DERIVED from it."
+  - "VERIFY: mass_properties.cg_from_nose_m=1.6084 (36.7% L) and cg_source come from the same Fusion 360 physics engine now considered wrong for total_mass_kg (corrected 355.02->100.0 kg, 2026-07-11) — CG was NOT re-derived this session (human correction addressed mass specifically); needs independent re-check now that the mass estimate it shares a source with is known to be off."
+  - "VERIFY: the booster/ramjet component mass split (Fusion: booster 277.80kg / ramjet 15.18kg) is now ALSO suspect given total_mass_kg was corrected to 100.0kg — no real replacement split was derived this session, only the total was corrected per the archive reference."
   - "stage_2 ramjet design_mach final decision"
   - "moments of inertia Ixx/Iyy/Izz — open Fusion 360 Assembly v6, right-click main component → 'Physical Properties', copy Ixx/Iyy/Izz tensor (units: kg*m^2) from GUI panel. Not scriptable via Fusion API."
   - "VERIFY: fins.span_m=0.550 is a layout-inferred reading of the drawing's tail dimension, not a confident labeled callout — a human should re-check against the drawing directly."
