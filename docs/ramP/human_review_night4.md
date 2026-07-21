@@ -18,3 +18,20 @@
 | HR-8 | Gamma treatment (specific-heat ratio): code uses gamma_cold=1.4, gamma_hot=1.33; composition-consistent gamma_products~1.25–1.30 @ T21~2000–2500 K shifts V3 ~4.5% (small lever) | NO | Confirm combustion-products composition (assume stoichiometric kerosene+air, or specify); calculate gamma_products from composition; P1-B: sign lever ambiguous (could increase or decrease V3); defer lock-in until T04 confirmed; log assumption in decision-log | Fuel type + combustion stoichiometry (kerosene assumed, confirm); chemical composition of exhaust products at T21; gamma_products target value or correlation |
 | HR-9 | Nominal cruise point selection (Ma 2.5 / 6 km ISA); operational envelope: all 30 Mach×altitude cells SUSTAINED with CD0=0.35 placeholder | NO | Real drag polar (high-Re profile, body, fins combined) required before optimum cruise Mach can be selected; envelope shows no constraint yet (net thrust +5.3 kN @ Ma1.5/10km to +28.1 kN @ Ma3.0/SL); nominal point Ma2.5/6km has +15.6 kN margin — envelope does not limit choice presently | High-fidelity drag polar (CD0 via CFD/wind-tunnel at 2–3 design points Mach sweep); thrust-specific fuel consumption (TSFC) or fuel-mass budget for mission time at candidate cruise points |
 
+
+---
+
+## 2026-07-11 rerun — human-review items (status: WIP)
+
+Open items from the full-analysis rerun (Stages 1–5, PR #4). All **WIP**: the
+analysis is done and committed, but each needs a human action / external tool to
+close. These supersede the stability/cycle framing of HR-1/2/3/7/8 with the
+post-rerun findings.
+
+| ID | Item | Status | Blocking? | Recommended action | Data / tool needed |
+|---|---|---|---|---|---|
+| HR-10 | **Ma2.5 static-stability sign conflict.** DATCOM-class +5.13..+11.01 cal & Ackeret +9.71 cal (both analytical) vs Teltik CFD −2.75 cal. Barrowman retired as CDR gate; linear methods can't capture the fin-effectiveness collapse (span/d=2.75). | WIP | YES | Run the SU2 RANS-SST cross-check LOCALLY (M2.5, y+<1, coarse/fine grid, α-sweep {0,4,8}°) to break the 2-vs-1 tie. Do NOT gate CDR on the analytical +margin until then. | SU2 build (BLOCKED in cloud); local machine w/ `external/su2` built |
+| HR-11 | **V3 residual +14.6% vs Teltik after cycle_v2 rebuild.** γ shown to be a weak lever (~0.5%); geometry (AR 2.44→1.317) closed the bulk. γ_hot=1.28 is PROVISIONAL (CEA-class). | WIP | NO | Run a real NASA-CEA equilibrium case for kerosene-air at the confirmed φ to replace γ_hot=1.28 and attribute the residual (BL/real-gas/spillage). | NASA-CEA build (BLOCKED in cloud); confirmed fuel + equivalence ratio |
+| HR-12 | **Inlet cone interpretation + starting Mach.** Taylor–Maccoll: 42° cone attached@M2.5 (recovery 0.639<MIL 0.870) but DETACHES@M2.0 → min starting Mach ≈2.1. Drawing 42°-half vs 21°-half unresolved. | WIP | YES | Confirm the 42° vs 21° drawing reading against the PDF; treat M≈2.1 as the min inlet-start Mach when fixing the staging Mach; design the InletGeometry schema so the 60° internal contraction can be modeled. | Drawing PDF re-read; schema design pass |
+| HR-13 | **Nozzle expansion decision.** AR=1.317 under-expanded (p_e/p0≈3) across 4–10 km; matched AR≈2.48. Supersedes HR-3 (the old 4.0-vs-1.0 framing; 1.317 is now the confirmed drawing value). | WIP | NO | Decide lengthen toward AR≈2.5 (full expansion, +momentum thrust, −under-expansion loss) vs keep 1.317 (lighter), once the mission altitude profile is fixed. | Mission altitude/velocity profile; mass/length budget |
+| HR-14 | **CG + MOI still TBD_PHYSICAL_PARAM.** Stage 1 used a CG SWEEP (0.37–0.64 L), not a value. A single static margin needs the real CG; dynamic stability needs Ixx/Iyy/Izz. | WIP | YES (for a single SM) | Extract CG and inertia tensor from Fusion Assembly v6 GUI (Physical Properties) into `mass_properties:`; then re-run the sweep at the real CG. | Fusion GUI Physical Properties (CG, Ixx/Iyy/Izz, kg·m²) |
