@@ -88,11 +88,19 @@ def test_staging_event_receives_burnout_state_as_initial_conditions() -> None:
 
 
 def test_booster_trajectory_survives_to_nominal_burnout() -> None:
-    """The fixed 83-degree launch angle allows the booster to reach 6 s burnout.
+    """The fixed 83-degree launch angle allows the booster to reach nominal burnout.
 
     This test verifies that the trajectory fix (LAUNCH_ANGLE_DEG = 83.0)
-    prevents premature ground impact before the nominal burn_time_s = 6.0 s.
-    The test reads the burnout_state.json produced by booster_burnout.py.
+    prevents premature ground impact before the nominal
+    ``stage_1.propulsion.burn_time_s``. The test reads the
+    burnout_state.json produced by booster_burnout.py.
+
+    2026-07-11: the nominal burn time changed from the SZACOWANY 6.0 s to
+    the real PRD-240 static-test curve's 5.18 s (vehicle_config.yaml
+    updated to the real archived thrust curve -- see docs/decision-log.md
+    "Real PRD-240 booster thrust curve found in archive"). Updated the
+    expected value to match; the ground-impact and launch-angle checks are
+    unaffected by this change.
     """
     this_dir = Path(__file__).resolve().parent
     burnout_json = this_dir.parents[1] / "analyses" / "trajectory" / "burnout_state.json"
@@ -112,8 +120,8 @@ def test_booster_trajectory_survives_to_nominal_burnout() -> None:
         "Booster hit ground before burnout; launch angle fix failed"
     )
 
-    # Check that burnout occurred at the nominal 6.0 s (not cut short)
-    assert data["burnout_time_s"] == pytest.approx(6.0, abs=0.01)
+    # Check that burnout occurred at the nominal 5.18 s (real PRD-240 curve, not cut short)
+    assert data["burnout_time_s"] == pytest.approx(5.18, abs=0.01)
 
     # Check that the launch angle was indeed updated to 83 deg
     assert data["metadata"]["launch_angle_deg"] == pytest.approx(83.0, abs=0.1)
@@ -124,7 +132,20 @@ def test_booster_trajectory_survives_to_nominal_burnout() -> None:
 
 
 def test_booster_burnout_state_is_supersonic() -> None:
-    """The booster reaches Mach > 1.0 by burnout (typical small rocket performance)."""
+    """The booster reaches Mach > 1.0 by burnout (typical small rocket performance).
+
+    History (both changes 2026-07-11, see docs/decision-log.md): updating
+    stage_1.propulsion to the real PRD-240 thrust curve alone (lower total
+    impulse, 56.38 vs the placeholder's implied ~152 kN*s) made this
+    subsonic at the then-current 355.02 kg vehicle mass, so this test was
+    briefly renamed/inverted to assert Mach < 1.0. Separately correcting
+    mass_properties.total_mass_kg (355.02 -> 100.0 kg; the Fusion
+    physics-engine mass estimate is considered wrong/oversized, the
+    archive's own reference mass is the real target) brings burnout back
+    above Mach 1.0 (~1.69 at the nominal 83deg launch angle). Reverted to
+    the original supersonic assertion, now backed by real data on both
+    the motor and mass axes.
+    """
     this_dir = Path(__file__).resolve().parent
     burnout_json = this_dir.parents[1] / "analyses" / "trajectory" / "burnout_state.json"
 
@@ -340,7 +361,17 @@ def test_cruise_segment_note_discloses_reference_model() -> None:
 
 
 def test_booster_burnout_altitude_is_positive_and_reasonable() -> None:
-    """Burnout altitude should be in the range [500, 3000] m for this booster."""
+    """Burnout altitude should be in the range [500, 3000] m for this booster.
+
+    2026-07-11: briefly narrowed to [200, 1000] m after the real PRD-240
+    thrust curve (lower impulse) dropped burnout altitude to ~387 m at the
+    then-current 355.02 kg vehicle mass. Reverted to the original [500,
+    3000] m bound after mass_properties.total_mass_kg was separately
+    corrected to 100.0 kg (the Fusion physics-engine estimate is
+    considered wrong/oversized) -- real burnout altitude is now ~1520 m
+    at the nominal 83deg launch angle, comfortably back in this range.
+    See docs/decision-log.md for both changes.
+    """
     this_dir = Path(__file__).resolve().parent
     burnout_json = this_dir.parents[1] / "analyses" / "trajectory" / "burnout_state.json"
 
