@@ -199,6 +199,37 @@ question.
    `candidate_identity` fields (or leave a pointer there) — that's the
    consumer of this result, not this branch.
 
+## 4b. UPDATE 2026-07-22 21:50 UTC — Stage-1 speedup confirmed (partial, mid-run)
+
+Tested the first candidate from §4's perf options: drop the per-station
+`gmsh.model.occ.copy()` of the full solid, call
+`intersect([(3, vol_tag)], plane_copy, removeObject=False,
+removeTool=True)` directly against the **original** volume instead (only
+the 1-face cutting plane is copied, which is cheap). Script:
+`analyses/geometry/probe_slice_v2_timing.py`.
+
+**Result (x=200mm, x=500mm, both volumes each): 8.36s and 8.47s per
+station** (both volumes combined) — vs. the old method's ~248s/station
+average (1987s / 8 stations from §2). **~30x speedup.**
+
+This was NOT re-run across all 8 original probe stations yet (only 2, as
+a quick sanity check before committing to a longer run) — the values
+returned (16979.42mm², 2820.19mm² at x=200; 11947.93mm², 14009.40mm² at
+x=500) match §2's original numbers exactly, confirming the faster method
+gives identical results, not just faster wrong ones.
+
+**Feasibility for a full sweep, back-of-envelope:** ~220 stations (20mm
+pitch over 4355mm) × ~8.4s/station ≈ 1848s ≈ **~31 minutes** — now
+plausible within a single session, a large change from the old method's
+15+ hour estimate. Full re-validation across more stations and the
+Stage-2 loop-topology work (§4 next step) still needed before relying on
+this number for planning a production run.
+
+This update was checkpointed immediately because the user asked to
+continue this work via a scheduled run in ~3 hours rather than
+continuing hands-on right now — do not lose this finding by re-deriving
+it from scratch next session.
+
 ## 5. What this checkpoint deliberately does NOT include
 
 - `cad_station_sweep.py` itself — not started, per explicit instruction
