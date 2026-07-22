@@ -27,13 +27,18 @@ MATH_PROBLEM= DIRECT
 RESTART_SOL= NO
 
 % -------------------- FREESTREAM (ASSUMPTION: fill from design point) --------
-% PROVISIONAL default below = ISA @ 15 km (T=216.65 K, p=12111.6 Pa),
-% Mach 2.5. Replace with the real design altitude/Mach once fixed.
+% PROVISIONAL default below = ISA @ 10 km (T=223.15 K, p=26436.9 Pa), Mach
+% 2.5 -- matches the design point already reviewed in
+% analyses/propulsion/inlet_performance.py (module docstring: "Mach 2.5,
+% 10,000 m ISA cruise altitude"). vehicle_config.yaml's design_mach is still
+% marked TBD, so this remains PROVISIONAL, not final -- but it is now
+% internally consistent with the one other module in the repo that already
+% fixed a design point, instead of an independently-guessed altitude.
 MACH_NUMBER= {{MACH}}                  % PROVISIONAL 2.5
 AOA= {{AOA_DEG}}                       % swept externally: {0, 4, 8} deg
 SIDESLIP_ANGLE= 0.0
-FREESTREAM_TEMPERATURE= {{FREESTREAM_TEMPERATURE_K}}   % PROVISIONAL 216.65
-FREESTREAM_PRESSURE= {{FREESTREAM_PRESSURE_PA}}        % PROVISIONAL 12111.6
+FREESTREAM_TEMPERATURE= {{FREESTREAM_TEMPERATURE_K}}   % PROVISIONAL 223.15
+FREESTREAM_PRESSURE= {{FREESTREAM_PRESSURE_PA}}        % PROVISIONAL 26436.9
 INIT_OPTION= TD_CONDITIONS
 FREESTREAM_OPTION= TEMPERATURE_FS
 

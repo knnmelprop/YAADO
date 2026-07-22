@@ -11,6 +11,8 @@ cad/*.iges
 geom/*
 mesh/*
 run/*
+# local tool venv for gmsh/ scripts (see README "gmsh Python module note")
+.venv-gmsh/
 # keep the empty dirs and everything tracked here
 !*/.gitkeep
 !.gitignore
