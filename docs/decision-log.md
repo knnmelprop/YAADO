@@ -1069,3 +1069,55 @@ so no boundary-layer-resolved RANS validation has ever been performed on
 this build. `01_classify_and_mesh.py`'s full-mesh path remains never
 executed.
 
+---
+
+## 2026-07-23 — `marker_zones.yaml` filled in; branch split left un-merged; concurrent-session lock incident
+
+**Context.** Continuation of the session above, on `geometry/step-station-sweep`.
+The prior entry's finding (identity question mis-framed, transitions bracketed)
+was already committed; this entry covers writing the actual consumer file.
+
+**`marker_zones.yaml` written**, on `claude/su2-local-stability-run` (commit
+`1ab4850`, not on `geometry/step-station-sweep` -- that branch never had the
+CFD case checked out). Marker key names (`body_wall`, `booster_wall`,
+`interstage_wall`, `base_region`, `inlet_cap`) were kept unchanged rather than
+renamed to geometry-descriptive labels: `cfg/ramp_stability_supersonic_RANS.cfg.template`
+references these strings verbatim in its `MARKER_*` blocks and `cfg/markers.md`
+explicitly forbids renaming after meshing -- a rename would have needed
+synchronized edits across 3 more files for no functional gain, since the false
+part was never the key names, only the `candidate_identity` field's stage
+claim. Ranges: `inlet_cap` [30.1,160.0]mm, `body_wall` [160.0,2400.0]mm,
+`interstage_wall` [2400.0,2500.0]mm, `booster_wall` [2500.0,3600.0]mm,
+`base_region` [3600.0,4385.15]mm -- taken directly from the measured
+transitions (bore closure 2400-2500mm, fin root 3600-3800mm). Both open
+cross-check anomalies (130mm-vs-200mm diameter gap; 14-member ring at
+x=2100mm) carried into the file as comments, not resolved. `vehicle_config.yaml`
+untouched. Not validated against `01_classify_and_mesh.py --classify-only` --
+no `.venv-gmsh` exists anywhere in the repo, so this was explicitly left as a
+follow-up rather than faked.
+
+**Branch split deliberately left un-merged.** `geometry/step-station-sweep`
+(10 commits: geometry tool, real measurements, docs) and
+`claude/su2-local-stability-run` (1 new commit: the filled marker file) have
+diverged and both are pushed/clean. Per this repo's own standing rule ("don't
+merge/rebase/delete branches unless asked -- past sessions collided that
+way", `docs/AGENT_BRIEF.md`), no merge was attempted despite this being an
+obvious point to consolidate. `docs/AGENT_BRIEF.md` now carries an explicit
+branch-split note so a fresh session checks both. Whether/when to merge is
+recorded as a human next-action, not decided here.
+
+**Concurrent-session incident (environment note, not a repo change).** Mid-task,
+a subagent's `git checkout` hung: a separate, unrelated live process (PID 3925)
+was running `git merge --no-ff claude/port-runner-improvements` in this same
+shared working tree at that moment. The subagent correctly backed off rather
+than force anything. The other process finished (merge, then an apparent
+`git reset --mixed HEAD` cleanup) within about two minutes but left a stale
+`.git/index.lock` (0 bytes, no process holding it) that would have blocked
+all further git writes. Verified no process held it (`ps`, `lsof`, checked
+for live `MERGE_HEAD`/`MERGE_MSG`) before removing it manually and resuming.
+`claude/port-runner-improvements` does not exist as a branch anywhere in this
+repo (local or `origin`) at the time of writing -- the other session's work
+landed elsewhere or was abandoned; not investigated further, out of scope.
+Recorded in `docs/AGENT_BRIEF.md`'s environment-gotchas section for future
+sessions that hit the same hang.
+
