@@ -1,0 +1,4 @@
+# Local venv for gmsh-based CAD scripts (probe_slice.py, future
+# cad_station_sweep.py) -- see requirements-geom.txt. Same pattern as
+# analyses/stability/su2_cross_check/case_ramp_stability/.venv-gmsh.
+.venv-geom/
