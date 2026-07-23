@@ -234,14 +234,30 @@ def build_mesh(
         gmsh.model.mesh.field.setNumber(thresh_field, "DistMax", 200.0)
         gmsh.model.mesh.field.setAsBackgroundMesh(thresh_field)
 
-        # Boundary layer on wall markers, first-cell height from ISA/y+ calc.
-        bl_field = gmsh.model.mesh.field.add("BoundaryLayer")
-        gmsh.model.mesh.field.setNumbers(bl_field, "SurfacesList", wall_surfs)
-        gmsh.model.mesh.field.setNumber(bl_field, "hwall_n", y1 * 1000.0)  # mm
-        gmsh.model.mesh.field.setNumber(bl_field, "ratio", 1.2)
-        gmsh.model.mesh.field.setNumber(bl_field, "thickness", 5.0 * scale)
-        gmsh.model.mesh.field.setNumber(bl_field, "Quads", 0)
-        gmsh.model.mesh.field.setAsBoundaryLayer(bl_field)
+        # NOTE: gmsh's "BoundaryLayer" mesh field is 2D-only in this build
+        # (confirmed via the library's own field-option docstring: "Insert a
+        # 2D boundary layer mesh next to some curves in the model" / "Only 2D
+        # Boundary Layers are supported"). It does not accept a 3D
+        # SurfacesList/FacesList option at all -- calling it with one raises
+        # "Unknown option 'SurfacesList'/'FacesList' in field ... type
+        # 'BoundaryLayer'", not a silent no-op. There is no equivalent 3D
+        # anisotropic prism-layer field available via this gmsh Python API on
+        # an OCC-kernel model. Consequence: this mesh does NOT have a true
+        # wall-resolved y+~1 viscous prism layer -- only the isotropic
+        # Distance/Threshold refinement below, bottoming out at
+        # refined_size_mm, which is orders of magnitude coarser than the
+        # y1 first-cell height computed from isa_yplus.py. Report y1 vs
+        # refined_size_mm explicitly downstream; do not claim y+~1 was
+        # achieved.
+        print(
+            f"WARNING: no 3D boundary-layer prism field applied — gmsh's "
+            f"BoundaryLayer field is 2D-only in this build. Target first-cell "
+            f"height for y+={y_plus_target} was {y1*1e6:.2f} um, but the "
+            f"nearest-wall isotropic tet size is {refined_size_mm} mm "
+            f"({refined_size_mm*1e3:.0f}x coarser). This mesh is NOT "
+            f"wall-resolved.",
+            file=sys.stderr,
+        )
 
         gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
         gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
