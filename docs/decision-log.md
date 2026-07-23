@@ -1013,3 +1013,59 @@ mesh with boundary layers.
 Whatever lands is committed incrementally; see the handoff document for
 the final state.
 
+
+### 2026-07-23 — Outcome of the final-window session
+
+Full handoff: `docs/HANDOFF_2026-07-23.md`.
+
+**What was achieved.** The station-sweep tool was run against the REAL STEP
+file for the first time (it had only ever been validated against synthetic
+solids, because the session that wrote it had no access to the gitignored
+CAD). This resolved the long-open `status.md` §3 ambiguity: the forward
+low-area signature IS a genuine internal bore (2 loops, radius ~108mm
+tapering to ~57mm), and the aft signature IS thin fin blades (1 loop at the
+assembly's global max radius), exactly as hypothesized. The 7-station run
+was executed twice independently and produced byte-identical results.
+
+Both geometric transitions were then bracketed: the bore closes between
+x=2400-2500mm, and the fins begin between x=3600-3800mm, with a
+constant-section barrel between (area identical to 10 significant figures).
+
+**The most important result is a negative one.** The blocking question
+everyone had been trying to answer -- "which STEP solid is the ramjet stage
+and which is the booster?" -- turns out to be mis-framed. vol_1's outer
+radius (105.33mm) equals vol_2's forward bore radius (104.4-108.5mm), so
+vol_1 nests INSIDE vol_2; and vol_2 spans 4225mm of the 4355mm vehicle. The
+decomposition is inner-centerbody-inside-outer-airframe, not stage-1 vs
+stage-2. Answering the question as posed would have written a false premise
+into the file that gates all downstream meshing -- and a wrong marker
+assignment does not fail loudly, it silently flips the static-margin sign,
+which is the entire deliverable. Left unfilled deliberately; defining marker
+ranges from the measured transitions is now a human design decision.
+
+**Two cross-check flags raised, neither resolved (report-only, per standing
+rule that this script does not arbitrate config values):**
+- The barrel section measures 130.0mm outer diameter, against
+  `vehicle_config.yaml` `body.diameter_m: 0.200` (200mm) -- a 70mm gap on a
+  field marked drawing-verified.
+- Fin tips measure ~590mm tip-to-tip, between the config's 550mm and 639mm,
+  matching neither -- a third independent data point on the open fin-span
+  question.
+- Also flagged, uninterpreted: a ring of 14 small circular members
+  (r~4.24mm each) at x=2100mm at the duct wall radius.
+
+**Corrections to the project's own record.** The brief's premise that "SU2
+has never been successfully built anywhere" was false and was verified false
+before acting on it; rebuilding would have consumed most of an irreplaceable
+window. Separately, the cost model in `status.md` §4b was wrong for this
+workload: the real rate with loop topology is ~35-73 s/station, not
+~8.4 s/station, making a full 220-station sweep ~4.5 hours rather than ~31
+minutes. Both corrections are recorded so they are not re-derived.
+
+**Left unfinished, explicitly.** The supersonic RANS smoke test never ran --
+its agent was killed by the session usage limit mid-setup, and no result
+exists. SU2's turbulent validation meshes are absent from the source tree,
+so no boundary-layer-resolved RANS validation has ever been performed on
+this build. `01_classify_and_mesh.py`'s full-mesh path remains never
+executed.
+
