@@ -8,15 +8,17 @@ This work stream is currently **split across two diverged branches**, deliberate
 NOT merged (standing repo rule: never merge/rebase/delete branches unless a human
 asks — past sessions collided that way). A fresh agent needs to know about BOTH:
 
-- **`geometry/step-station-sweep`** (pushed, clean, HEAD `b4e75c1` as of this
+- **`geometry/step-station-sweep`** (pushed, clean, HEAD `9a1bab1` as of this
   entry) — the geometry tool, the real-STEP measurements, and all the docs
   you're reading now (`docs/geometry/status.md`, `docs/HANDOFF_2026-07-23.md`,
   this file, `docs/decision-log.md`).
-- **`claude/su2-local-stability-run`** (pushed, clean, HEAD `1ab4850`) — the SU2
+- **`claude/su2-local-stability-run`** (pushed, clean, HEAD `b445eb3`) — the SU2
   CFD case itself (`analyses/stability/su2_cross_check/case_ramp_stability/`),
-  including **`gmsh/marker_zones.yaml`, now filled in** (commit `1ab4850`,
-  2026-07-23) using the geometry findings below. This branch does NOT have the
-  geometry-tool commits or these docs on it — only the filled marker file.
+  including **`gmsh/marker_zones.yaml`, filled in** (commit `1ab4850`,
+  2026-07-23) using the geometry findings below, plus a real gmsh
+  `BoundaryLayer`-field bug fix (commit `b445eb3` — see "Next actions" §2).
+  This branch does NOT have the geometry-tool commits or these docs on it —
+  only the CFD case itself.
 - **Before meshing or running SU2, check out `claude/su2-local-stability-run`**,
   not this branch — that's where `marker_zones.yaml` and the CFD case configs
   live. Whether/when to merge the two branches is a human call, not yet made.
@@ -76,15 +78,52 @@ surface, not a rubber stamp.
 - **Never modify `vehicles/ramjet_rocket/vehicle_config.yaml`.** Report only.
 
 ## Next actions, in order
-1. **First**, on `claude/su2-local-stability-run`: build a `.venv-gmsh` (repo
-   convention, see that branch's case README) and run
-   `01_classify_and_mesh.py --classify-only cad/ramPcfdSimplified.step` to
-   sanity-check the newly-filled `marker_zones.yaml` actually loads and
-   classifies before trusting it for a real mesh.
-2. `01_classify_and_mesh.py --level coarse …` — **full-mesh path has NEVER run**; treat first invocation as a crash test.
-3. Supersonic RANS smoke test — **never ran** (agent killed by usage limit). Use `runs/su2_rans_check/` config + `MACH_NUMBER=2.5`, `ENTROPY_FIX_COEFF=0.1`, `MUSCL_FLOW=YES`, `SLOPE_LIMITER_FLOW=VENKATAKRISHNAN`, `CFL_NUMBER=1.0`, `CFL_ADAPT=YES`, `ITER=50`.
-4. SU2 turbulent validation meshes are **absent** from `TestCases/rans/*` (configs only). Fetch from `su2code/TestCases` before trusting RANS physics.
-5. **(HUMAN)** Decide whether/when to merge `geometry/step-station-sweep` into `claude/su2-local-stability-run` (or vice versa) so this work stream lives on one branch. Not done by any session so far — see the branch-split note at the top of this file.
+1. ~~Build `.venv-gmsh`, validate marker_zones.yaml with `--classify-only`~~ —
+   **DONE, 2026-07-23.** `.venv-gmsh` now exists on `claude/su2-local-stability-run`
+   (built by a separate concurrent local session, not committed — venvs are
+   gitignored, rebuild per that branch's case README if missing).
+2. **`01_classify_and_mesh.py --level coarse …` was attempted for real, 2026-07-23
+   — partial result, NOT a clean pass:**
+   - **Real bug found and fixed** (commit `b445eb3`, `claude/su2-local-stability-run`):
+     gmsh's `BoundaryLayer` mesh field is **2D-only** in this build — it does
+     not support a 3D `SurfacesList`/`FacesList` option at all (raises "Unknown
+     option", not a silent no-op). There is no 3D anisotropic prism-layer field
+     available via this gmsh Python API on an OCC-kernel model. **Consequence:
+     this mesher cannot currently produce a wall-resolved y+~1 viscous mesh** —
+     only isotropic Distance/Threshold refinement near walls, which is orders
+     of magnitude coarser than the y1 first-cell height `isa_yplus.py`
+     computes. The fix replaces the broken call with an explicit stderr
+     warning reporting both numbers, so this isn't silently assumed away.
+   - **The mesh run itself did not finish.** It reached ~94% of surface
+     meshing (surface 3127 of ~3317) after 30+ min, then the session running
+     it was cut off (parent process gone, no `EXIT_CODE` line, no mesh output
+     file in `mesh/`) — same "killed by usage limit / session end" pattern
+     already seen on the RANS smoke test below. **Re-run to actually get a
+     first coarse mesh is still the next concrete step.** Budget more than 30
+     min; consider running detached/nohup'd so a session boundary doesn't
+     kill it.
+   - **Do not assume a valid mesh exists.** `01_classify_and_mesh.py`'s
+     full-mesh path has now been exercised further than ever before, but has
+     still never actually completed and produced output.
+3. Once a coarse mesh exists: figure out a real path to a wall-resolved
+   viscous mesh given finding above (options to investigate: gmsh's
+   `Mesh.BoundaryLayerFanElements`/extrusion-based approaches, exporting to
+   another tool for prism-layer generation, or accepting isotropic refinement
+   with a documented y+ caveat for a first-pass inviscid/coarse RANS check).
+4. Supersonic RANS smoke test — **never ran** (agent killed by usage limit). Use `runs/su2_rans_check/` config + `MACH_NUMBER=2.5`, `ENTROPY_FIX_COEFF=0.1`, `MUSCL_FLOW=YES`, `SLOPE_LIMITER_FLOW=VENKATAKRISHNAN`, `CFL_NUMBER=1.0`, `CFL_ADAPT=YES`, `ITER=50`.
+5. SU2 turbulent validation meshes are **absent** from `TestCases/rans/*` (configs only). Fetch from `su2code/TestCases` before trusting RANS physics.
+6. **(HUMAN)** Decide whether/when to merge `geometry/step-station-sweep` into `claude/su2-local-stability-run` (or vice versa) so this work stream lives on one branch. Not done by any session so far — see the branch-split note at the top of this file.
+
+## Environment gotcha, again: sessions get cut off mid-run, don't trust silence as success
+Two separate long-running local processes this project has hit so far (the
+RANS smoke test, and now the coarse mesh above) were killed by a session/usage
+boundary **mid-execution**, not by a script error — no traceback, no
+`EXIT_CODE` line, just the process and its parent gone. Long gmsh/SU2 runs
+(mesh generation, RANS solves) should be treated as likely to outlive a single
+session. Prefer `nohup ... &` / a detached background process with a log file
+you can check across sessions over a foreground run tied to one session's
+lifetime, and always check the log for an actual completion marker before
+treating a "finished" process as having produced a real result.
 
 ## Environment gotchas (hard-won)
 - `cmd | tee log | tail -N` returns **tail's** exit code. Use `set -o pipefail`. A build once reported "exit 0" while failing.

@@ -551,10 +551,15 @@ without a human asking, the two branches remain **deliberately un-merged** —
 see `docs/AGENT_BRIEF.md`'s branch-split note for the full picture and exact
 X-ranges written.
 
-**Not validated yet**: no `.venv-gmsh` exists anywhere in the repo, so
-`01_classify_and_mesh.py --classify-only` has never actually loaded the filled
-file. First real run of that command is the next concrete step, on the other
-branch.
+**Update, same day:** a `.venv-gmsh` was since built on `claude/su2-local-
+stability-run` (by a separate concurrent local session) and `--classify-only`
+was validated. A first real `--level coarse` mesh attempt followed — it found
+and fixed a genuine bug (gmsh's `BoundaryLayer` field is 2D-only, no 3D
+prism-layer support exists via this API, commit `b445eb3`) but the mesh run
+itself was cut off mid-execution (~94% through surface meshing, no output
+produced) when that session ended. Full detail in `docs/AGENT_BRIEF.md`'s
+"Next actions" §2 — not repeated here since that file is the maintained
+pointer and this one is a closed checkpoint log.
 
 This closes out this branch's checkpoint history — nothing further is planned
 here unless the human decides to merge the two branches or resume the deferred

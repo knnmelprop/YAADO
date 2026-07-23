@@ -1121,3 +1121,56 @@ landed elsewhere or was abandoned; not investigated further, out of scope.
 Recorded in `docs/AGENT_BRIEF.md`'s environment-gotchas section for future
 sessions that hit the same hang.
 
+---
+
+## 2026-07-23 — First real coarse-mesh attempt: real gmsh bug found and fixed, run itself cut off mid-execution
+
+**Context.** Same day, `claude/su2-local-stability-run`. A second concurrent
+local session (separate terminal, PID chain traced to a real interactive
+`Terminal.app` window, not a stray process) picked up the newly-filled
+`marker_zones.yaml` and worked through `docs/AGENT_BRIEF.md`'s own "Next
+actions" list: it built `.venv-gmsh` (didn't exist before this), validated
+`--classify-only`, then attempted the first-ever real `01_classify_and_mesh.py
+--level coarse --mach 2.5 --altitude-m 10000` run against the real STEP file.
+
+**Real bug found and fixed, commit `b445eb3`.** gmsh's `BoundaryLayer` mesh
+field turns out to be 2D-only in this build -- it does not accept a 3D
+`SurfacesList`/`FacesList` option at all (raises "Unknown option", not a
+silent no-op), and there is no equivalent 3D anisotropic prism-layer field
+available via this gmsh Python API on an OCC-kernel model. The broken call
+was replaced with an explicit stderr warning reporting the target y1
+first-cell height (from `isa_yplus.py`) against the actual isotropic tet
+size the mesh bottoms out at near walls -- which is orders of magnitude
+coarser. **Consequence for the project: this mesher cannot currently produce
+a wall-resolved y+~1 viscous mesh**, only isotropic refinement. This is a
+real, load-bearing finding for the RANS plan, not a cosmetic fix -- flagged
+in `docs/AGENT_BRIEF.md` as a new open item (find a real path to a
+wall-resolved mesh) rather than silently worked around.
+
+**The mesh run itself did not complete.** It progressed to ~94% of surface
+meshing (surface 3127 of ~3317 total) after 30+ minutes of wall time, then
+the parent session (and its whole process tree, confirmed via `ps`) was gone
+-- no traceback, no `EXIT_CODE=` line ever written to its log, no mesh
+output file produced. This matches the same "killed by usage limit / session
+boundary" pattern already on record for the never-run supersonic RANS smoke
+test. Not treated as a completed validation anywhere in the docs.
+
+**How this was handled by the session writing this entry.** Detected the
+live run via `ps` before touching anything (uncommitted diff to
+`01_classify_and_mesh.py` sitting in the shared working tree, branch had
+moved out from under a prior checkpoint). Waited for the run to either
+finish or the session to end rather than interrupting it. Once confirmed
+fully gone (process tree, not just the mesh subprocess), verified the
+uncommitted fix compiled cleanly and was self-contained before committing it
+-- the fix itself is real and correct even though the run that produced it
+didn't finish. `docs/AGENT_BRIEF.md`, `docs/geometry/status.md` updated with
+the honest outcome (bug fixed, mesh still not achieved, next step is a
+re-run budgeted for session-boundary risk, e.g. `nohup`'d and checked across
+sessions rather than tied to one session's foreground lifetime).
+
+**Next concrete step, unchanged in substance:** get a first coarse mesh to
+actually complete and produce output; then find a real path to a
+wall-resolved viscous mesh given the BoundaryLayer-field limitation above,
+before the supersonic RANS smoke test can be trusted as more than a
+code-path check.
+
