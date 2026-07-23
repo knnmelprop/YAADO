@@ -1,0 +1,70 @@
+# MELprop-IADE | marker zone assignment for cad/ramPcfdSimplified.step | v0.1.0
+#
+# NEEDS HUMAN CONFIRMATION before running 01_classify_and_mesh.py in full-mesh
+# mode. Do not fill in guessed numbers — the values below are OBSERVATIONS
+# from 00_inventory_step.py (real bounding boxes from the real STEP file) and
+# cross-references to vehicles/ramjet_rocket/vehicle_config.yaml. Nothing here
+# is an invented number, but the ROLE assigned to each solid (which one is the
+# ramjet vs the booster vs the interstage) is NOT yet determined and must not
+# be guessed — CG/stability-relevant, so a wrong assignment silently corrupts
+# the static-margin sign this whole case exists to check.
+#
+# Copy this file to marker_zones.yaml and fill in the `candidate_identity` /
+# `markers` fields once confirmed (visually in Gmsh GUI / Fusion, or against
+# fusion_extraction_v6.yaml / vehicle_config.yaml).
+
+# --- OBSERVED (00_inventory_step.py run on cad/ramPcfdSimplified.step) -----
+# STEP units: millimetres. 2 solids ("Body1", "Body2" in the STEP header).
+observed:
+  vol_1:
+    step_body_name: "Body1"
+    bbox_x_mm: [30.1, 1071.5]
+    approx_max_radius_mm: 105.3
+    candidate_identity: "TBD"   # e.g. stage_2_ramjet | stage_1_booster | fairing
+  vol_2:
+    step_body_name: "Body2"
+    bbox_x_mm: [159.8, 4385.1]
+    approx_max_radius_mm: 296.5
+    candidate_identity: "TBD"
+  # vol_1 and vol_2 overlap in x=[159.8, 1071.5] mm -> likely where one body's
+  # solid is nested inside/adjacent to the other's fairing (a candidate
+  # interstage region), but this is an OBSERVATION of the overlap, not a
+  # confirmed marker boundary.
+  overlap_x_mm: [159.8, 1071.5]
+  global_assembly_x_mm: [30.1, 4385.1]   # nose tip -> aft/base end
+
+# --- CROSS-CHECK vs vehicle_config.yaml (already-reviewed repo data) -------
+# global_assembly length = 4385.1 - 30.1 = 4355.0 mm, matches
+# vehicles/ramjet_rocket/vehicle_config.yaml stage_2.total_length_m=4.35501 m
+# to within 0.01 mm. This confirms the STEP's OVERALL length matches the
+# config's already-reviewed total length (whole-vehicle, per that file's own
+# comments about the 2026-07-10 drawing update) -- it does NOT by itself
+# confirm which solid is which stage.
+cross_check:
+  vehicle_config_total_length_m: 4.35501
+  step_global_length_mm: 4355.0
+  vehicle_config_booster_length_m: 2.089       # stage_1, 47.7% of rocket
+  vehicle_config_stage2_diameter_m: 0.200      # body diameter (post drawing update)
+  vehicle_config_stage2_nose_diameter_m: 0.150
+  vehicle_config_booster_assembly_diameter_m: 0.250   # excl. PRD-240 wings
+  vehicle_config_cg_from_nose_m: 1.6084
+
+# --- TO FILL IN AFTER HUMAN CONFIRMATION ------------------------------------
+# X boundaries in the STEP's own frame (mm), nose = small X.
+zones:
+  nose_tip_x_mm: 30.1            # OBSERVED (global xmin) -- confirm it's the nose
+  interstage_start_x_mm: null    # TBD
+  interstage_end_x_mm: null      # TBD
+  base_end_x_mm: 4385.1          # OBSERVED (global xmax) -- confirm it's the aft/base
+
+# Marker name -> [x_min_mm, x_max_mm] in the STEP frame. Leave null until the
+# zones above are confirmed; 01_classify_and_mesh.py refuses to run in
+# full-mesh mode while any marker range is null (classify-only mode still
+# works without this file).
+markers:
+  body_wall: null
+  interstage_wall: null
+  booster_wall: null
+  base_region: null
+  inlet_cap: null       # auto-detectable candidate: cap-flagged surface at
+                         # global xmin in mesh/inventory/surfaces.csv

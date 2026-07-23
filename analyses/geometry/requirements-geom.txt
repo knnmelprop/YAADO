@@ -1,0 +1,4 @@
+gmsh==4.15.1
+numpy
+matplotlib
+pyyaml
