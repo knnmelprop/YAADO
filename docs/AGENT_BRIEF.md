@@ -2,11 +2,19 @@
 
 Compact state for agents. Full detail: `docs/HANDOFF_2026-07-23.md`.
 
-## ⚠️ TWO BRANCHES — read this before you start
+## ⚠️ TWO BRANCHES, TWO DRAFT PRs — read this before you start
 
 This work stream is currently **split across two diverged branches**, deliberately
 NOT merged (standing repo rule: never merge/rebase/delete branches unless a human
-asks — past sessions collided that way). A fresh agent needs to know about BOTH:
+asks — past sessions collided that way). Both are now open as separate draft PRs
+against the real default branch (`claude/iade-repo-restructure-00rrro`, confirmed
+via `gh repo view` — NOT `main`, though the two happen to be at the same commit
+right now):
+- **PR #13** — `geometry/step-station-sweep`: the geometry tool + measurements.
+- **PR #14** — `claude/su2-local-stability-run`: the SU2 case, `marker_zones.yaml`,
+  the gmsh mesher bug fix. Each PR body cross-links the other.
+
+A fresh agent needs to know about BOTH branches/PRs:
 
 - **`geometry/step-station-sweep`** (pushed, clean, HEAD `9a1bab1` as of this
   entry) — the geometry tool, the real-STEP measurements, and all the docs
