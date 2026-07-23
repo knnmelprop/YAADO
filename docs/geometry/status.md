@@ -537,3 +537,26 @@ these 3317-surface solids; §4b's timing measured slicing *without* topology.
 **A full 220-station 20mm-pitch sweep would be ~4.5 hours, not ~31 minutes.**
 Do not launch one without planning for that. Targeted range sweeps are the
 right approach.
+
+## 8. UPDATE 2026-07-23 — `marker_zones.yaml` written (on `claude/su2-local-stability-run`, NOT this branch)
+
+This branch's own work is done: both geometric transitions are bracketed (§6/§7
+above), and the mis-framed-identity finding is final. The consumer of that
+result — `analyses/stability/su2_cross_check/case_ramp_stability/gmsh/
+marker_zones.yaml` — has now been filled in, but **on the `claude/
+su2-local-stability-run` branch**, commit `1ab4850`, since that's where the SU2
+case actually lives (this branch, `geometry/step-station-sweep`, never had that
+directory checked out). Per this repo's standing rule against merging branches
+without a human asking, the two branches remain **deliberately un-merged** —
+see `docs/AGENT_BRIEF.md`'s branch-split note for the full picture and exact
+X-ranges written.
+
+**Not validated yet**: no `.venv-gmsh` exists anywhere in the repo, so
+`01_classify_and_mesh.py --classify-only` has never actually loaded the filled
+file. First real run of that command is the next concrete step, on the other
+branch.
+
+This closes out this branch's checkpoint history — nothing further is planned
+here unless the human decides to merge the two branches or resume the deferred
+full production sweep (§4b/§7's cost-model caveat still applies if that
+happens: budget ~4.5h, not ~31min, for a full 220-station run).
