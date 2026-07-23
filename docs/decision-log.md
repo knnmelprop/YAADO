@@ -958,3 +958,58 @@ explicitly separate, simpler counterpart case per the request.
 
 `pytest tests/`: **251 passed** (245 baseline + 6 new, nothing existing
 touched).
+
+---
+
+## 2026-07-23 — Final-window triage: SU2 build premise corrected; identity-resolution prioritized
+
+**Context.** A short, hard-limited working window (~2h) with no further
+model access expected for days afterwards. Session prompt directed a
+triage-then-single-priority push, with the last portion of the window
+reserved for handoff documentation only.
+
+**Stage 0 correction (important, premise was wrong).** The session brief
+stated "SU2 has never been successfully built anywhere" and allocated a
+whole parallel workstream to building it. **This is not true and was
+verified false before acting on it.** SU2 v8.5.0 is already built and
+installed at `~/.local/su2-8.5.0/bin/` (all six binaries: SU2_CFD,
+SU2_DEF, SU2_DOT, SU2_GEO, SU2_SOL, plus SU2_CFD.py), built earlier on
+2026-07-22 on this same Mac after working around a Homebrew-OpenMPI/meson
+linker failure on SU2_GEO by reconfiguring with `-Dwith-mpi=disabled`
+(single-core; adequate for a first case, needs a real MPI build before
+large fine-grid solves). It was validated end-to-end on SU2's own bundled
+NACA0012 inviscid tutorial: "All convergence criteria satisfied"
+(rms[Rho] = -8.005 < -8), 162 iterations, "Exit Success (SU2_CFD)".
+Re-running that build would have consumed a large share of an
+irreplaceable window to reproduce something already done. **No rebuild
+was started.** Recorded here explicitly because this premise error is
+likely to recur in future briefs.
+
+**Stage 1 decision — resolve solid identity via loop-topology.**
+Chosen over (a) a first coarse gmsh mesh and (b) a full production station
+sweep, because both of those are *downstream of* the same unresolved
+blocker: `marker_zones.yaml` cannot be filled in — and therefore no mesh
+can be generated and no SU2 stability solve can run — until it is known
+which of the STEP's two solids is the ramjet stage and which is the
+booster. Assigning that wrongly would not fail loudly; it would silently
+corrupt the static-margin *sign*, which is the entire deliverable of the
+stability cross-check. This is the classic highest-leverage pick: one
+cheap-to-check fact unblocks the whole downstream chain.
+
+The method needed is already fully worked out and checkpointed in
+`docs/geometry/status.md` §4 (loop connected-components over
+curve/point adjacency) and the ~30x performance fix in §4b is confirmed
+(~8.4 s/station vs. ~248 s), so this is implementation of an established
+design, not open-ended research — which is what makes it a responsible
+choice for a short window. Estimated cost for the 7 diagnostic stations:
+~30 s STEP merge + ~1-2 min sweep.
+
+**Explicitly NOT started** (Stop Rule: no long-uncertain-runtime work):
+the full ~220-station 20 mm-pitch production sweep (~31 min projected,
+but that projection rests on only 2 re-validated stations), and any fine
+mesh with boundary layers.
+
+**Status at time of writing:** work dispatched, results not yet in.
+Whatever lands is committed incrementally; see the handoff document for
+the final state.
+
