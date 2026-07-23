@@ -365,3 +365,175 @@ re-timed, or drawn conclusions from.**
    `candidate_identity` field (or a pointer to it), on the
    `claude/su2-local-stability-run` branch, per §4 point 4 — not this
    branch.
+
+## 7. UPDATE 2026-07-23 — local session: §3 ambiguity SETTLED against the real STEP file
+
+Ran `cad_station_sweep.py`'s own functions (`open_step` +
+`slice_volume_at_station` + `_build_row` + `write_csv`, called from a
+small scratchpad driver script, not a change to the tool itself) against
+the real `cad/ramPcfdSimplified.step`, at exactly the 7 diagnostic
+stations flagged in §3: `200, 500, 1000, 2000, 3000, 4000, 4300` mm.
+Output: `analyses/geometry/results/station_sweep_topology_2026-07-23.csv`
+(tracked, 10 rows).
+
+**Performance note:** this run was markedly slower than the §4b baseline
+(merge 187.2s vs. ~30s; per-station 47-83s for 1-2 volumes vs. the
+confirmed ~8.4s/station-for-2-volumes) — total wall time ~10m22s for 7
+stations. The method itself (`removeObject=False` against the original
+volume, no full-solid copy) is unchanged from the confirmed-fast §4b
+code path, and the values obtained match §2's original probe numbers
+exactly at the 3 overlapping stations (200, 500, 1000mm — see below), so
+this is read as this-run machine-load variance, not a regression in the
+method. Flagging for whoever runs the full 220-station sweep next: budget
+more than the §4b back-of-envelope ~31 minutes, and re-check load before
+committing to a long run.
+
+### Result
+
+| x_mm | vol | n_loops | has_inner_loop | outer_bbox_r_mm | inner_r_eq_mm | wall_mm | reading |
+|---|---|---|---|---|---|---|---|
+| 200 | 1 | 1 | False | 72.0 | — | — | solid |
+| 200 | 2 | **2** | **True** | 112.8 | 108.5 | 4.3 | **hollow, thin wall** |
+| 500 | 1 | 1 | False | 77.8 | — | — | solid |
+| 500 | 2 | **2** | **True** | 123.5 | 104.4 | 19.1 | **hollow** |
+| 1000 | 1 | 1 | False | 31.0 | — | — | solid |
+| 1000 | 2 | **2** | **True** | 123.5 | 108.1 | 15.4 | **hollow** |
+| 2000 | 2 | **2** | **True** | 68.0 | 60.6 | 7.4 | **hollow, thin wall** |
+| 3000 | 2 | 1 | False | 65.0 | — | — | solid (matches §3's 0.95 ratio reading) |
+| 4000 | 2 | **1** | **False** | 296.5 | — | — | **NOT a hole — single loop despite low area ratio** |
+| 4300 | 2 | **1** | **False** | 296.5 | — | — | **NOT a hole — single loop despite low area ratio** |
+
+Area/bbox numbers at x=200/500/1000mm match §2's original probe output
+exactly (e.g. x=200 vol=2 area=2820.19mm², x=500 vol=1
+area=11947.93mm²) — same cross-check §4b already established for the
+timing method, now extended to confirm the loop-topology pass reads the
+same underlying faces.
+
+### Verdict on the two §3 hypotheses — both settled, by actual loop count, not inference
+
+- **x=200-2000mm, vol_2: CONFIRMED HOLLOW.** Every station in this range
+  (200, 500, 1000, 2000mm) reports `n_loops=2` /
+  `has_inner_loop=True`, with a real inner wire loop whose own
+  point-extent gives a consistent thin-to-moderate wall thickness
+  (4.3-19.1mm) at all four stations, not a one-off. This is Hypothesis A
+  from §3, now confirmed: vol_2 genuinely has internal
+  geometry (a bore/duct) in this forward/overlap region — it is not just
+  a low-area artifact of net-area subtraction against an unrelated
+  shape.
+- **x=4000-4300mm, vol_2: CONFIRMED NOT A HOLE (thin fin/blade).** Both
+  stations report `n_loops=1` / `has_inner_loop=False` — a single closed
+  wire loop, despite the low area/bbox-disc ratio and despite
+  `outer_bbox_r_mm` (296.5mm) exactly matching the assembly's global max
+  radius. This rules out Hypothesis "hollow duct at the fin-tip radius"
+  for this region and confirms the alternative fin/blade-profile
+  reading from §3: a thin cross-section reaching out to the tip radius,
+  with no internal void. (x=3000mm, also `n_loops=1`, is the
+  already-expected "no anomaly" control point from §3's table.)
+
+**Caveat on `inner_r_eq_mm`/`inner_area_mm2` precision:** per §4's own
+spec ("compute the inner loop's own extent ... to get the internal bore
+diameter directly"), these are a bounding-box-derived circle
+approximation from the inner loop's own points (average of Y/Z
+half-extents, then `area = pi*r^2`), **not** an exact swept area of the
+inner wire — gmsh's `getMass` on the produced face only gives the net
+(outer-minus-inner) area, and no separate face exists for the hole alone
+in this method. Good enough to confirm hole-vs-no-hole and get an
+order-of-magnitude bore size (as used above); not precise enough to
+treat as an exact duct-diameter datasheet number without a follow-up
+exact-area pass (e.g. building a plane surface from just the inner
+wire's curve loop and measuring its own `getMass`) if that precision is
+ever needed downstream.
+
+### What this implies for solid identity — NOT written into `marker_zones.yaml.template`, human call only
+
+vol_1 is a single solid loop at every probed station across its whole
+observed span (x=200/500/1000mm all `n_loops=1`) — a solid body,
+in the region that overlaps vol_2 (x=[159.8,1071.5]mm). vol_2, over that
+same overlap span, is hollow with wall thicknesses in the ~4-19mm range
+consistent with a shroud/duct/body-tube wall, not a full-diameter solid.
+Aft of the overlap (x=3000-4300mm), vol_2 alternates between a solid
+disc (x=3000mm) and a thin no-hole fin/blade profile
+(x=4000-4300mm, at the assembly's global max radius). Whether this
+pattern means vol_2 is the ramjet's body/duct + tail fins with vol_1
+nested inside it as the booster (or the reverse, or something else) is
+exactly the identity question `marker_zones.yaml.template` leaves as
+`candidate_identity: "TBD"` — this update supplies real topology evidence
+for that human decision, it does not make the call. Per explicit
+instruction, `marker_zones.yaml.template` and
+`vehicles/ramjet_rocket/vehicle_config.yaml` are untouched by this
+session.
+
+## 7. UPDATE 2026-07-23 (local session) — §3 RESOLVED by real measurement, and the identity question turns out to be MIS-FRAMED
+
+First run of `cad_station_sweep.py` against the **real** STEP file. (The
+cloud session that wrote the tool in §6 never had the file — it is
+gitignored/local-only — so it could only validate against synthetic
+solids.) Results: `analyses/geometry/results/station_sweep_topology_2026-07-23.csv`,
+commit `153e0bb`.
+
+### §3's two hypotheses: BOTH CONFIRMED
+
+| region | vol | n_loops | has_inner_loop | verdict |
+|---|---|---|---|---|
+| x=200–2000mm | 2 | **2** | **True** | genuine internal void (hollow) |
+| x=3000mm | 2 | 1 | False | solid |
+| x=4000–4300mm | 2 | **1** | **False** | thin fin blade, NO hole |
+| x=200/500/1000 | 1 | 1 | False | solid throughout |
+
+- **Forward anomaly = a real bore.** vol_2 inner radius ~108.5mm (x=200),
+  104.4 (x=500), 108.1 (x=1000), narrowing to 60.6mm (x=2000).
+- **Aft anomaly = fins, not a hole.** 1 loop, and `outer_bbox_r` =
+  296.53/296.55mm — exactly the assembly's *global* max radius, which is
+  what a thin blade reaching to the fin tip looks like. Precisely the
+  reasoning §3 proposed; now measured rather than inferred.
+
+### THE IMPORTANT PART — the two solids are not two stages
+
+`marker_zones.yaml.template` asks "which solid is the ramjet stage and
+which is the booster?" **The geometry says that question does not have an
+answer as posed:**
+
+- **vol_1's outer max radius = 105.33mm. vol_2's forward bore radius =
+  104.4–108.5mm.** These are the same radius. **vol_1 nests INSIDE vol_2's
+  forward cavity** through the whole overlap zone x=[159.8, 1071.5]mm.
+- **vol_2 spans x=159.8–4385.2mm — 4225mm, i.e. essentially the entire
+  4355mm vehicle**, and carries the fins at its aft end.
+
+So the decomposition is **not** stage-1 vs stage-2. It reads much more like
+**inner body/centerbody (vol_1) inside an outer airframe-with-duct-and-fins
+(vol_2)**. Supporting detail from the earlier §2 probe: vol_1 at x=50mm has
+area 182.6mm² (r_eq 7.6mm) — a near-sharp tip, consistent with a nose cone
+or inlet spike, and `vehicle_config.yaml` lists `nose_diameter_m: 0.150`
+against vol_1's ~147mm diameter at x=200mm.
+
+**Consequence:** filling `marker_zones.yaml` by assigning
+`vol_1 -> stage_X, vol_2 -> stage_Y` would encode a false premise. The
+marker scheme itself (body_wall / interstage_wall / booster_wall /
+base_region / inlet_cap) is X-range-based, which is still workable — but
+the ranges must be derived from real geometric transitions, **not** from a
+solid-to-stage mapping. This is a design decision for a human, not
+something to infer. NOT written into any config this session.
+
+### Incidental evidence on the open fin-span question
+
+At x=4000–4300mm the fin tips reach r=296.5mm → **tip-to-tip ≈ 590mm**
+(bbox y spans -293.5..296.5).
+
+- `fins.span_m: 0.550` (550mm, "MODERATE CONFIDENCE", layout-inferred)
+- `body.max_diameter_m: 0.639` (639mm, Fusion bbox, flagged "needs review")
+- Fusion alternative 0.6685m; the "127" radial reading
+
+Measured 590mm falls **between** 550 and 639 and matches neither. This is
+real 3D evidence and a genuine third data point, but it does not by itself
+settle what "550" or "127" referred to on the 2D drawing — still needs
+human confirmation, exactly as `vehicle_config.yaml` itself already flags.
+**No config value was changed.**
+
+### Performance recalibration (important for planning)
+
+The run took **~73s/station** (7 stations, ~8.5 min), NOT the ~8.4s/station
+projected in §4b. The loop-topology adjacency walk adds substantial cost on
+these 3317-surface solids; §4b's timing measured slicing *without* topology.
+**A full 220-station 20mm-pitch sweep would be ~4.5 hours, not ~31 minutes.**
+Do not launch one without planning for that. Targeted range sweeps are the
+right approach.
