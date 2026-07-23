@@ -238,3 +238,130 @@ it from scratch next session.
   was added (only a standalone probe script + this doc).
 - Any resolution of the ramjet/booster identity question — §3 is an
   observation, not a conclusion.
+
+## 6. UPDATE 2026-07-23 — cloud session: `cad_station_sweep.py` implemented + synthetic-only validated
+
+**This entire update was done in a cloud (Claude Code on the web) session,
+which never has and never will have access to the real
+`cad/ramPcfdSimplified.step` file (intentionally gitignored, local-only).
+Confirmed absent at the start of this session (only `.gitkeep` in
+`analyses/stability/su2_cross_check/case_ramp_stability/cad/`). Everything
+below is STEP-independent by construction — no real geometry was touched,
+re-timed, or drawn conclusions from.**
+
+### What got implemented
+
+- **`analyses/geometry/cad_station_sweep.py`** — the real production tool
+  §4 called for, split into a pure-Python half (no `gmsh` dependency) and
+  a `gmsh`/STEP-dependent driver half (`gmsh` imported lazily inside those
+  functions only):
+  - `equivalent_diameter_from_area(area_mm2) -> float`.
+  - `group_curves_into_loops(curve_edges) -> list[list[int]]` — union-find
+    over shared endpoint points, exactly the §4 spec.
+  - `classify_face_loops(curve_edges, point_coords) -> LoopTopology` — the
+    largest-radial-extent loop is classified outer, the rest are inner
+    (hole) loops; settles the §3 ambiguity mechanically once run against
+    real faces (still requires the real STEP file to actually apply, see
+    below).
+  - `cross_check_against_vehicle_config(rows, vehicle_config_path,
+    tolerance_pct) -> list[CrossCheckResult]` — report-only MATCH/MISMATCH
+    against `vehicles/ramjet_rocket/vehicle_config.yaml` (max radius,
+    axial extent, cylindrical-body radius). No auto-correction.
+  - `open_step`, `slice_volume_at_station`, `run_station_sweep` — the
+    gmsh driver, reusing the confirmed-correct plane-intersection method
+    from `probe_slice.py` **and** the confirmed ~30x-faster
+    `removeObject=False` variant from `probe_slice_v2_timing.py` (§4b) —
+    the new tool does NOT reintroduce the slow per-station full-solid
+    `copy()`.
+  - CLI (`python -m analyses.geometry.cad_station_sweep <step> --x-start-mm
+    --x-end-mm --pitch-mm --output-csv [--vehicle-config]
+    [--tolerance-pct]`), CSV columns exactly matching §4's spec
+    (`x_mm, vol_tag, area_mm2, n_loops, outer_r_eq_mm, outer_bbox_r_mm,
+    has_inner_loop, inner_area_mm2, inner_r_eq_mm`).
+
+### Synthetic end-to-end validation (no real STEP involved)
+
+- Installed `gmsh==4.15.1` (pinned, same as `requirements-geom.txt`) into
+  a fresh `.venv-geom` in this cloud sandbox. Note for future cloud
+  sessions: this container needed three extra system packages before
+  `import gmsh` would even load (`libglu1-mesa`, `libopengl0`, `libxft2`
+  via `apt-get install`) — not a repo concern, just a sandbox-provisioning
+  note, since a local machine with a working `.venv-geom` per this doc's
+  §1 setup already has these.
+  - Built a solid cylinder (`gmsh.model.occ.addCylinder`, r=20mm) and a
+    hollow tube (concentric cylinders, r=20mm outer / r=10mm inner, via
+    `gmsh.model.occ.cut`) — synthetic solids with a **known** ground-truth
+    topology, standing in for the real STEP file.
+  - Ran `slice_volume_at_station` (the actual production driver function,
+    same `addRectangle`+`rotate`+`translate`+`intersect`+adjacency-walk
+    code path the real STEP will use) against both synthetic solids.
+  - **Result: solid cylinder -> 1 loop, `has_inner_loop=False`, area
+    matches `pi*r^2` exactly. Hollow tube -> 2 loops, `has_inner_loop=True`,
+    `inner_bbox_r_mm` matches the known 10mm bore exactly, `outer_bbox_r_mm`
+    matches the known 20mm outer radius exactly, net area matches
+    `pi*(20^2-10^2)` exactly.** This is real end-to-end confirmation of the
+    loop/hole detection logic via the actual gmsh OCC API path — not a
+    guess, not STEP-derived, and not extrapolated to the real geometry.
+
+### Tests
+
+- **`tests/unit/test_geometry_station_sweep.py`** — new. Pure-Python unit
+  tests (no `gmsh` needed) for `equivalent_diameter_from_area`,
+  `group_curves_into_loops`, `classify_face_loops`, and
+  `cross_check_against_vehicle_config` (including a MATCH case, a
+  MISMATCH case, and a rejected-non-`RocketConfig` case). One integration
+  test (`test_synthetic_solid_and_hollow_cylinder_loop_detection`) runs
+  the synthetic solid/hollow-cylinder validation above as an actual
+  pytest case, guarded with `@pytest.mark.skipif(not HAS_GMSH, ...)` so
+  it skips cleanly (not a failure) in any environment without `gmsh`
+  installed.
+- **Full suite result, main environment (no `gmsh` installed there):**
+  `265 passed, 1 skipped` (up from a `251 passed` baseline measured at the
+  start of this session; the 14 new pure-Python tests pass, the 1 gmsh
+  integration test skips cleanly as designed).
+- **Same integration test, run for real in `.venv-geom` (gmsh present):**
+  `1 passed` — this is the run that actually confirmed the synthetic
+  solid/hollow-cylinder result above, not just a skip.
+
+### Explicitly UNCHANGED by this update — still needs a LOCAL session with the real STEP file
+
+- **Stage 1 (§2, real timing on the real assembly):** unchanged. The
+  `~30x` speedup (§4b) is confirmed on the real geometry already; this
+  session did not and could not re-time it (no STEP file present).
+- **Stage 2 (§3, real ramjet-vs-booster solid-identity conclusion):**
+  unchanged, still an open, non-conclusive observation. This session's
+  `classify_face_loops` logic is now implemented and validated on
+  synthetic data, but it has **not** been run against the real
+  `ramPcfdSimplified.step` faces — that is exactly what the next local
+  session needs to do to settle §3 for real.
+  `analyses/stability/su2_cross_check/case_ramp_stability/gmsh/
+  marker_zones.yaml.template`'s `candidate_identity: "TBD"` is untouched.
+- **Stage 3 (§4, real production sweep over the full 4.355m length):**
+  unchanged. `cad_station_sweep.py` now exists and is validated on
+  synthetic data, but has never been invoked against the real STEP file.
+- **The `marker_zones.yaml` handoff and the `claude/su2-local-stability-run`
+  branch:** untouched, not even checked out, per explicit instruction.
+
+### Next step for the local session (exact)
+
+1. Run `cad_station_sweep.py` against the real
+   `cad/ramPcfdSimplified.step`, using the confirmed-fast
+   `removeObject=False` method (already the default in this tool — no
+   extra flag needed), e.g. a full-length sweep:
+   ```bash
+   .venv-geom/bin/python3 -m analyses.geometry.cad_station_sweep \
+       analyses/stability/su2_cross_check/case_ramp_stability/cad/ramPcfdSimplified.step \
+       --x-start-mm 0 --x-end-mm 4355 --pitch-mm 20 \
+       --output-csv analyses/geometry/results/station_sweep_full.csv \
+       --vehicle-config vehicles/ramjet_rocket/vehicle_config.yaml
+   ```
+   per §4b's back-of-envelope, ~220 stations at this pitch should take
+   roughly ~30 minutes; re-validate that estimate on the real file before
+   committing to a much finer pitch.
+2. Inspect the resulting CSV's `has_inner_loop`/`inner_r_eq_mm` columns
+   for `vol=2` in the §3 anomaly regions (150-250mm, 1900-2100mm,
+   3900-4400mm) to settle the hollow-tube-vs-fin-blade question for real.
+3. Write that finding back into `marker_zones.yaml.template`'s
+   `candidate_identity` field (or a pointer to it), on the
+   `claude/su2-local-stability-run` branch, per §4 point 4 — not this
+   branch.
