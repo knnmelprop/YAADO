@@ -958,3 +958,219 @@ explicitly separate, simpler counterpart case per the request.
 
 `pytest tests/`: **251 passed** (245 baseline + 6 new, nothing existing
 touched).
+
+---
+
+## 2026-07-23 — Final-window triage: SU2 build premise corrected; identity-resolution prioritized
+
+**Context.** A short, hard-limited working window (~2h) with no further
+model access expected for days afterwards. Session prompt directed a
+triage-then-single-priority push, with the last portion of the window
+reserved for handoff documentation only.
+
+**Stage 0 correction (important, premise was wrong).** The session brief
+stated "SU2 has never been successfully built anywhere" and allocated a
+whole parallel workstream to building it. **This is not true and was
+verified false before acting on it.** SU2 v8.5.0 is already built and
+installed at `~/.local/su2-8.5.0/bin/` (all six binaries: SU2_CFD,
+SU2_DEF, SU2_DOT, SU2_GEO, SU2_SOL, plus SU2_CFD.py), built earlier on
+2026-07-22 on this same Mac after working around a Homebrew-OpenMPI/meson
+linker failure on SU2_GEO by reconfiguring with `-Dwith-mpi=disabled`
+(single-core; adequate for a first case, needs a real MPI build before
+large fine-grid solves). It was validated end-to-end on SU2's own bundled
+NACA0012 inviscid tutorial: "All convergence criteria satisfied"
+(rms[Rho] = -8.005 < -8), 162 iterations, "Exit Success (SU2_CFD)".
+Re-running that build would have consumed a large share of an
+irreplaceable window to reproduce something already done. **No rebuild
+was started.** Recorded here explicitly because this premise error is
+likely to recur in future briefs.
+
+**Stage 1 decision — resolve solid identity via loop-topology.**
+Chosen over (a) a first coarse gmsh mesh and (b) a full production station
+sweep, because both of those are *downstream of* the same unresolved
+blocker: `marker_zones.yaml` cannot be filled in — and therefore no mesh
+can be generated and no SU2 stability solve can run — until it is known
+which of the STEP's two solids is the ramjet stage and which is the
+booster. Assigning that wrongly would not fail loudly; it would silently
+corrupt the static-margin *sign*, which is the entire deliverable of the
+stability cross-check. This is the classic highest-leverage pick: one
+cheap-to-check fact unblocks the whole downstream chain.
+
+The method needed is already fully worked out and checkpointed in
+`docs/geometry/status.md` §4 (loop connected-components over
+curve/point adjacency) and the ~30x performance fix in §4b is confirmed
+(~8.4 s/station vs. ~248 s), so this is implementation of an established
+design, not open-ended research — which is what makes it a responsible
+choice for a short window. Estimated cost for the 7 diagnostic stations:
+~30 s STEP merge + ~1-2 min sweep.
+
+**Explicitly NOT started** (Stop Rule: no long-uncertain-runtime work):
+the full ~220-station 20 mm-pitch production sweep (~31 min projected,
+but that projection rests on only 2 re-validated stations), and any fine
+mesh with boundary layers.
+
+**Status at time of writing:** work dispatched, results not yet in.
+Whatever lands is committed incrementally; see the handoff document for
+the final state.
+
+
+### 2026-07-23 — Outcome of the final-window session
+
+Full handoff: `docs/HANDOFF_2026-07-23.md`.
+
+**What was achieved.** The station-sweep tool was run against the REAL STEP
+file for the first time (it had only ever been validated against synthetic
+solids, because the session that wrote it had no access to the gitignored
+CAD). This resolved the long-open `status.md` §3 ambiguity: the forward
+low-area signature IS a genuine internal bore (2 loops, radius ~108mm
+tapering to ~57mm), and the aft signature IS thin fin blades (1 loop at the
+assembly's global max radius), exactly as hypothesized. The 7-station run
+was executed twice independently and produced byte-identical results.
+
+Both geometric transitions were then bracketed: the bore closes between
+x=2400-2500mm, and the fins begin between x=3600-3800mm, with a
+constant-section barrel between (area identical to 10 significant figures).
+
+**The most important result is a negative one.** The blocking question
+everyone had been trying to answer -- "which STEP solid is the ramjet stage
+and which is the booster?" -- turns out to be mis-framed. vol_1's outer
+radius (105.33mm) equals vol_2's forward bore radius (104.4-108.5mm), so
+vol_1 nests INSIDE vol_2; and vol_2 spans 4225mm of the 4355mm vehicle. The
+decomposition is inner-centerbody-inside-outer-airframe, not stage-1 vs
+stage-2. Answering the question as posed would have written a false premise
+into the file that gates all downstream meshing -- and a wrong marker
+assignment does not fail loudly, it silently flips the static-margin sign,
+which is the entire deliverable. Left unfilled deliberately; defining marker
+ranges from the measured transitions is now a human design decision.
+
+**Two cross-check flags raised, neither resolved (report-only, per standing
+rule that this script does not arbitrate config values):**
+- The barrel section measures 130.0mm outer diameter, against
+  `vehicle_config.yaml` `body.diameter_m: 0.200` (200mm) -- a 70mm gap on a
+  field marked drawing-verified.
+- Fin tips measure ~590mm tip-to-tip, between the config's 550mm and 639mm,
+  matching neither -- a third independent data point on the open fin-span
+  question.
+- Also flagged, uninterpreted: a ring of 14 small circular members
+  (r~4.24mm each) at x=2100mm at the duct wall radius.
+
+**Corrections to the project's own record.** The brief's premise that "SU2
+has never been successfully built anywhere" was false and was verified false
+before acting on it; rebuilding would have consumed most of an irreplaceable
+window. Separately, the cost model in `status.md` §4b was wrong for this
+workload: the real rate with loop topology is ~35-73 s/station, not
+~8.4 s/station, making a full 220-station sweep ~4.5 hours rather than ~31
+minutes. Both corrections are recorded so they are not re-derived.
+
+**Left unfinished, explicitly.** The supersonic RANS smoke test never ran --
+its agent was killed by the session usage limit mid-setup, and no result
+exists. SU2's turbulent validation meshes are absent from the source tree,
+so no boundary-layer-resolved RANS validation has ever been performed on
+this build. `01_classify_and_mesh.py`'s full-mesh path remains never
+executed.
+
+---
+
+## 2026-07-23 — `marker_zones.yaml` filled in; branch split left un-merged; concurrent-session lock incident
+
+**Context.** Continuation of the session above, on `geometry/step-station-sweep`.
+The prior entry's finding (identity question mis-framed, transitions bracketed)
+was already committed; this entry covers writing the actual consumer file.
+
+**`marker_zones.yaml` written**, on `claude/su2-local-stability-run` (commit
+`1ab4850`, not on `geometry/step-station-sweep` -- that branch never had the
+CFD case checked out). Marker key names (`body_wall`, `booster_wall`,
+`interstage_wall`, `base_region`, `inlet_cap`) were kept unchanged rather than
+renamed to geometry-descriptive labels: `cfg/ramp_stability_supersonic_RANS.cfg.template`
+references these strings verbatim in its `MARKER_*` blocks and `cfg/markers.md`
+explicitly forbids renaming after meshing -- a rename would have needed
+synchronized edits across 3 more files for no functional gain, since the false
+part was never the key names, only the `candidate_identity` field's stage
+claim. Ranges: `inlet_cap` [30.1,160.0]mm, `body_wall` [160.0,2400.0]mm,
+`interstage_wall` [2400.0,2500.0]mm, `booster_wall` [2500.0,3600.0]mm,
+`base_region` [3600.0,4385.15]mm -- taken directly from the measured
+transitions (bore closure 2400-2500mm, fin root 3600-3800mm). Both open
+cross-check anomalies (130mm-vs-200mm diameter gap; 14-member ring at
+x=2100mm) carried into the file as comments, not resolved. `vehicle_config.yaml`
+untouched. Not validated against `01_classify_and_mesh.py --classify-only` --
+no `.venv-gmsh` exists anywhere in the repo, so this was explicitly left as a
+follow-up rather than faked.
+
+**Branch split deliberately left un-merged.** `geometry/step-station-sweep`
+(10 commits: geometry tool, real measurements, docs) and
+`claude/su2-local-stability-run` (1 new commit: the filled marker file) have
+diverged and both are pushed/clean. Per this repo's own standing rule ("don't
+merge/rebase/delete branches unless asked -- past sessions collided that
+way", `docs/AGENT_BRIEF.md`), no merge was attempted despite this being an
+obvious point to consolidate. `docs/AGENT_BRIEF.md` now carries an explicit
+branch-split note so a fresh session checks both. Whether/when to merge is
+recorded as a human next-action, not decided here.
+
+**Concurrent-session incident (environment note, not a repo change).** Mid-task,
+a subagent's `git checkout` hung: a separate, unrelated live process (PID 3925)
+was running `git merge --no-ff claude/port-runner-improvements` in this same
+shared working tree at that moment. The subagent correctly backed off rather
+than force anything. The other process finished (merge, then an apparent
+`git reset --mixed HEAD` cleanup) within about two minutes but left a stale
+`.git/index.lock` (0 bytes, no process holding it) that would have blocked
+all further git writes. Verified no process held it (`ps`, `lsof`, checked
+for live `MERGE_HEAD`/`MERGE_MSG`) before removing it manually and resuming.
+`claude/port-runner-improvements` does not exist as a branch anywhere in this
+repo (local or `origin`) at the time of writing -- the other session's work
+landed elsewhere or was abandoned; not investigated further, out of scope.
+Recorded in `docs/AGENT_BRIEF.md`'s environment-gotchas section for future
+sessions that hit the same hang.
+
+---
+
+## 2026-07-23 — First real coarse-mesh attempt: real gmsh bug found and fixed, run itself cut off mid-execution
+
+**Context.** Same day, `claude/su2-local-stability-run`. A second concurrent
+local session (separate terminal, PID chain traced to a real interactive
+`Terminal.app` window, not a stray process) picked up the newly-filled
+`marker_zones.yaml` and worked through `docs/AGENT_BRIEF.md`'s own "Next
+actions" list: it built `.venv-gmsh` (didn't exist before this), validated
+`--classify-only`, then attempted the first-ever real `01_classify_and_mesh.py
+--level coarse --mach 2.5 --altitude-m 10000` run against the real STEP file.
+
+**Real bug found and fixed, commit `b445eb3`.** gmsh's `BoundaryLayer` mesh
+field turns out to be 2D-only in this build -- it does not accept a 3D
+`SurfacesList`/`FacesList` option at all (raises "Unknown option", not a
+silent no-op), and there is no equivalent 3D anisotropic prism-layer field
+available via this gmsh Python API on an OCC-kernel model. The broken call
+was replaced with an explicit stderr warning reporting the target y1
+first-cell height (from `isa_yplus.py`) against the actual isotropic tet
+size the mesh bottoms out at near walls -- which is orders of magnitude
+coarser. **Consequence for the project: this mesher cannot currently produce
+a wall-resolved y+~1 viscous mesh**, only isotropic refinement. This is a
+real, load-bearing finding for the RANS plan, not a cosmetic fix -- flagged
+in `docs/AGENT_BRIEF.md` as a new open item (find a real path to a
+wall-resolved mesh) rather than silently worked around.
+
+**The mesh run itself did not complete.** It progressed to ~94% of surface
+meshing (surface 3127 of ~3317 total) after 30+ minutes of wall time, then
+the parent session (and its whole process tree, confirmed via `ps`) was gone
+-- no traceback, no `EXIT_CODE=` line ever written to its log, no mesh
+output file produced. This matches the same "killed by usage limit / session
+boundary" pattern already on record for the never-run supersonic RANS smoke
+test. Not treated as a completed validation anywhere in the docs.
+
+**How this was handled by the session writing this entry.** Detected the
+live run via `ps` before touching anything (uncommitted diff to
+`01_classify_and_mesh.py` sitting in the shared working tree, branch had
+moved out from under a prior checkpoint). Waited for the run to either
+finish or the session to end rather than interrupting it. Once confirmed
+fully gone (process tree, not just the mesh subprocess), verified the
+uncommitted fix compiled cleanly and was self-contained before committing it
+-- the fix itself is real and correct even though the run that produced it
+didn't finish. `docs/AGENT_BRIEF.md`, `docs/geometry/status.md` updated with
+the honest outcome (bug fixed, mesh still not achieved, next step is a
+re-run budgeted for session-boundary risk, e.g. `nohup`'d and checked across
+sessions rather than tied to one session's foreground lifetime).
+
+**Next concrete step, unchanged in substance:** get a first coarse mesh to
+actually complete and produce output; then find a real path to a
+wall-resolved viscous mesh given the BoundaryLayer-field limitation above,
+before the supersonic RANS smoke test can be trusted as more than a
+code-path check.
+
