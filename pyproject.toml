@@ -1,0 +1,22 @@
+[project]
+name = "melprop"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic>=2",
+    "pyyaml",
+    "scipy",
+    "matplotlib",
+    "om-pycycle==4.1.2",
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-m 'not cfd_nightly'"
+markers = [
+    "fast: quick unit tests, always run (default tier).",
+    "cfd_smoke: coarse/stub CFD-pipeline tests using fake SU2_CFD stubs.",
+    "cfd_nightly: full production CFD tier.",
+]

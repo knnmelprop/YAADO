@@ -1,0 +1,143 @@
+# MELprop-IADE | vehicles.ramjet_rocket | v0.2.0
+# Geometry reconciled with Fusion 360 Assembly v6 extraction (CORRECTED, cm->m,
+# Y-axis longitudinal). Full raw extraction: fusion_extraction_v6.yaml (companion).
+name: "MELprop-Ramjet-Missile"
+vehicle_type: "Rocket"
+description: "Dwustopniowa rakieta: solid booster + ramjet cruise (Fusion Assembly v6)"
+stage_1:
+  type: "solid_rocket"
+  geometry:
+    assembly_diameter_m: 0.250        # aero reference = body diameter
+    assembly_diameter_body_m: 0.250
+    assembly_diameter_bbox_m: 1.809   # booster bbox incl. PRD-240 wings
+    wings_halfspan_est_m: 0.780       # (1.809 - 0.250) / 2
+    booster_length_m: 2.089           # booster assembly (47.7% of rocket)
+  propulsion:
+    # 2026-07-11: real PRD-240 static-test thrust-time curve (team archive,
+    # data/RamP_analitical_computations/acceleration_macro.xls, sheet
+    # "PRD-240" -> Hangar/ramjet_rocket/motor_data/PRD-240_thrust_curve.csv),
+    # promoted into the official config. PRD-240 CONFIRMED by human
+    # (2026-07-11) as the real stage-1 motor -- the Fusion CAD wing/
+    # control-surface component this designation was previously catalogued
+    # from ("Skrzydlo PRD-240 x4") is this same motor's own fin hardware,
+    # not a coincidental name collision; archive data treated as ground
+    # truth per explicit human instruction. See motor_database.yaml's
+    # PRD-240 entry (status DATASHEET) and docs/decision-log.md.
+    # thrust_peak_N/thrust_mean_N/burn_time_s/total impulse are REAL,
+    # directly read off the curve. propellant_mass_kg is DERIVED from the
+    # real total impulse (56.38 kN*s, matches the sheet's own "Sum" cell)
+    # using isp_sl_s=212.84s -- the archive author's own assumed design
+    # Isp, not an independently measured value.
+    isp_vacuum_s: 230                 # SZACOWANY — no archive data
+    isp_sl_s: 212.84                  # spreadsheet-assumed design Isp (not measured); see note above
+    thrust_peak_N: 17250              # REAL — PRD-240 static-test curve peak (t=0.072s)
+    thrust_mean_N: 10878              # REAL — total impulse / burn_time_s from the same curve
+    burn_time_s: 5.18                 # REAL — curve duration above 100 N (0.02s to 5.20s)
+    propellant_mass_kg: 27.01         # DERIVED — real total impulse / (isp_sl_s * g0); see isp caveat above
+    propellant_density_kg_m3: 1750    # SZACOWANY — no archive data
+    note: "PRD-240 real static-test thrust curve (2026-07-11, archive), replacing the prior SZACOWANY placeholders (was: peak 29000N, mean 25375N, burn 6.0s, propellant 75.0kg). Total impulse 56.38 kN*s is REAL. thrust_peak_N/thrust_mean_N/burn_time_s are directly REAL. propellant_mass_kg is DERIVED using the archive's own assumed (not measured) isp_sl_s=212.84s. UPDATE 2026-07-11 (same day, later): this real impulse alone made booster burnout subsonic at the vehicle's then-current 355.02kg mass (Fusion CAD estimate) -- that concern is RESOLVED by the separate mass_properties.total_mass_kg correction below (355.02 -> 100.0 kg, the Fusion mass estimate is considered wrong/oversized); with both real values together, burnout is supersonic (~Mach 1.7) at every launch angle tested. See docs/decision-log.md for both entries."
+stage_2:
+  type: "ramjet"
+  design_mach: 2.5         # TBD — decyzja projektowa
+  fuel_type: "kerosene"
+  combustor_temp_K: 2000.0
+  # Nozzle throat/exit diameters + area ratio from "CFD Simplified Single
+  # Rocket Model" (Aleks Czernicki, DWG 10/07/2026, sheet 1/1) — replaces
+  # the 4.0 design-intent placeholder with a real dimensioned value.
+  # Resolves HR-3 (Laval vs cylindrical) with a real, non-cylindrical,
+  # non-4.0 nozzle: area_ratio = (241/210)^2 = 1.317.
+  nozzle_area_ratio: 1.317
+  nozzle_throat_diameter_m: 0.210
+  nozzle_exit_diameter_m: 0.241
+body:
+  # 2026-07-10: body diameter and total length superseded by the "CFD
+  # Simplified Single Rocket Model" drawing (Aleks Czernicki, DWG
+  # 10/07/2026, sheet 1/1) per explicit human decision (drawing
+  # supersedes the Fusion export). Fusion values (0.250 m / 4.377 m)
+  # are preserved in fusion_extraction_v6.yaml and the note below.
+  length_m: 4.06201        # cylindrical portion = total 4.35501 - nose 0.293
+  diameter_m: 0.200        # drawing-verified body diameter (was 0.250, Fusion)
+  nose_type: "conical"
+  nose_length_m: 0.293     # drawing: 293.27mm, matches existing value; unchanged
+  nose_diameter_m: 0.150   # drawing: 150mm, matches existing value; unchanged
+  total_length_m: 4.35501  # drawing-verified (was 4.377, Fusion)
+  max_diameter_m: 0.639    # UNCHANGED — Fusion bbox incl. booster PRD-240 wings;
+                            # not clearly redefined by this drawing, needs review
+                            # now that fin span (below) changed.
+fins:
+  # 2026-07-10: sweep superseded by the drawing per explicit human decision.
+  # span_m is this session's best-effort reading of the drawing's tail-area
+  # dimension "550" (0.550 m) — MODERATE confidence, not as certain as the
+  # other drawing values: the drawing text-extraction doesn't attach
+  # dimension lines to labels, so this is inferred from layout position
+  # (near the tail fin, alongside "127" and "29.98deg" sweep), not read
+  # directly off a labeled callout. chord_root_m/chord_tip_m are UNCHANGED
+  # (kept at the Fusion-derived rectangular-planform values) since a swept
+  # planform likely has a non-rectangular chord distribution the drawing's
+  # "127" might describe, but that mapping is even less certain than span
+  # — flagged, not guessed.
+  count: 4
+  span_m: 0.550             # MODERATE CONFIDENCE: layout-inferred from drawing near tail station,
+                              # NOT a clear dimension callout. Values '550' and '127' near tail
+                              # ambiguous — 127 may be fin_span_radial not diameter. REQUIRES HUMAN
+                              # RE-VERIFICATION against original PDF before CDR. (was 0.6685, Fusion)
+  sweep_deg: 29.98          # drawing-verified (was 0.0, Fusion, rectangular)
+  chord_root_m: 0.1768      # UNCHANGED — see note above, not confidently remapped
+  chord_tip_m: 0.1768       # UNCHANGED — see note above, not confidently remapped
+mass_properties:
+  # 2026-07-11: total_mass_kg corrected 355.02 -> 100.0 kg per explicit
+  # human decision: the Fusion 360 Assembly v6 physics-engine mass estimate
+  # (booster 277.80 + ramjet 15.18 = 355.02 kg) is considered WRONG/
+  # OVERSIZED; the real full-assembly target mass (booster + ramP) is the
+  # archive's own reference value (data/RamP_analitical_computations/
+  # acceleration_macro.xls -- the same 100.0 kg used throughout its
+  # PRD-240 flight-simulation sheets). See docs/decision-log.md "PRD-240
+  # motor identity CONFIRMED..." follow-up entry for the full reasoning.
+  # cg_from_nose_m/cg_source below are UNCHANGED -- they come from the
+  # same now-suspect Fusion physics engine, but the human correction this
+  # session addressed mass specifically, not CG; flagged in tbd below,
+  # not silently revised.
+  cg_from_nose_m: 1.6084   # Fusion (cm-bug fixed, Y-axis longitudinal); 36.7% L -- UNCHANGED, see note above
+  cg_source: "Fusion 360 Assembly v6, verified by component breakdown"
+  total_mass_kg: 100.0     # CORRECTED 2026-07-11 (was 355.02, Fusion physics engine, now considered wrong) -- real target mass per archive reference (booster 277.80/ramjet 15.18 component split is now ALSO suspect, not re-derived)
+cfd_notes:
+  booster_diameter_note: "Body diameter 0.250m; bbox 1.809m includes PRD-240 fins. NOTE: this describes stage_1 (booster) specifically and is UNCHANGED — the 2026-07-10 drawing update below applies to the overall/ramjet-stage body, not necessarily the booster; needs review (see tbd)."
+  ramjet_inlet_note: "Axisymmetric conical spike: cone L=0.293m base 0.150m; capture area 0.0491 m^2; diffuser expansion 2.98. Superseded/extended by the 2026-07-10 drawing's inlet cone 42/60deg + centerbody 85x62mm — not yet reconciled into this note's numbers."
+  length_reconciliation: "UPDATED 2026-07-10: total length is now 4.35501m (drawing-verified, was Fusion 4.377m); nose 0.293m unchanged, included in total (do not add to body). cylinder = 4.06201m."
+  cfd_simplified_model_note_2026_07_10: >
+    "CFD Simplified Single Rocket Model" drawing (Aleks Czernicki, DWG
+    10/07/2026, sheet 1/1), applied per explicit human decision
+    ("new drawing supersedes Fusion"): body.diameter_m, body.total_length_m,
+    body.length_m, fins.sweep_deg, and stage_2 nozzle_area_ratio/throat/exit
+    diameters updated above. fins.span_m=0.550 is this session's inferred
+    reading of the drawing's tail-area "550" dimension (MODERATE confidence
+    -- layout-inferred, not a labeled callout) and should be re-verified by
+    a human against the drawing directly. fins.chord_root_m/chord_tip_m
+    NOT updated (kept at Fusion values) -- a swept fin likely has a
+    non-rectangular chord that the drawing's "127" dimension might
+    describe, but that mapping was not confident enough to guess. Inlet
+    cone (42deg/60deg external/internal, centerbody 85x62mm) and nozzle
+    convergence/diverging stations (1480.7mm nozzle exit station, 1738.2mm
+    ramjet-section-end station) are recorded here as raw data, NOT yet
+    represented as structured schema fields (no inlet-geometry schema
+    section exists yet -- deliberate schema design pass needed, not done
+    this pass). body.max_diameter_m (0.639, Fusion booster bbox) was left
+    UNCHANGED despite fin span decreasing -- needs review since it may no
+    longer be self-consistent with the new smaller fin span.
+    IMPORTANT: this update changes body diameter by -20% and fin
+    sweep from 0deg to 29.98deg -- every downstream analysis that was run
+    against the old geometry (Barrowman stability, drag polar, inlet
+    performance, operational envelope, staged mission -- see
+    docs/ramP/preliminary_analysis_report_2026-07-10.md) used the OLD
+    values and has NOT been re-run against this update yet. Treat all of
+    those committed results as stale pending a re-run.
+tbd:
+  - "RESOLVED 2026-07-11: stage_1 motor datasheet — real PRD-240 static-test thrust curve (peak/mean/burn_time) now in propulsion.*, from data/RamP_analitical_computations/acceleration_macro.xls. isp_sl_s=212.84s remains the archive's own assumed (not measured) design value; propellant_mass_kg is still DERIVED from it."
+  - "VERIFY: mass_properties.cg_from_nose_m=1.6084 (36.7% L) and cg_source come from the same Fusion 360 physics engine now considered wrong for total_mass_kg (corrected 355.02->100.0 kg, 2026-07-11) — CG was NOT re-derived this session (human correction addressed mass specifically); needs independent re-check now that the mass estimate it shares a source with is known to be off."
+  - "VERIFY: the booster/ramjet component mass split (Fusion: booster 277.80kg / ramjet 15.18kg) is now ALSO suspect given total_mass_kg was corrected to 100.0kg — no real replacement split was derived this session, only the total was corrected per the archive reference."
+  - "stage_2 ramjet design_mach final decision"
+  - "moments of inertia Ixx/Iyy/Izz — open Fusion 360 Assembly v6, right-click main component → 'Physical Properties', copy Ixx/Iyy/Izz tensor (units: kg*m^2) from GUI panel. Not scriptable via Fusion API."
+  - "VERIFY: fins.span_m=0.550 is a layout-inferred reading of the drawing's tail dimension, not a confident labeled callout — a human should re-check against the drawing directly."
+  - "VERIFY: whether stage_1 (booster) assembly_diameter_m=0.250 and body.diameter_m=0.200 (post-drawing-update) are meant to differ (booster vs ramjet-stage body diameter), or whether the booster section also needs updating — not addressed by the 2026-07-10 drawing update."
+  - "RE-RUN all geometry-dependent analyses (Barrowman stability, drag polar, fin polar, inlet performance, operational envelope, staged mission) against the 2026-07-10 drawing-updated geometry — every committed result in docs/ramP/preliminary_analysis_report_2026-07-10.md used the pre-update geometry and is now stale."
+  - "DESIGN: add a structured inlet-geometry schema section (cone angles, centerbody dims, nozzle stations) — currently only preserved as a free-text cfd_notes entry, not schema-validated fields."
