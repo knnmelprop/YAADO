@@ -1,0 +1,24 @@
+# MELprop-IADE | vehicles.gtm140_drone | v0.1.0
+name: "MELprop-GTM140-Drone"
+vehicle_type: "UAV"
+description: "Stałopłatowy dron z silnikiem Jetpol GTM-140"
+wing:
+  aspect_ratio: 8.0        # TBD — requires MELprop team's own airframe CAD/design data
+  sweep_deg: 5.0
+  taper_ratio: 0.7
+  span_m: 2.5
+  airfoil_root: "NACA2412"
+  airfoil_tip: "NACA2412"
+propulsion:
+  type: "turbojet"
+  name: "GTM-140"
+  thrust_N: 140.0          # sourced: DOI 10.1515/eng-2015-0053 (Numerical investigation GTM-140)
+  sfc_kg_per_Ns: 0.000028  # TBD — no reliable source found; requires Jetpol datasheet
+  mass_kg: 1.2             # TBD — no reliable source for GTM-140 specifically; requires Jetpol datasheet
+  mach_range: [0.0, 0.8]
+  mass_flow_kg_per_s: 0.35     # sourced: DOI 10.1515/eng-2015-0053
+  compression_ratio: 2.8       # sourced: DOI 10.1515/eng-2015-0053 (single-stage centrifugal)
+  egt_K: 973.15                # sourced: DOI 10.1515/eng-2015-0053 (700 degC = 973.15 K)
+  diameter_m: 0.110            # sourced: DOI 10.1515/eng-2015-0053
+  length_m: 0.265              # sourced: DOI 10.1515/eng-2015-0053
+  max_rpm: 120000.0            # sourced: DOI 10.1515/eng-2015-0053 (operating range 33k-120k rpm)
