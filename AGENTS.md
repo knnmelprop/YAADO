@@ -10,18 +10,20 @@ The repository is based on a **SUAVE** fork (SUAVE code is included as a git sub
 ## Architecture
 
 ```text
-core/                    # Foundation — extend via inheritance, DO NOT rewrite
+IADE_Core/               # Foundation — extend via inheritance, DO NOT rewrite
   component_base.py      #   BaseComponent, BaseAnalysis, FidelityLevel (L0–L3),
                          #   AnalysisResults, ComponentRegistry
   vehicle_factory.py     #   SUAVE vehicle factory (builders per vehicle_type)
   mission_builder.py     #   Mission segment builder (solver-agnostic)
   solver_registry.py     #   External solver registry (AVL, XFOIL, ...)
-src/schemas/             # Pydantic v2 schemas for vehicle configurations
-vehicles/                # YAML vehicle configurations (gtm140_drone/, ramjet_rocket/)
-analyses/aerodynamics/   # AVL wrapper, XFOIL, empirical rocket aero
-analyses/propulsion/     # pyCycle (ramjet), solid rocket, GTM-140 performance map
-workflows/               # OpenMDAO Problems, MDO, staging events
-tests/unit/              # pytest
+  FlightDeck/            # OpenMDAO Problems, MDO, staging events
+  Inspectors/            # Pydantic v2 schemas for vehicle configurations
+  modules/               # Analyses
+    aero/                #   AVL wrapper, XFOIL, empirical rocket aero
+    propulsion/          #   pyCycle (ramjet), solid rocket, GTM-140 map
+  tests/                 # pytest unit suite
+Hangar/                  # YAML vehicle configurations (gtm140_drone/, ramjet_rocket/)
+FlightLogs/              # Output data, MDO logs, trajectory plots
 .agents/                 # Subagent definitions (aero-analyst, propulsion-designer, ...)
 ```
 
@@ -60,17 +62,17 @@ tests/unit/              # pytest
 
 | Agent | Claude model | ChatGPT model | Gemini model | File Scope |
 |---|---|---|---|---|
-| aero-analyst | latest claude-sonnet | latest terra | latest gemini-pro | `analyses/aerodynamics/`, `tests/test_aero_*.py` |
-| propulsion-designer | latest claude-opus | latest sol | latest gemini-pro | `analyses/propulsion/`, `tests/test_propulsion_*.py` |
-| vehicle-builder | latest claude-sonnet | latest terra | latest gemini-pro | `src/schemas/`, `vehicles/**`, `tests/test_vehicles_*.py` |
-| mission-planner | latest claude-sonnet | latest terra | latest gemini-pro | `workflows/`, `tests/test_missions_*.py` |
-| code-reviewer | latest claude-haiku | latest luna | latest gemini-flash | read-only everything, write only to `tests/` |
+| aero-analyst | latest claude-sonnet | latest terra | latest gemini-pro | `analyses/aerodynamics/`, `IADE_Core/tests/modules/aero/test_aero_*.py` |
+| propulsion-designer | latest claude-opus | latest sol | latest gemini-pro | `analyses/propulsion/`, `IADE_Core/tests/modules/propulsion/test_propulsion_*.py` |
+| vehicle-builder | latest claude-sonnet | latest terra | latest gemini-pro | `src/schemas/`, `vehicles/**`, `IADE_Core/tests/Inspectors/test_vehicles_*.py` |
+| mission-planner | latest claude-sonnet | latest terra | latest gemini-pro | `Hangar/`, `IADE_Core/FlightDeck/`, `IADE_Core/tests/FlightDeck/test_missions_*.py` |
+| code-reviewer | latest claude-haiku | latest luna | latest gemini-flash | read-only everything, write only to `IADE_Core/tests/` |
 | docs-writer | latest claude-haiku | latest luna | latest gemini-flash | `notebooks/`, `*.md` |
 
 ## Running Tests
 
 ```bash
-python -m pytest tests/ -v --tb=short
+python -m pytest IADE_Core/tests/ -v --tb=short
 ```
 
 Dev dependencies: `pydantic>=2`, `pyyaml`, `pytest`. SUAVE (submodule in `external/suave/`) is

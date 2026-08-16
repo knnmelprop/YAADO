@@ -618,6 +618,17 @@ wheels = [
 ]
 
 [[package]]
+name = "gmsh"
+version = "4.15.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/8a/41ebc8bb301b2958a543e03fbaf9b963cc107a22f35307bbfcdabfa91797/gmsh-4.15.1-py2.py3-none-macosx_10_15_x86_64.whl", hash = "sha256:3821378cb5b4c60f00994bce6aa9d2d3e28de935e21ded31821c5a66853789c6", size = 40170499, upload-time = "2026-02-16T20:05:23.869Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/b0/a5c659d2b5180c037ff2304e459e0c142015de510ac68d4f100770c7d89d/gmsh-4.15.1-py2.py3-none-macosx_12_0_arm64.whl", hash = "sha256:d9b0d3923730a0b50ecf73e3429d24731362ed76227f80019d8e9420d5851f09", size = 36425511, upload-time = "2026-02-16T20:05:27.635Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/5d/339b995273c25a79bad5144ffb4fe57f4428d9ad2603942c851a66376afd/gmsh-4.15.1-py2.py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:f2e6bcabacbba0146c35edeb8af3e351b4cfec1a9662ebe523d0e39767a168ec", size = 40005091, upload-time = "2026-02-16T20:05:32.802Z" },
+    { url = "https://files.pythonhosted.org/packages/82/64/3d83f2dc1d7cb5e0150a16d2a6e6cd60ec8fe45c061c157a1e1250677b5e/gmsh-4.15.1-py2.py3-none-win_amd64.whl", hash = "sha256:be3a8c9e4e8203438e4e352fe3e5083ba82584ee7b4a09c8f368887a93b5fff1", size = 42235265, upload-time = "2026-02-16T20:05:37.389Z" },
+]
+
+[[package]]
 name = "idna"
 version = "3.18"
 source = { registry = "https://pypi.org/simple" }
@@ -1109,6 +1120,7 @@ name = "melprop"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "gmsh" },
     { name = "matplotlib", version = "3.9.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -1125,6 +1137,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "gmsh", specifier = "==4.15.1" },
     { name = "matplotlib" },
     { name = "om-pycycle", specifier = "==4.1.2" },
     { name = "pydantic", specifier = ">=2" },

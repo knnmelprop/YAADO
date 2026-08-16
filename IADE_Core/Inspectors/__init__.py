@@ -3,32 +3,10 @@
 
 from IADE_Core.Inspectors.vehicle_schema import (
     BaseVehicleConfig,
-    BodyConfig,
-    BoosterGeometry,
-    BoosterStage,
-    FinConfig,
     MassProperties,
-    RamjetConfig,
-    RocketConfig,
-    SolidRocketConfig,
-    SolidRocketPropulsion,
-    TurbojetConfig,
-    UAVConfig,
-    WingConfig,
 )
 
 __all__ = [
     "BaseVehicleConfig",
-    "BodyConfig",
-    "BoosterGeometry",
-    "BoosterStage",
-    "FinConfig",
     "MassProperties",
-    "RamjetConfig",
-    "RocketConfig",
-    "SolidRocketConfig",
-    "SolidRocketPropulsion",
-    "TurbojetConfig",
-    "UAVConfig",
-    "WingConfig",
 ]
