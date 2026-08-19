@@ -1,70 +1,84 @@
-# MELprop-IADE — Native Python environment (Mode 2 of 3)
+# How to join the IADE team
 
-One of three documented environment modes (see `README.md`'s environment
-matrix): devcontainer/Codespaces (Mode 1), **native venv (this doc)**, and
-conda (`environment-conda.yml`, Mode 3).
+Welcome! To join the development team, pick an issue you want to work on, complete the onboarding steps below, and open a Pull Request (PR). Once your first PR is merged, you can pick a subteam and officially join the development!
 
-## Setup
+---
 
-! ADD gmsh libglu1-mesa installation instructions
+## 1. Prerequisites
 
+Before downloading the code, ensure your system is ready:
+
+1. **Install uv:** We use `uv` for lightning-fast Python dependency management. [Install it here](https://docs.astral.sh/uv/getting-started/installation/).
+2. **Install OpenGL (Linux only):** The `gmsh` CAD mesh generation tool requires a system-level graphics library. On Ubuntu/Debian, run:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install libglu1-mesa
+   ```
+> If not on Linux, you can get OpenGL [here](https://gmsh.info/#Download)
+
+## 2. The Contributor Pipeline
+
+Follow these exact steps to set up your environment and make your first contribution:
+
+### Step 1: Fork the repository
+Navigate to the [IADE GitHub page](https://github.com/knnmelprop/iade) and click the **"Fork"** button at the top right of the screen. This creates a personal copy of the repository on your GitHub account.
+
+### Step 2: Clone your fork locally
+Navigate to your newly created fork on GitHub (it will be under `your_username/iade`). Click the green **"Code"** button, copy the provided HTTPS or SSH URL, and run this in your terminal:
 ```bash
-git clone https://github.com/knnmelprop/iade.git
+git clone <PASTE_YOUR_COPIED_LINK_HERE>
 cd iade
-git submodule update --init --recursive   # pulls external/suave, external/pycycle
-
-python3 -m venv .venv
-source .venv/bin/activate
-
-pip install --upgrade pip
-pip install -r requirements.txt
 ```
 
-To use SUAVE itself (not just run the MELprop unit suite, which doesn't
-require it):
-
+### Step 3: Initialize the project
+IADE relies on heavily integrated physics engines (like SUAVE and SU2). You must pull these submodules and install the Python environment:
 ```bash
-cd external/suave/trunk
-pip install -e .   # or: python setup.py develop
-cd ../../..
+# Pull all required external submodules
+git submodule update --init --recursive
+
+# Create a virtual environment and install all dependencies using uv
+uv sync
 ```
 
-## Running tests
-
+### Step 4: Verify your installation
+Ensure everything installed correctly by running the test suite. 
 ```bash
-python -m pytest IADE_Core/tests/ -v --tb=short
+uv run pytest IADE_Core/tests/ --tb=short
 ```
+> **Warning:** Always explicitly target the `IADE_Core/tests/` directory! Do not run a bare `pytest` from the repository root, as it will attempt to collect tests from the external submodules and crash.
 
-## What's verified vs unverified (as of 2026-07-10)
+### Step 5: Branch and Develop
+Create a new branch for the issue you want to work on:
+```bash
+git switch -c feature/my-awesome-feature
+```
+Make your code changes, write tests, and ensure the test suite still passes!
 
-- **Verified, this session:** `pip install pydantic>=2 pyyaml pytest scipy
-  matplotlib` followed by `python -m pytest IADE_Core/tests/` gives **208 passed, 0
-  failed** on Python 3.11.15 in this exact repo checkout — this is the
-  real command history from Phase 0/1/2 verification, not a claim made
-  without running it. `om-pycycle==4.1.2` was **not** installed/tested in
-  this session (the unit suite doesn't require it).
-- **Unverified:** `pip install -e external/suave/trunk` (or `setup.py develop`).
-  SUAVE 2.5.2's own `INSTALL`/`setup.py` targets an older Python/setuptools
-  combination than this environment's Python 3.11 — it may need `numpy`/
-  `scipy` version pins from `.devcontainer/requirements.txt` (which
-  constrains `numpy>=1.21.6,<1.25.0`, `scipy>=1.7.3,<1.11.0`) rather than
-  the unpinned versions `requirements.txt` installs. Do not assume this
-  works until someone actually runs it and reports back.
-- **Unverified:** `pip install -e external/pycycle` / `om-pycycle==4.1.2`
-  install and any pyCycle-backed ramjet-cycle run. Not attempted this
-  session.
-- **Unverified:** Python version compatibility beyond 3.11 (e.g., 3.9, to
-  match `.devcontainer/devcontainer.json`'s pinned interpreter).
+Ensure your code follows the guidelines outlined in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Known constraint
+### Step 6: Push and open a PR
+Push your branch back up to your fork on GitHub:
+```bash
+git push origin feature/my-awesome-feature
+```
+Go to your fork on GitHub, and you will see a green button to **"Compare & pull request"**. Click it to submit your code to the main repository!
 
-If you need SUAVE actually importable (not just the guarded-import unit
-suite, which runs fine without it), you may need a **separate virtualenv**
-pinned to SUAVE 2.5.2's expected numpy/scipy range
-(`.devcontainer/requirements.txt` has the known-working pins from the old
-SUAVE-tutorial devcontainer) rather than this repo's root
-`requirements.txt`, which was written against MELprop's own code and has
-not been cross-checked for SUAVE 2.5.2 compatibility. This conflict is
-flagged, not resolved, in this pass — a real SUAVE-backed run is needed to
-confirm whether the two dependency sets are actually compatible in one
-environment.
+---
+
+## 3. Repository Architecture
+
+When developing, it is crucial to know where things belong. The repository is strictly divided between the generic execution framework (`IADE_Core`) and user-defined workspaces (`Hangar` and `FlightLogs`).
+
+```text
+├── IADE_Core/               # Foundation — extend via inheritance, DO NOT rewrite
+│   ├── Foundation/          # Base abstractions (BaseComponent, BaseAnalysis, FidelityLevels)
+│   ├── FlightDeck/          # OpenMDAO Problems and mission evaluation logic
+│   ├── Inspectors/          # Pydantic v2 schemas (strict type validation)
+│   ├── modules/             # Swappable physics solvers (wind_tunnel, powerplant, etc.)
+│   └── tests/               # Pytest unit suite perfectly mirroring the modules
+│
+├── Hangar/                  # User workspace: Declarative vehicle YAML configs
+├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
+├── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
+└── .agents/                 # AI Assistant context, memory, and subagent definitions
+```
