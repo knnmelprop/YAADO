@@ -1,80 +1,63 @@
-# MELprop-IADE — Integrated Aircraft Design Environment
+# IADE — System Prompt & Context for Agents
 
-A project by the **KNN MELprop** Student Science Club (Warsaw University of Technology).
-The repository is based on a **SUAVE** fork (SUAVE code is included as a git submodule in `external/suave/trunk/SUAVE/`, pinned to version 2.5.2 — DO NOT modify it).
+This file provides critical context, repository architecture, and mandatory rules for all AI agents operating in the IADE (Integrated Aerospace Design Environment) repository.
 
-> 🧭 **New agent session?** First, read [`docs/AGENT_CONTEXT.md`](docs/AGENT_CONTEXT.md)
-> — it contains the full handoff: repository state, dependency setup, how to run analyses, completed
-> work, known issues, and next steps. Live tracker: [`docs/ramP/analysis_status.md`](docs/ramP/analysis_status.md).
+> 🧭 **New agent session?** First, read the markdown files inside `.agents/context/` (especially `CONVENTIONS.md`). They contain the full handoff: data-status discipline, branching rules, and conventions.
+
+## Project Scope (Crucial Context)
+IADE is a **general, vehicle-agnostic preliminary design and MDO framework** intended for use by Polish Science Clubs. It acts as a strict, user-friendly superstructure over complex physics engines (SUAVE, SU2, pyCycle). 
+* **Do NOT hardcode solvers to specific vehicles.** 
+* **Do NOT import from `Hangar/` inside `IADE_Core/`.** 
+
+While the repository currently contains reference configurations in `Hangar/` (like the GTM-140 drone and Ramjet Rocket), the core framework (`IADE_Core/`) must remain entirely generic and capable of analyzing any vehicle defined by the Pydantic schemas.
 
 ## Architecture
 
 ```text
-IADE_Core/               # Foundation — extend via inheritance, DO NOT rewrite
-  component_base.py      #   BaseComponent, BaseAnalysis, FidelityLevel (L0–L3),
-                         #   AnalysisResults, ComponentRegistry
-  vehicle_factory.py     #   SUAVE vehicle factory (builders per vehicle_type)
-  mission_builder.py     #   Mission segment builder (solver-agnostic)
-  solver_registry.py     #   External solver registry (AVL, XFOIL, ...)
-  FlightDeck/            # OpenMDAO Problems, MDO, staging events
-  Inspectors/            # Pydantic v2 schemas for vehicle configurations
-  modules/               # Analyses
-    aero/                #   AVL wrapper, XFOIL, empirical rocket aero
-    propulsion/          #   pyCycle (ramjet), solid rocket, GTM-140 map
-  tests/                 # pytest unit suite
-Hangar/                  # YAML vehicle configurations (gtm140_drone/, ramjet_rocket/)
-FlightLogs/              # Output data, MDO logs, trajectory plots
-.agents/                 # Subagent definitions (aero-analyst, propulsion-designer, ...)
+├── IADE_Core/               # Core Framework (extend via inheritance, do not hardcode)
+│   ├── Foundation/          # BaseComponent, BaseAnalysis, FidelityLevel (L0–L3)
+│   ├── FlightDeck/          # OpenMDAO Problems, mission evaluation logic
+│   ├── Inspectors/          # Pydantic v2 schemas (strict type validation)
+│   ├── modules/             # Swappable physics solvers
+│   │   ├── wind_tunnel/     # AVL, XFOIL, SU2, empirical correlations
+│   │   ├── powerplant/      # pyCycle, generic engine maps
+│   │   ├── flight_dynamics/ # Trajectory simulators
+│   │   ├── stability_control/# Datcom, Barrowman
+│   │   └── airframe/        # Geometry generation (OpenVSP) and meshing (Gmsh)
+│   └── tests/               # Pytest unit suite mirroring modules/
+│
+├── Hangar/                  # User workspace: Declarative vehicle YAML configs
+├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
+├── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
+└── .agents/                 # AI Assistant context and subagent definitions
 ```
-
-## Two Projects
-
-### Project A — Drone with GTM-140 Engine
-- Engine: Jetpol GTM-140 — Polish miniature **turbojet** (turbojet,
-  NOT turbofan — no propeller).
-- Aerodynamics: fixed wing, subsonic, VLM (AVL); airfoils: XFOIL (low Re).
-- Config: `vehicles/gtm140_drone/vehicle_config.yaml`.
-
-### Project B — Two-stage Ramjet Rocket
-- Stage 1: post-Soviet solid rocket motor (booster).
-- Stage 2: custom designed ramjet, target Mach 2–3.
-- Aerodynamics: body-of-revolution + fins, empirical correlations
-  (DATCOM-style). **DO NOT use AVL for the supersonic part.**
-- Staging event: ramjet takes over propulsion after Stage 1 burnout.
-- Config: `vehicles/ramjet_rocket/vehicle_config.yaml`.
 
 ## Project Rules (Mandatory)
 
-1. **Always use SI units.** Field names must have a unit suffix (`thrust_N`,
-   `span_m`, `isp_s`). Use `openmdao.utils.units` or Pint where possible.
+1. **Always use SI units.** Field names must have a unit suffix (`thrust_N`, `span_m`, `isp_s`). Use `openmdao.utils.units` or Pint where possible.
 2. **Type hints** are required on all public functions.
 3. **Google-style docstrings** (in English) for every public class and method.
-4. Every new file must start with: `# MELprop-IADE | [module name] | v0.1.0`.
-5. DO NOT commit secrets, tokens, or passwords. The `.env` file (if it exists) must be ignored.
-6. DO NOT rewrite code in `core/` — extend it through inheritance.
-7. Method limitations: AVL is only for Ma < 0.6 and alpha < 15°; for higher values —
-   use empirical correlations.
-8. After every change, run: `python -m pytest tests/ -v --tb=short`.
-9. Values marked with `# TBD` in YAML files are placeholders — they require real
-   data (GTM-140 datasheet, rocket motor documentation) before running analyses.
+4. Every new file must start with: `# MELprop-IADE | [module name] | v[version]`.
+5. **No specific project logic in Core:** `IADE_Core` must operate on base Pydantic models. Never import a specific project schema from `Hangar/` into a core solver.
+6. **Extend via inheritance:** Do not rewrite base code in `IADE_Core/Foundation/` — extend it through inheritance.
+7. After every change, run tests: `uv run pytest IADE_Core/tests/ --tb=short`.
+8. Values marked with `# TBD` in YAML files are placeholders — they require real data before running analyses.
 
 ## Subagents (`.agents/`)
 
 | Agent | Claude model | ChatGPT model | Gemini model | File Scope |
 |---|---|---|---|---|
-| aero-analyst | latest claude-sonnet | latest terra | latest gemini-pro | `analyses/aerodynamics/`, `IADE_Core/tests/modules/aero/test_aero_*.py` |
-| propulsion-designer | latest claude-opus | latest sol | latest gemini-pro | `analyses/propulsion/`, `IADE_Core/tests/modules/propulsion/test_propulsion_*.py` |
-| vehicle-builder | latest claude-sonnet | latest terra | latest gemini-pro | `src/schemas/`, `vehicles/**`, `IADE_Core/tests/Inspectors/test_vehicles_*.py` |
-| mission-planner | latest claude-sonnet | latest terra | latest gemini-pro | `Hangar/`, `IADE_Core/FlightDeck/`, `IADE_Core/tests/FlightDeck/test_missions_*.py` |
-| code-reviewer | latest claude-haiku | latest luna | latest gemini-flash | read-only everything, write only to `IADE_Core/tests/` |
-| docs-writer | latest claude-haiku | latest luna | latest gemini-flash | `notebooks/`, `*.md` |
+| aero-analyst | latest claude-sonnet | latest terra | latest gemini-flash | `IADE_Core/modules/wind_tunnel/`, `IADE_Core/tests/modules/wind_tunnel/` |
+| propulsion-designer | latest claude-opus | latest sol | latest gemini-pro | `IADE_Core/modules/powerplant/`, `IADE_Core/tests/modules/powerplant/` |
+| vehicle-builder | latest claude-sonnet | latest terra | latest gemini-flash | `IADE_Core/Inspectors/`, `Hangar/`, `IADE_Core/tests/Inspectors/` |
+| mission-planner | latest claude-sonnet | latest terra | latest gemini-flash | `IADE_Core/FlightDeck/`, `FlightLogs/Studies/`, `IADE_Core/tests/FlightDeck/` |
+| code-reviewer | latest claude-haiku | latest luna | latest gemini-flash | Read-only everything, write only to `IADE_Core/tests/` |
+| docs-writer | latest claude-haiku | latest luna | latest gemini-flash | `.agents/context/*.md`, `*.md` |
 
 ## Running Tests
 
 ```bash
-python -m pytest IADE_Core/tests/ -v --tb=short
+uv run pytest IADE_Core/tests/ --tb=short
 ```
 
-Dev dependencies: `pydantic>=2`, `pyyaml`, `pytest`. SUAVE (submodule in `external/suave/`) is
-optional for unit tests — SUAVE imports in `core/` are guarded
-and the modules will function without it.
+Dev dependencies are managed via `uv`. Submodules in `external/` are required for full execution, but core tests mock or gracefully handle missing binaries where possible.
