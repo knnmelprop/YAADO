@@ -107,3 +107,7 @@ history.csv
 *.out.h5
 # NOTE: *.dvc pointer files are intentionally NOT ignored — they are the git-
 # tracked metadata that points DVC at the real (external) mesh/result data.
+
+# Internal Science Club Data
+.agents/
+.claude/
