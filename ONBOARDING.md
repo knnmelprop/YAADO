@@ -39,6 +39,7 @@ git submodule update --init --recursive
 # Create a virtual environment and install all dependencies using uv
 uv sync
 ```
+> **Science Club Members:** You must copy the internal `.agents/` and `.claude/` folders (containing the proprietary Ramjet and GTM-140 data) from the shared network drive directly into the root directory of this repository. These folders are ignored by Git to prevent sensitive data from leaking into the open-source repository. If you get any project specific results, make sure to upload them to the shared network drive.
 
 ### Step 4: Verify your installation
 Ensure everything installed correctly by running the test suite. 
@@ -80,5 +81,4 @@ When developing, it is crucial to know where things belong. The repository is st
 ├── Hangar/                  # User workspace: Declarative vehicle YAML configs
 ├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
 ├── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
-└── .agents/                 # AI Assistant context, memory, and subagent definitions
 ```
