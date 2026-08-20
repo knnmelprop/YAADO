@@ -2,7 +2,7 @@
 
 This file provides critical context, repository architecture, and mandatory rules for all AI agents operating in the IADE (Integrated Aerospace Design Environment) repository.
 
-> 🧭 **New agent session?** First, read the markdown files inside `.agents/context/` (especially `CONVENTIONS.md`). They contain the full handoff: data-status discipline, branching rules, and conventions.
+> 🧭 **New agent session?** First, read `CONTRIBUTING.md` and `ONBOARDING.md`. They contain the full handoff: data-status discipline, branching rules, and conventions.
 
 ## Project Scope (Crucial Context)
 IADE is a **general, vehicle-agnostic preliminary design and MDO framework** intended for use by Polish Science Clubs. It acts as a strict, user-friendly superstructure over complex physics engines (SUAVE, SU2, pyCycle). 
@@ -28,8 +28,7 @@ While the repository currently contains reference configurations in `Hangar/` (l
 │
 ├── Hangar/                  # User workspace: Declarative vehicle YAML configs
 ├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
-├── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
-└── .agents/                 # AI Assistant context and subagent definitions
+└── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
 ```
 
 ## Project Rules (Mandatory)
@@ -42,17 +41,6 @@ While the repository currently contains reference configurations in `Hangar/` (l
 6. **Extend via inheritance:** Do not rewrite base code in `IADE_Core/Foundation/` — extend it through inheritance.
 7. After every change, run tests: `uv run pytest IADE_Core/tests/ --tb=short`.
 8. Values marked with `# TBD` in YAML files are placeholders — they require real data before running analyses.
-
-## Subagents (`.agents/`)
-
-| Agent | Claude model | ChatGPT model | Gemini model | File Scope |
-|---|---|---|---|---|
-| aero-analyst | latest claude-sonnet | latest terra | latest gemini-flash | `IADE_Core/modules/wind_tunnel/`, `IADE_Core/tests/modules/wind_tunnel/` |
-| propulsion-designer | latest claude-opus | latest sol | latest gemini-pro | `IADE_Core/modules/powerplant/`, `IADE_Core/tests/modules/powerplant/` |
-| vehicle-builder | latest claude-sonnet | latest terra | latest gemini-flash | `IADE_Core/Inspectors/`, `Hangar/`, `IADE_Core/tests/Inspectors/` |
-| mission-planner | latest claude-sonnet | latest terra | latest gemini-flash | `IADE_Core/FlightDeck/`, `FlightLogs/Studies/`, `IADE_Core/tests/FlightDeck/` |
-| code-reviewer | latest claude-haiku | latest luna | latest gemini-flash | Read-only everything, write only to `IADE_Core/tests/` |
-| docs-writer | latest claude-haiku | latest luna | latest gemini-flash | `.agents/context/*.md`, `*.md` |
 
 ## Running Tests
 
