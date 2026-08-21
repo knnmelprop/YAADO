@@ -1,7 +1,7 @@
 # MELprop-IADE | analyses.propulsion.ramjet_cycle | v0.1.0
 """Design-point 1-D (station-based) ramjet combustor + nozzle cycle model.
 
-Models the Project B stage-2 ramjet thermodynamic cycle at the design
+Models the Generic Vehicle stage-2 ramjet thermodynamic cycle at the design
 condition (Mach 2.5, 10,000 m ISA) using a classical station-numbering
 scheme (Mattingly, *Elements of Gas Turbine Propulsion*, 2nd ed.,
 McGraw-Hill, 2006, Ch. 3 & 9 — "ramjet" station numbers):
@@ -44,7 +44,7 @@ Combustor:
     burner total-pressure ratio ``pi_b`` (default 0.95, placeholder;
     ``pt4 = pi_b * pt2``). ``tt4_K`` defaults to 2000.0 K, matching the
     ``stage_2.combustor_temp_K`` placeholder in
-    ``Hangar/ramjet_rocket/vehicle_config.yaml`` (a TBD value, NOT a
+    ``Hangar/generic_vehicle/vehicle_config.yaml`` (a TBD value, NOT a
     validated design point — see the risk note below).
 
 Nozzle — TWO geometries evaluated and BOTH reported (this is the
@@ -194,7 +194,7 @@ PI_B_DEFAULT: float = 0.95
 ETA_B_DEFAULT: float = 0.95
 
 #: Combustor exit total temperature Tt4 [K] -- placeholder from
-#: Hangar/ramjet_rocket/vehicle_config.yaml stage_2.combustor_temp_K
+#: Hangar/generic_vehicle/vehicle_config.yaml stage_2.combustor_temp_K
 #: (TBD; deliberately kept BELOW the ~2400 K flame-holder risk figure,
 #: see the combustor risk baseline in the module docstring).
 TT4_DEFAULT_K: float = 2000.0
