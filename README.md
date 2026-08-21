@@ -1,5 +1,5 @@
 # IADE — by MELprop
-![Python](https://img.shields.io/badge/python-3.9+-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)
+![Python](https://img.shields.io/badge/python-3.11+-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)
 
 **Integrated Aerospace Design Environment** — MELprop Science Club, Warsaw University of Technology
 
