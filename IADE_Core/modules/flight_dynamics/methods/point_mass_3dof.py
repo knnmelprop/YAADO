@@ -61,8 +61,6 @@ from scipy.integrate._ivp.ivp import OdeResult  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from Hangar.ramjet_rocket.rocket_schema import RocketConfig
-from Hangar.ramjet_rocket.rocket_schema import RocketConfig  # noqa: E402
 
 # --------------------------------------------------------------------------
 # Named physical constants (SI units throughout; field/variable names carry
@@ -163,7 +161,7 @@ ATOL: float = 1e-10
 """solve_ivp absolute tolerance."""
 
 THIS_DIR = Path(__file__).resolve().parent
-VEHICLE_CONFIG_PATH = THIS_DIR.parents[3] / "Hangar" / "ramjet_rocket" / "vehicle_config.yaml"
+VEHICLE_CONFIG_PATH = THIS_DIR.parents[3] / "Hangar" / "generic_vehicle" / "vehicle_config.yaml"
 OUTPUT_JSON_PATH = THIS_DIR.parents[3] / "FlightLogs" / "burnout_state.json"
 OUTPUT_PNG_PATH = THIS_DIR.parents[3] / "FlightLogs" / "boost_phase.png"
 SWEEP_CSV_PATH = THIS_DIR.parents[3] / "FlightLogs" / "launch_angle_sweep.csv"
@@ -236,11 +234,11 @@ def load_booster_params(
         caveat already computed (see :attr:`BoosterParams.thrust_sl_N`).
 
     Raises:
-        ValueError: If the loaded config is not a :class:`RocketConfig`.
+        ValueError: If the loaded config is not a :class:`Any`.
     """
-    config = RocketConfig.from_yaml(config_path)
-    if not isinstance(config, RocketConfig):
-        raise ValueError(f"{config_path} is not a Project B RocketConfig")
+    config = Any.from_yaml(config_path)
+    if not isinstance(config, Any):
+        raise ValueError(f"{config_path} is not a Generic Vehicle Any")
 
     propulsion = config.stage_1.propulsion
     if config.mass_properties is None or config.mass_properties.total_mass_kg is None:

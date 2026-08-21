@@ -87,7 +87,7 @@ MIL_E_5007_COEFF: float = 0.075
 MIL_E_5007_EXP: float = 1.35
 
 # --------------------------------------------------------------------------
-# Fusion Assembly v6 geometry (Hangar/ramjet_rocket/vehicle_config.yaml,
+# Fusion Assembly v6 geometry (Hangar/generic_vehicle/vehicle_config.yaml,
 # cfd_notes.ramjet_inlet_note; fusion_extraction_v6.yaml ramjet.inlet_system)
 # --------------------------------------------------------------------------
 

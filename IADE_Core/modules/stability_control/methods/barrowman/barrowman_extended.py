@@ -1,5 +1,5 @@
 # MELprop-IADE | analyses.aero.barrowman_extended | v0.1.0
-"""Extended Barrowman static-stability sensitivity analysis (Project B).
+"""Extended Barrowman static-stability sensitivity analysis (Generic Vehicle).
 
 Extends the existing subsonic/supersonic Barrowman method in
 ``analyses.stability.barrowman_stability`` with two additional
@@ -7,7 +7,7 @@ corrections used by "practical" Barrowman implementations (RockSim /
 OpenRocket-style "extended Barrowman"), and sweeps the suspect
 ``fins.span_m`` geometry field to quantify how much of the
 Barrowman-vs-Teltik-CFD static-margin discrepancy documented in
-``docs/ramP/stability_reconciliation.md`` (+8.99 cal Barrowman vs. -2.75
+``docs/vehicle/stability_reconciliation.md`` (+8.99 cal Barrowman vs. -2.75
 cal Teltik CFD at Mach 2.5) each correction, and each candidate fin
 span, can explain.
 
@@ -61,12 +61,12 @@ Per project rule, AVL (subsonic VLM) is never used for this vehicle's
 supersonic regime; this module only ever calls empirical/analytical
 DATCOM-style correlations, consistent with
 ``analyses/stability/barrowman_stability.py``. This is a low-order
-engineering estimate, not CFD -- see ``docs/ramP/stability_reconciliation.md``
+engineering estimate, not CFD -- see ``docs/vehicle/stability_reconciliation.md``
 for the full discussion of why a large gap against the Teltik CFD result
 is expected to remain even after both corrections in this module.
 
 This module is analysis-only: it never writes to
-``Hangar/ramjet_rocket/vehicle_config.yaml`` (frozen, HUMAN_REVIEW
+``Hangar/generic_vehicle/vehicle_config.yaml`` (frozen, HUMAN_REVIEW
 pending) and never modifies ``analyses/stability/barrowman_stability.py``.
 """
 
@@ -105,11 +105,11 @@ from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, F
 # --------------------------------------------------------------------------
 
 #: Mach number used for the Teltik CFD comparison and the fin-span sweep,
-#: per docs/ramP/stability_reconciliation.md Section 3 ("Ma 2.5").
+#: per docs/vehicle/stability_reconciliation.md Section 3 ("Ma 2.5").
 COMPARISON_MACH = 2.5
 
 #: Teltik 2024 CFD static-margin result at COMPARISON_MACH, calibers.
-#: Source: docs/ramP/stability_margin_report.md / stability_reconciliation.md
+#: Source: docs/vehicle/stability_margin_report.md / stability_reconciliation.md
 #: (Barrowman +8.99 cal vs. Teltik CFD -2.75 cal discrepancy).
 TELTIK_CFD_SM_CAL = -2.75
 
@@ -445,7 +445,7 @@ def find_neutral_span_m(
     falls back to the **basic** (unmodified Barrowman) static margin,
     which does have a well-defined root and reproduces the ~0.139 m
     figure independently derived in
-    ``docs/ramP/stability_reconciliation.md`` Section 3.
+    ``docs/vehicle/stability_reconciliation.md`` Section 3.
 
     Args:
         geometry: Baseline rocket geometry.
@@ -623,7 +623,7 @@ def plot_sm_sensitivity(
     ax.set_xlabel("Fin span factor [-] (fraction of YAML fins.span_m = 0.6685 m)")
     ax.set_ylabel("Static margin [calibers]")
     ax.set_title(
-        f"MELprop ramP -- static margin vs. fin span (Barrowman, Ma {COMPARISON_MACH})"
+        f"MELprop vehicle -- static margin vs. fin span (Barrowman, Ma {COMPARISON_MACH})"
     )
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best", fontsize=8)
@@ -782,14 +782,14 @@ def run(
     neutral_span_m, neutral_variant = find_neutral_span_m(geometry)
 
     header_comments = [
-        "# MELprop-IADE ramP -- extended Barrowman fin-span sensitivity "
+        "# MELprop-IADE vehicle -- extended Barrowman fin-span sensitivity "
         f"(Ma={COMPARISON_MACH})",
         f"# YAML fin_span_m={geometry.fin_span_m:.4f} m -> "
         f"SM_basic={sm_basic_cal:.3f} cal, SM_extended={sm_extended_cal:.3f} cal, "
         f"delta_SM={delta_sm_cal:.3f} cal",
         f"# SM_extended vs Teltik CFD ({TELTIK_CFD_SM_CAL:.2f} cal): "
         f"delta={delta_vs_teltik_cal:.3f} cal (gap narrowed by the Galejs "
-        "body-lift correction but not closed; see docs/ramP/stability_reconciliation.md)",
+        "body-lift correction but not closed; see docs/vehicle/stability_reconciliation.md)",
         f"# neutral_span_m (SM_cal=0)={neutral_span_m:.4f} m [{neutral_variant}]",
     ]
     if review_needed:

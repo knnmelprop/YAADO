@@ -1,5 +1,5 @@
 # MELprop-IADE | analyses.stability.barrowman_stability | v0.1.0
-"""Low-order static-stability analysis for the ramjet rocket (Project B).
+"""Low-order static-stability analysis for the ramjet rocket (Generic Vehicle).
 
 Implements the classical Barrowman method for the subsonic center of
 pressure (CP) of a slender body-of-revolution + fin rocket, extended
@@ -44,9 +44,9 @@ stability gate** and marked HISTORICAL / OUT-OF-REGIME per the following
 reasoning:
 
 1. **Barrowman slender-body theory is validated only to ~Mach 0.7**. The
-   ramP cruise condition (Mach 2.5) is well outside this validated envelope.
+   vehicle cruise condition (Mach 2.5) is well outside this validated envelope.
 
-2. **The ramP fins violate the small-fin assumption**:
+2. **The vehicle fins violate the small-fin assumption**:
    - Fin semi-span: 0.550 m
    - Body diameter: 0.200 m
    - Ratio: 0.550 / 0.200 = **2.75** (fin extends ~2.67× a body diameter
@@ -67,7 +67,7 @@ methods. Instead, the supersonic stability analysis is replaced by:
   buildable).
 
 See ``docs/decision-log.md`` (2026-07-11 entry) for the full rationale and
-``docs/references/ramp_analysis_plan_2026-07-11.md`` for the research
+``docs/references/vehicle_analysis_plan_2026-07-11.md`` for the research
 findings that motivate this retirement.
 """
 
@@ -145,7 +145,7 @@ MACH_SWEEP_MAX = 3.5
 DEFAULT_VEHICLE_CONFIG = (
     Path(__file__).resolve().parents[5]
     / "Hangar"
-    / "ramjet_rocket"
+    / "generic_vehicle"
     / "vehicle_config.yaml"
 )
 
@@ -348,9 +348,9 @@ def fin_mach_correction_factor(mach: float) -> float:
     """Rogers-extended compressibility correction on fin CN_alpha.
 
     **NOTE (2026-07-11): The supersonic branch (mach > MACH_SUPERSONIC_LIMIT)
-    of this function is HISTORICAL / OUT-OF-REGIME for the ramP vehicle
+    of this function is HISTORICAL / OUT-OF-REGIME for the vehicle vehicle
     (see module-level docstring "SUPERSONIC REGIME" section). Barrowman
-    is valid only to ~Mach 0.7; the ramP fins violate the small-fin
+    is valid only to ~Mach 0.7; the vehicle fins violate the small-fin
     assumption (fin span / body diameter = 2.75). Supersonic stability
     analysis is now performed by datcom_class_sweep.py (DATCOM-class
     component buildup) and ackeret_fin_check.py (independent Ackeret
@@ -477,7 +477,7 @@ class BarrowmanStabilityAnalysis(BaseAnalysis):
 
     Computes the subsonic Barrowman center of pressure and its
     transonic/supersonic Mach-dependent shift for a slender body +
-    cruciform-fin rocket (Project B, ramjet_rocket), and evaluates the
+    cruciform-fin rocket (Generic Vehicle, generic_vehicle), and evaluates the
     static margin against a fineness-ratio-scaled design rule.
 
     Example:

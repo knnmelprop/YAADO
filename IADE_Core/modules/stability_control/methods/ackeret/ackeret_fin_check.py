@@ -1,5 +1,5 @@
 # MELprop-IADE | analyses.stability.ackeret_fin_check | v0.1.0
-"""Ackeret / slender-body independent fin CP hand-check (Project B, ramP).
+"""Ackeret / slender-body independent fin CP hand-check (Generic Vehicle, vehicle).
 
 Independent closed-form cross-check of the FIN center of pressure and fin-alone
 normal force using pure Ackeret slender/thin-supersonic theory (no DATCOM
@@ -49,7 +49,7 @@ from IADE_Core.modules.stability_control.methods.barrowman.barrowman_stability i
 DEFAULT_VEHICLE_CONFIG = (
     Path(__file__).resolve().parents[5]
     / "Hangar"
-    / "ramjet_rocket"
+    / "generic_vehicle"
     / "vehicle_config.yaml"
 )
 
@@ -176,7 +176,7 @@ def write_markdown_report(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as fh:
-        fh.write("# Ackeret Fin CP Hand-Check (Project B, ramP)\n\n")
+        fh.write("# Ackeret Fin CP Hand-Check (Generic Vehicle, vehicle)\n\n")
         fh.write(
             "Independent closed-form cross-check of the fin center of pressure "
             "using pure Ackeret slender-body / thin-supersonic theory.\n\n"

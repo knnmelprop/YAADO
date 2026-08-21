@@ -138,7 +138,7 @@ PI_CC: float = 0.8924
 PI_NOZZLE: float = 0.97
 
 #: Combustor-exit total temperature Tt2 [K] -- placeholder from
-#: Hangar/ramjet_rocket/vehicle_config.yaml stage_2.combustor_temp_K
+#: Hangar/generic_vehicle/vehicle_config.yaml stage_2.combustor_temp_K
 #: (TBD; deliberately BELOW the ~2400 K flame-holder risk figure, see the
 #: combustor risk baseline shared with ramjet_cycle / assumptions A4).
 COMBUSTOR_EXIT_TEMP_DEFAULT_K: float = TT4_DEFAULT_K
