@@ -1,8 +1,9 @@
+from typing import Any
 # MELprop-IADE | analyses.aero.avl_builder | v0.1.0
 """AVL geometry-deck generation for the ramjet rocket fin set.
 
 Generates an Athena Vortex Lattice (AVL) input deck from a validated
-:class:`~src.schemas.vehicle_schema.RocketConfig` and runs AVL to extract
+:class:`~src.schemas.vehicle_schema.Any` and runs AVL to extract
 stability derivatives (CL_alpha, Cm_alpha, CN_beta, neutral point).
 
 APPLICABILITY: AVL is a subsonic vortex-lattice method — valid only for
@@ -51,7 +52,6 @@ from pathlib import Path
 
 from IADE_Core.modules.wind_tunnel.methods.avl.avl_wrapper import helmbold_cl_alpha
 from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
-from Hangar.ramjet_rocket.rocket_schema import RocketConfig
 
 #: AVL applicability limits (same as avl_wrapper.py).
 MAX_MACH = 0.6
@@ -63,7 +63,7 @@ def avl_is_available() -> bool:
     return shutil.which("avl") is not None
 
 
-def build_avl_deck(config: RocketConfig, mach: float = 0.0) -> str:
+def build_avl_deck(config: Any, mach: float = 0.0) -> str:
     """Assemble an AVL geometry deck string from a rocket config.
 
     Args:
@@ -138,10 +138,10 @@ class AVLFinAnalysis(BaseAnalysis):
 
     def __init__(self, name: str = "avl_fin_stability") -> None:
         super().__init__(name)
-        self._config: RocketConfig | None = None
+        self._config: Any | None = None
         self._mach = 0.0
 
-    def setup(self, vehicle_config: RocketConfig, mach: float = 0.3) -> None:
+    def setup(self, vehicle_config: Any, mach: float = 0.3) -> None:
         """Bind the analysis to a rocket config and flight condition.
 
         Args:

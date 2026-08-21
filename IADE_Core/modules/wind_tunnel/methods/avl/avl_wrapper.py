@@ -1,3 +1,4 @@
+from typing import Any
 # MELprop-IADE | analyses.aerodynamics.avl_wrapper | v0.1.0
 """AVL (Athena Vortex Lattice) wrapper for subsonic fixed-wing analysis.
 
@@ -18,7 +19,6 @@ import tempfile
 from pathlib import Path
 
 from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
-from Hangar.gtm140_drone.drone_schema import UAVConfig
 
 #: AVL applicability limits (linear potential-flow method).
 MAX_MACH = 0.6
@@ -76,13 +76,13 @@ class AVLAnalysis(BaseAnalysis):
 
     def __init__(self, name: str = "avl_wing_analysis") -> None:
         super().__init__(name)
-        self._config: UAVConfig | None = None
+        self._config: Any | None = None
         self._mach = 0.0
         self._alpha_deg = 0.0
 
     def setup(
         self,
-        vehicle_config: UAVConfig,
+        vehicle_config: Any,
         mach: float = 0.3,
         alpha_deg: float = 2.0,
     ) -> None:
@@ -223,7 +223,7 @@ class AVLAnalysis(BaseAnalysis):
             )
 
     def _build_avl_wing_deck(self) -> str:
-        """Build AVL geometry deck for the GTM-140 wing."""
+        """Build AVL geometry deck for the generic_uav wing."""
         assert self._config is not None
         wing = self._config.wing
 

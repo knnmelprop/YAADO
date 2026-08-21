@@ -14,8 +14,8 @@ installed) must actually run it with ``vsp -script <file>``.
 Geometry source
 ----------------
 All dimensions are read from the committed vehicle configuration
-(``Hangar/ramjet_rocket/vehicle_config.yaml``) via
-:class:`~src.schemas.vehicle_schema.RocketConfig`
+(``Hangar/generic_vehicle/vehicle_config.yaml``) via
+:class:`~src.schemas.vehicle_schema.Any`
 (:meth:`~src.schemas.vehicle_schema.BaseVehicleConfig.from_yaml`), never
 hard-coded, so the generated script stays in sync with the vehicle
 definition:
@@ -39,7 +39,7 @@ is this project's best-effort reading of the "CFD Simplified Single Rocket
 Model" drawing (Aleks Czernicki, DWG 10/07/2026)'s tail-area "550"
 dimension, inferred from layout position (near the tail fin, alongside a
 "127" value and the "29.98deg" sweep callout) rather than a clearly labeled
-dimension line -- see ``Hangar/ramjet_rocket/vehicle_config.yaml``
+dimension line -- see ``Hangar/generic_vehicle/vehicle_config.yaml``
 provenance comments and ``docs/decision-log.md``. A 2026-07-11 independent
 DATCOM/Ackeret stability rerun flagged the resulting semi-span/diameter
 ratio (2.75) as physically extreme, corroborating the concern. **This
@@ -65,15 +65,13 @@ if __name__ in ("__main__",) and __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
-from Hangar.ramjet_rocket.rocket_schema import RocketConfig
-from Hangar.ramjet_rocket.rocket_schema import RocketConfig  # noqa: E402
 
 #: Repository root, resolved from this file's location.
 REPO_ROOT: Path = Path(__file__).resolve().parents[4]
 
 #: Default vehicle config this generator reads geometry from.
 VEHICLE_CONFIG_PATH: Path = (
-    REPO_ROOT / "Hangar" / "ramjet_rocket" / "vehicle_config.yaml"
+    REPO_ROOT / "Hangar" / "generic_vehicle" / "vehicle_config.yaml"
 )
 
 #: Directory generated ``.vspscript`` + manifest artifacts are written into
@@ -83,10 +81,10 @@ VEHICLE_CONFIG_PATH: Path = (
 RUNS_OUTPUT_DIR: Path = REPO_ROOT / "runs" / "openvsp"
 
 #: Filename of the generated AngelScript file.
-SCRIPT_FILENAME: str = "ramp_rocket.vspscript"
+SCRIPT_FILENAME: str = "vehicle.vspscript"
 
 #: Filename of the companion JSON manifest.
-MANIFEST_FILENAME: str = "ramp_rocket_manifest.json"
+MANIFEST_FILENAME: str = "vehicle_manifest.json"
 
 #: HUMAN_REVIEW tag propagated into the manifest for the layout-inferred
 #: fin-span reading (HR-1).
@@ -97,29 +95,29 @@ HR1_FIN_SPAN_NOTE: str = (
 )
 
 
-def load_rocket_config(path: Path | str = VEHICLE_CONFIG_PATH) -> RocketConfig:
+def load_rocket_config(path: Path | str = VEHICLE_CONFIG_PATH) -> Any:
     """Load and validate the ramjet-rocket vehicle configuration.
 
     Args:
-        path: Path to a ``vehicle_config.yaml`` for Project B.
+        path: Path to a ``vehicle_config.yaml`` for Generic Vehicle.
 
     Returns:
-        Validated :class:`RocketConfig`.
+        Validated :class:`Any`.
 
     Raises:
         TypeError: If the YAML at ``path`` is not a rocket config (e.g.
-            the GTM-140 drone config was passed by mistake).
+            the generic_uav drone config was passed by mistake).
     """
-    config = RocketConfig.from_yaml(path)
-    if not isinstance(config, RocketConfig):
+    config = Any.from_yaml(path)
+    if not isinstance(config, Any):
         raise TypeError(
-            f"{path} did not load as a RocketConfig (got {type(config).__name__}); "
-            "this generator is for Project B (ramjet_rocket) only"
+            f"{path} did not load as a Any (got {type(config).__name__}); "
+            "this generator is for Generic Vehicle (generic_vehicle) only"
         )
     return config
 
 
-def build_vspscript(config: RocketConfig) -> str:
+def build_vspscript(config: Any) -> str:
     """Render the OpenVSP AngelScript (``.vspscript``) text.
 
     Emits ``AddGeom("FUSELAGE", ...)`` calls for a nose-cone + cylinder
@@ -135,7 +133,7 @@ def build_vspscript(config: RocketConfig) -> str:
     ``analyses/aero/barrowman_extended.py``).
 
     Args:
-        config: Validated two-stage rocket configuration (Project B).
+        config: Validated two-stage rocket configuration (Generic Vehicle).
 
     Returns:
         AngelScript source text, ready to write to a ``.vspscript`` file
@@ -177,12 +175,12 @@ def build_vspscript(config: RocketConfig) -> str:
     fin_sweep_deg = fins.sweep_deg
 
     lines: list[str] = [
-        f"// MELprop-IADE ramP -- OpenVSP AngelScript export (vehicle={config.name!r})",
+        f"// MELprop-IADE vehicle -- OpenVSP AngelScript export (vehicle={config.name!r})",
         "// TO RUN: vsp -script " + SCRIPT_FILENAME,
         "// EXPORT STUB: never executed by this repo's Python code.",
         f"// {HR1_FIN_SPAN_NOTE}",
         "//",
-        "// --- Geometry source: Hangar/ramjet_rocket/vehicle_config.yaml ---",
+        "// --- Geometry source: Hangar/generic_vehicle/vehicle_config.yaml ---",
         f"//   body.total_length_m   = {total_length_m:.4f}",
         f"//   body.length_m (cyl.)  = {cylinder_length_m:.4f}",
         f"//   body.diameter_m       = {body_diameter_m:.4f}",
@@ -198,7 +196,7 @@ def build_vspscript(config: RocketConfig) -> str:
         "{",
         "    // --- Body of revolution: nose cone + cylindrical afterbody ---",
         '    string fuse_id = AddGeom( "FUSELAGE", "" );',
-        '    SetGeomName( fuse_id, "ramP_body" );',
+        '    SetGeomName( fuse_id, "vehicle_body" );',
         f'    SetParmValUpdate( fuse_id, "Length", "Design", {total_length_m:.6f} );',
         "    // XSec 0: nose tip (zero diameter)",
         f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_0", 0.0 );',
@@ -214,7 +212,7 @@ def build_vspscript(config: RocketConfig) -> str:
         "",
         "    // --- 4-fin set: rectangular planform, symmetric about body axis ---",
         '    string fin_id = AddGeom( "WING", fuse_id );',
-        '    SetGeomName( fin_id, "ramP_fins" );',
+        '    SetGeomName( fin_id, "vehicle_fins" );',
         f'    SetParmValUpdate( fin_id, "Sym_Planar_Flag", "Sym", 1.0 );',
         f'    SetParmValUpdate( fin_id, "Sym_Attach_Flag", "Sym", 1.0 );',
         f'    SetParmValUpdate( fin_id, "TotalSpan", "WingGeom", {fin_span_m:.6f} );',
@@ -228,18 +226,18 @@ def build_vspscript(config: RocketConfig) -> str:
         f'    SetParmValUpdate( fin_id, "RotationalAboutAxis", "Sym", 0.0 );  // X-axis (body axis)',
         "",
         "    Update();",
-        f'    WriteVSPFile( "ramp_rocket.vsp3", SET_ALL );',
+        f'    WriteVSPFile( "vehicle.vsp3", SET_ALL );',
         "}",
         "",
     ]
     return "\n".join(lines)
 
 
-def build_manifest(config: RocketConfig, script_path: Path) -> dict[str, Any]:
+def build_manifest(config: Any, script_path: Path) -> dict[str, Any]:
     """Build the JSON-serialisable manifest for a generated ``.vspscript``.
 
     Args:
-        config: Validated two-stage rocket configuration (Project B).
+        config: Validated two-stage rocket configuration (Generic Vehicle).
         script_path: Path the AngelScript file was (or will be) written
             to; recorded verbatim in the manifest.
 
@@ -282,7 +280,7 @@ def build_manifest(config: RocketConfig, script_path: Path) -> dict[str, Any]:
 
 
 def write_openvsp_export(
-    config: RocketConfig | None = None,
+    config: Any | None = None,
     output_dir: Path | str = RUNS_OUTPUT_DIR,
 ) -> tuple[Path, Path]:
     """Write the ``.vspscript`` and its JSON manifest, overwriting cleanly.
@@ -319,7 +317,7 @@ def write_openvsp_export(
 
 
 class OpenVSPExporter(BaseAnalysis):
-    """Generates an OpenVSP AngelScript export for the ramP rocket geometry.
+    """Generates an OpenVSP AngelScript export for the vehicle rocket geometry.
 
     Level-0 (analytical/handbook-geometry) analysis: it only *writes* a
     ``.vspscript`` text file plus a JSON manifest -- OpenVSP itself is
@@ -335,14 +333,14 @@ class OpenVSPExporter(BaseAnalysis):
 
     fidelity = FidelityLevel.LEVEL_0
 
-    def __init__(self, name: str = "openvsp_ramp_export") -> None:
+    def __init__(self, name: str = "openvsp_vehicle_export") -> None:
         super().__init__(name)
-        self._config: RocketConfig | None = None
+        self._config: Any | None = None
         self._output_dir: Path = RUNS_OUTPUT_DIR
 
     def setup(
         self,
-        vehicle_config: RocketConfig,
+        vehicle_config: Any,
         output_dir: Path | str = RUNS_OUTPUT_DIR,
     ) -> None:
         """Bind the analysis to a rocket config and output directory.
@@ -411,7 +409,7 @@ def main(
     config_path: Path | str = VEHICLE_CONFIG_PATH,
     output_dir: Path | str = RUNS_OUTPUT_DIR,
 ) -> dict[str, Any]:
-    """Generate the OpenVSP export for the default ramP config.
+    """Generate the OpenVSP export for the default vehicle config.
 
     Args:
         config_path: Path to the ramjet-rocket ``vehicle_config.yaml``.

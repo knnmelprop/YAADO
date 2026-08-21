@@ -3,7 +3,7 @@
 
 The MELprop ramjet rocket uses rectangular steel fins with a maximum
 thickness of 30 mm over a 176.8 mm chord (``t/c ~ 0.17``, see
-``Hangar/ramjet_rocket/fusion_extraction_v6.yaml``). At the cruise
+``Hangar/generic_vehicle/fusion_extraction_v6.yaml``). At the cruise
 design point the fins operate at Mach 1.5-3.5, where a sharp double-wedge
 (diamond) section is used to minimise wave drag.
 

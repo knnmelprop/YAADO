@@ -29,8 +29,8 @@ This module is deliberately split into two halves:
   ``core/`` package).
 
 **No real STEP file is committed to this repo** (the actual vehicle CAD,
-``analyses/stability/su2_cross_check/case_ramp_stability/cad/
-ramPcfdSimplified.step``, is intentionally gitignored -- raw CAD/mesh data
+``analyses/stability/su2_cross_check/case_vehicle_stability/cad/
+vehiclecfdSimplified.step``, is intentionally gitignored -- raw CAD/mesh data
 is never committed, per project convention). Running this tool against the
 real geometry, and resolving the ramjet-vs-booster solid-identity question
 it can help settle (``docs/geometry/status.md`` section 3), both require a
@@ -43,7 +43,7 @@ CLI usage (from a venv with ``gmsh`` installed, e.g. ``.venv-geom``)::
         path/to/model.step \\
         --x-start-mm 0 --x-end-mm 4355 --pitch-mm 20 \\
         --output-csv analyses/geometry/results/station_sweep.csv \\
-        --vehicle-config Hangar/ramjet_rocket/vehicle_config.yaml
+        --vehicle-config Hangar/generic_vehicle/vehicle_config.yaml
 """
 
 from __future__ import annotations
@@ -54,13 +54,13 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 #: Half-extent (mm) of the square cutting-plane rectangle built at each
 #: station; must exceed the largest expected cross-section radius. Matches
 #: the ``R = 400.0`` value used in ``probe_slice.py`` /
 #: ``probe_slice_v2_timing.py`` (generous vs. the observed max radius of
-#: ~296.5mm on the real ramP assembly).
+#: ~296.5mm on the real vehicle assembly).
 DEFAULT_HALF_EXTENT_MM: float = 400.0
 
 #: Output CSV column order, matching ``docs/geometry/status.md`` section 4's
@@ -285,8 +285,8 @@ def cross_check_against_vehicle_config(
         rows: Sweep rows as produced by :func:`run_station_sweep` (or any
             mapping sequence with at least ``x_mm`` and ``outer_bbox_r_mm``
             keys).
-        vehicle_config_path: Path to a ``RocketConfig`` YAML (Project B's
-            ``Hangar/ramjet_rocket/vehicle_config.yaml``).
+        vehicle_config_path: Path to a ``Any`` YAML (Generic Vehicle's
+            ``Hangar/generic_vehicle/vehicle_config.yaml``).
         tolerance_pct: Max allowed percent deviation before a check is
             flagged MISMATCH.
 
@@ -296,17 +296,16 @@ def cross_check_against_vehicle_config(
 
     Raises:
         TypeError: If ``vehicle_config_path`` does not load as a
-            ``RocketConfig`` (e.g. the GTM-140 drone config was passed).
+            ``Any`` (e.g. the generic_uav drone config was passed).
     """
-    from Hangar.ramjet_rocket.rocket_schema import RocketConfig
-    from pydantic import ValidationError
+        from pydantic import ValidationError
 
     try:
-        config = RocketConfig.from_yaml(vehicle_config_path)
+        config = Any.from_yaml(vehicle_config_path)
     except ValidationError as e:
         raise TypeError(
-            f"{vehicle_config_path} did not load as a RocketConfig "
-            f"({e}); this cross-check is for Project B only"
+            f"{vehicle_config_path} did not load as a Any "
+            f"({e}); this cross-check is for Generic Vehicle only"
         )
 
     if not rows:
@@ -360,7 +359,7 @@ def open_step(step_path: str | Path) -> list[int]:
 
     Returns:
         Volume tags for every 3D solid entity found (e.g. ``[1, 2]`` for
-        the real ramP assembly's two solids, per
+        the real vehicle assembly's two solids, per
         ``docs/geometry/status.md`` section 1).
 
     Note:

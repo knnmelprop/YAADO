@@ -2,7 +2,7 @@
 """Heiser & Pratt stream-thrust ramjet cycle with station-wise gamma.
 
 Rebuild of the RamP ramjet thermodynamic cycle motivated by the
-2026-07-11 research finding (``docs/references/ramp_analysis_plan_2026-07-11.md``,
+2026-07-11 research finding (``docs/references/vehicle_analysis_plan_2026-07-11.md``,
 Section 2): the legacy Grzywka MATLAB model's **constant gamma = 1.4** is
 the primary suspect for the +40.8 % V3 gap (1474 m/s model vs 1047 m/s
 Teltik CFD), alongside the nozzle geometry (now corrected to the real
