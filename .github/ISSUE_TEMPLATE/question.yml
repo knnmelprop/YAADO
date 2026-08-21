@@ -1,0 +1,15 @@
+name: Question
+description: Ask about the project's state, conventions, or how something works
+title: "[QUESTION] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        *(Before asking, please check [ONBOARDING.md](../../ONBOARDING.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md) to see if your question is already covered!)*
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
