@@ -1,0 +1,33 @@
+name: Feature Request
+description: Request a new feature for the framework
+title: "[FEATURE] "
+labels: ["feature-request"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Which part of the framework is this related to?
+      options:
+        - FlightDeck
+        - Foundation
+        - Inspectors
+        - modules (airframe)
+        - modules (flight_dynamics)
+        - modules (powerplant)
+        - modules (stability_control)
+        - modules (wind_tunnel)
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the new feature
+      description: What should it do and why is it needed?
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Please provide your sources (papers, books, links)
