@@ -1,52 +1,26 @@
-# MELprop-IADE | CI — fast + cfd_smoke on push; cfd_nightly manual only.
 name: CI
 
 on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      run_cfd_nightly:
-        description: "Also run the cfd_nightly production CFD tier (needs a self-hosted runner with a built SU2 / real mesh)"
-        type: boolean
-        default: false
 
 jobs:
-  # Tier 1 + 2: fast unit tests and the coarse cfd_smoke tests (fake SU2_CFD
-  # stub + synthetic toy meshes — no real solver or mesh). Runs on every push.
-  fast-and-smoke:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        # NOTE: external/* submodules are intentionally NOT checked out here —
-        # the fast suite does not need SUAVE/SU2/pyCycle sources, and pulling
-        # them would slow CI and re-introduce the root-collection crash.
-      - uses: actions/setup-python@v5
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      
+      - name: Set up python 3.9
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install core runtime deps
-        # Deliberately NOT `-r requirements.txt` (that pins om-pycycle, unused by
-        # the unit suite and slow to build). Keep CI to what the tests need.
-        run: pip install "pydantic>=2" pyyaml pytest scipy matplotlib numpy
-      - name: Run fast + cfd_smoke tiers
-        # pytest.ini's default addopts = -m "not cfd_nightly" selects both tiers.
-        run: python -m pytest -q
+          python-version: "3.9"
 
-  # Tier 3: full production CFD (real SU2 build + real "mesh rakiety"). This is
-  # a PLACEHOLDER — it requires a self-hosted runner with SU2 built and the
-  # (DVC-tracked) real mesh pulled; it is manual-dispatch ONLY, never on push.
-  cfd-nightly:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_cfd_nightly }}
-    runs-on: ubuntu-latest  # TODO(local): change to a self-hosted runner label
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
       - name: Install core runtime deps
-        run: pip install "pydantic>=2" pyyaml pytest scipy matplotlib numpy
-      # TODO(local): build SU2 (meson+ninja) and `dvc pull` the real mesh here
-      # before the nightly tier can actually solve. Until then this tier only
-      # collects the cfd_nightly-marked tests (there are none yet) and no-ops.
-      - name: Run cfd_nightly tier
-        run: python -m pytest -q -m cfd_nightly
+        run: uv sync
+
+      - name: Run fast + cfd_smoke tiers
+        run: uv run pytest -q
