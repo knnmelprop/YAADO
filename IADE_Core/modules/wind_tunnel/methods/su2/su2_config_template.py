@@ -1,9 +1,10 @@
+from typing import Any
 # MELprop-IADE | analyses.cfd.su2_config_template | v0.3.0
 """SU2 external-aerodynamics configuration generator for the ramjet rocket.
 
 Generates SU2 ``.cfg`` files for an inviscid (Euler) Mach sweep of the
 ramjet rocket, to extract CL/CD/Cm across the transonic-supersonic
-envelope. This is the escalation path beyond AVL for Project B: AVL
+envelope. This is the escalation path beyond AVL for Generic Vehicle: AVL
 (vortex-lattice) is only valid for Mach < 0.6 and |alpha| < 15 deg
 (project rule #7 / ``analyses/aerodynamics/avl_wrapper.py``), so the
 whole :data:`MACH_SWEEP` here (0.8-3.0) sits outside AVL's envelope and
@@ -19,8 +20,8 @@ knows how to actually execute it, plus the ``MESH_FILENAME`` a
 corresponding gmsh run must produce first.
 
 Geometry (body length/diameter, fin span/chord) is read from the
-committed vehicle config (``Hangar/ramjet_rocket/vehicle_config.yaml``)
-via :class:`~src.schemas.vehicle_schema.RocketConfig` -- it is never
+committed vehicle config (``Hangar/generic_vehicle/vehicle_config.yaml``)
+via :class:`~src.schemas.vehicle_schema.Any` -- it is never
 hard-coded here, so the generated decks stay in sync with the vehicle
 definition. Freestream conditions use the same ICAO troposphere formula
 as ``analyses/trajectory/booster_burnout.py`` (:func:`isa_atmosphere`
@@ -56,8 +57,6 @@ if __package__ in (None, ""):
 
 from IADE_Core.modules.powerplant.inlet_methods.wedge import DESIGN_ALTITUDE_M
 from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
-from Hangar.ramjet_rocket.rocket_schema import RocketConfig
-from Hangar.ramjet_rocket.rocket_schema import RocketConfig
 
 #: Mach numbers swept for the external-aero study (transonic -> Mach 3,
 #: i.e. entirely above the AVL applicability ceiling of Mach 0.6).
@@ -102,7 +101,7 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[5]
 
 #: Default vehicle config this generator reads geometry from.
 VEHICLE_CONFIG_PATH: Path = (
-    REPO_ROOT / "Hangar" / "ramjet_rocket" / "vehicle_config.yaml"
+    REPO_ROOT / "Hangar" / "generic_vehicle" / "vehicle_config.yaml"
 )
 
 #: Directory the generated ``.cfg`` files are written into (next to this
@@ -143,24 +142,24 @@ _BASE_CONFIG: dict[str, str] = {
 }
 
 
-def load_rocket_config(path: Path | str = VEHICLE_CONFIG_PATH) -> RocketConfig:
+def load_rocket_config(path: Path | str = VEHICLE_CONFIG_PATH) -> Any:
     """Load and validate the ramjet-rocket vehicle configuration.
 
     Args:
-        path: Path to a ``vehicle_config.yaml`` for Project B.
+        path: Path to a ``vehicle_config.yaml`` for Generic Vehicle.
 
     Returns:
-        Validated :class:`RocketConfig`.
+        Validated :class:`Any`.
 
     Raises:
         TypeError: If the YAML at ``path`` is not a rocket config
-            (e.g. the GTM-140 drone config was passed by mistake).
+            (e.g. the generic_uav drone config was passed by mistake).
     """
-    config = RocketConfig.from_yaml(path)
-    if not isinstance(config, RocketConfig):
+    config = Any.from_yaml(path)
+    if not isinstance(config, Any):
         raise TypeError(
-            f"{path} did not load as a RocketConfig (got {type(config).__name__}); "
-            "this generator is for Project B (ramjet_rocket) only"
+            f"{path} did not load as a Any (got {type(config).__name__}); "
+            "this generator is for Generic Vehicle (generic_vehicle) only"
         )
     return config
 
@@ -203,7 +202,7 @@ def su2_config_filename_grid(mach: float, aoa_deg: float) -> str:
 
 
 def build_su2_config(
-    config: RocketConfig,
+    config: Any,
     mach: float,
     aoa_deg: float = 0.0,
     altitude_m: float = DESIGN_ALTITUDE_M,
@@ -217,7 +216,7 @@ def build_su2_config(
     the freestream state (ISA at ``altitude_m``) are template constants.
 
     Args:
-        config: Validated two-stage rocket configuration (Project B).
+        config: Validated two-stage rocket configuration (Generic Vehicle).
         mach: Freestream Mach number. Intended for the transonic/
             supersonic regime (Mach >= 0.6) where AVL is invalid;
             no upper/lower bound is enforced here so the sweep can be
@@ -263,11 +262,11 @@ def build_su2_config(
     restart_stem = filename.rsplit(".", 1)[0]
 
     lines: list[str] = [
-        f"% MELprop-IADE ramP -- SU2 Euler case, vehicle={config.name!r}",
+        f"% MELprop-IADE vehicle -- SU2 Euler case, vehicle={config.name!r}",
         f"% Mach={mach}  AoA={aoa_deg} deg  altitude={altitude_m:.0f} m ISA",
         "# TO RUN: su2_CFD " + filename,
         "%",
-        "% --- Geometry (from Hangar/ramjet_rocket/vehicle_config.yaml) ---",
+        "% --- Geometry (from Hangar/generic_vehicle/vehicle_config.yaml) ---",
         f"% body_length_m= {body_length_m:.4f}",
         f"% body_diameter_m= {d_ref_m:.4f}",
         f"% fin_count= {fin_count}",
@@ -294,7 +293,7 @@ def build_su2_config(
         f"REF_LENGTH= {d_ref_m:.4f}  % body diameter d_ref [m]",
         "%",
         "% --- Mesh (gmsh output; not produced by this module) ---",
-        "MESH_FILENAME= ramp_airframe.su2  % TODO: gmsh axisymmetric body+fins mesh",
+        "MESH_FILENAME= vehicle_airframe.su2  % TODO: gmsh axisymmetric body+fins mesh",
         "MESH_FORMAT= SU2",
         f"SOLUTION_FILENAME= restart_{restart_stem}.dat",
         f"RESTART_FILENAME= restart_{restart_stem}.dat",
@@ -304,7 +303,7 @@ def build_su2_config(
 
 
 def build_mach_sweep(
-    config: RocketConfig | None = None,
+    config: Any | None = None,
     mach_sweep: tuple[float, ...] = MACH_SWEEP,
     aoa_deg: float = 0.0,
     altitude_m: float = DESIGN_ALTITUDE_M,
@@ -330,7 +329,7 @@ def build_mach_sweep(
 
 
 def write_mach_sweep_configs(
-    config: RocketConfig | None = None,
+    config: Any | None = None,
     output_dir: Path | str = OUTPUT_DIR,
     mach_sweep: tuple[float, ...] = MACH_SWEEP,
     aoa_deg: float = 0.0,
@@ -369,7 +368,7 @@ def write_mach_sweep_configs(
 
 
 def build_mach_aoa_grid(
-    config: RocketConfig,
+    config: Any,
     mach_list: tuple[float, ...],
     aoa_list: tuple[float, ...],
     altitude_m: float = DESIGN_ALTITUDE_M,
@@ -382,7 +381,7 @@ def build_mach_aoa_grid(
     produced.
 
     Args:
-        config: Validated two-stage rocket configuration (Project B).
+        config: Validated two-stage rocket configuration (Generic Vehicle).
         mach_list: Freestream Mach numbers to sweep.
         aoa_list: Angles of attack [deg] to sweep.
         altitude_m: ISA altitude [m] for the freestream state.
@@ -406,7 +405,7 @@ def build_mach_aoa_grid(
 
 
 def write_mach_aoa_grid(
-    config: RocketConfig | None,
+    config: Any | None,
     mach_list: tuple[float, ...],
     aoa_list: tuple[float, ...],
     output_dir: Path | str = RUNS_OUTPUT_DIR,
@@ -525,7 +524,7 @@ class SU2ConfigGeneration(BaseAnalysis):
 
     def __init__(self, name: str = "su2_euler_mach_sweep") -> None:
         super().__init__(name)
-        self._config: RocketConfig | None = None
+        self._config: Any | None = None
         self._mach_sweep: tuple[float, ...] = MACH_SWEEP
         self._aoa_deg = 0.0
         self._altitude_m = DESIGN_ALTITUDE_M
@@ -533,7 +532,7 @@ class SU2ConfigGeneration(BaseAnalysis):
 
     def setup(
         self,
-        vehicle_config: RocketConfig,
+        vehicle_config: Any,
         mach_sweep: tuple[float, ...] = MACH_SWEEP,
         aoa_deg: float = 0.0,
         altitude_m: float = DESIGN_ALTITUDE_M,
@@ -635,14 +634,14 @@ class SU2ConfigGenerator(BaseAnalysis):
 
     def __init__(self, name: str = "su2_mach_aoa_grid") -> None:
         super().__init__(name)
-        self._config: RocketConfig | None = None
+        self._config: Any | None = None
         self._altitude_m = DESIGN_ALTITUDE_M
         self._output_dir = RUNS_OUTPUT_DIR
         self._last_paths: list[Path] = []
 
     def setup(
         self,
-        vehicle_config: RocketConfig,
+        vehicle_config: Any,
         altitude_m: float = DESIGN_ALTITUDE_M,
         output_dir: Path | str = RUNS_OUTPUT_DIR,
     ) -> None:
