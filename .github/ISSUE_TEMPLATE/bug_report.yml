@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in the code/analysis pipeline is broken or gives a wrong result
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: whats-broken
+    attributes:
+      label: What's broken
+      description: A clear description of the incorrect behavior.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Full path to the script or module (e.g., IADE_Core/modules/...)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How do we replicate the issue?
+      value: |
+        ```bash
+        uv run pytest IADE_Core/tests/unit/test_XXX.py -v
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. actual
+      description: What you expected, what actually happened (paste the error/output).
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: e.g., Ubuntu 22.04, Windows 11, macOS
+    validations:
+      required: true
