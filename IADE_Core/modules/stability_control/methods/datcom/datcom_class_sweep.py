@@ -1,5 +1,5 @@
 # MELprop-IADE | analyses.stability.datcom_class_sweep | v0.1.0
-"""DATCOM-class supersonic component-buildup static stability (Project B, ramP).
+"""DATCOM-class supersonic component-buildup static stability (Generic Vehicle, vehicle).
 
 Replaces the out-of-regime Barrowman supersonic result as the CDR stability gate.
 Implements a DATCOM / RASAero-style slender-body + fin component CN_alpha and CP
@@ -11,9 +11,9 @@ Rationale for retirement of Barrowman supersonic values
 The Barrowman method in barrowman_stability.py produces +8.99 cal (basic) / +4.594 cal
 (extended) static margin at supersonic speeds. These results are HISTORICAL / OUT-OF-REGIME:
 
-1. Barrowman slender-body theory is validated only to ~Mach 0.7; the ramP cruise
+1. Barrowman slender-body theory is validated only to ~Mach 0.7; the vehicle cruise
    condition is Mach 2.5.
-2. The ramP fins violate the small-fin assumption: fin semi-span 0.550 m / body
+2. The vehicle fins violate the small-fin assumption: fin semi-span 0.550 m / body
    diameter 0.200 m = 2.75 (fin extends ~2.67× a body diameter from the centerline).
    Classical Barrowman assumes fins are "small perturbations" on the body.
 
@@ -112,7 +112,7 @@ from IADE_Core.modules.stability_control.methods.barrowman.barrowman_stability i
 DEFAULT_VEHICLE_CONFIG = (
     Path(__file__).resolve().parents[5]
     / "Hangar"
-    / "ramjet_rocket"
+    / "generic_vehicle"
     / "vehicle_config.yaml"
 )
 
@@ -419,7 +419,7 @@ def plot_sm_vs_mach(results: list[dict[str, Any]], output_path: Path = PNG_PATH)
     ax.axhline(0.0, color="red", linestyle="--", linewidth=1.0, label="SM = 0 (neutral)")
     ax.set_xlabel("Mach number [-]")
     ax.set_ylabel("Static margin [calibers, (CP-CG)/d_body]")
-    ax.set_title("MELprop ramP — DATCOM-class supersonic static margin vs Mach")
+    ax.set_title("MELprop vehicle — DATCOM-class supersonic static margin vs Mach")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
