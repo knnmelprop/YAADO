@@ -7,7 +7,7 @@ drugiej opinii o rozwiązaniu. NIE używaj do: architektury, krytycznych
 decyzji projektowych, finalnego code review.
 
 ## Jak wywołać
-opencode run --model stealth/ox-alpha "TREŚĆ_ZADANIA" --output-format text
+npx opencode-ai run -m openrouter/stealth/ox-alpha "TREŚĆ_ZADANIA" --format default
 
 ## Autoryzacja
 Klucz czytany ze zmiennej środowiskowej $OPENROUTER_API_KEY.
