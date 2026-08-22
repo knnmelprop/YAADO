@@ -110,4 +110,5 @@ history.csv
 
 # Internal Science Club Data
 .agents/
-.claude/
+.claude/*
+!.claude/skills/
