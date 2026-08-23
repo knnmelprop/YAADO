@@ -10,20 +10,34 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from IADE_Core.ComponentStore import AnyComponent
+from IADE_Core.ComponentStore import (
+    AnyPropulsionComponent,
+    AnyAeroComponent,
+    AnyBodyComponent,
+    MassProperties
+)
 
 class BaseVehicleConfig(BaseModel):
     """The universal blueprint for all vehicles.
+    
     Attributes:
         name: Unique vehicle name.
         description: Free-text description.
+        propulsion: Dictionary of engines and motors.
+        aero_surfaces: Dictionary of wings and fins.
+        bodies: Dictionary of airframes and fuselages.
+        mass_properties: Optional global mass properties (overrides distributed component masses).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
     description: str = Field(default="not provided")
-    components: dict[str, AnyComponent] = Field(default_factory=dict)
+    
+    propulsion: dict[str, AnyPropulsionComponent] = Field(default_factory=dict)
+    aero_surfaces: dict[str, AnyAeroComponent] = Field(default_factory=dict)
+    bodies: dict[str, AnyBodyComponent] = Field(default_factory=dict)
+    mass_properties: MassProperties | None = Field(default=None)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "BaseVehicleConfig":

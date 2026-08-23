@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Literal, Annotated
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
 from .mass import MassProperties
 
@@ -22,7 +22,7 @@ class SolidMotor(BaseModel):
         propellant_density_kg_m3: Propellant density in kg/m^3. (> 0)
         casing_length_m: Length of the internal metal casing of the motor in meters. Defaults to None. (> 0)
         casing_diameter_m: Diameter of the internal metal casing of the motor in meters. Defaults to None. (> 0)
-        mass: Optional mass properties for distributed mass calculation.
+        mass: Mass Properties
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -80,7 +80,7 @@ class SolidMotor(BaseModel):
     
     mass: MassProperties | None = Field(
         default=None,
-        description='''Optional mass properties for distributed mass calculation.'''
+        description='''Mass Properties'''
     )
 
     @property
@@ -125,7 +125,7 @@ class RamjetEngine(BaseModel):
         nozzle_area_ratio: Nozzle exit/throat area ratio. (>= 1)
         nozzle_throat_diameter_m: Nozzle throat diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)
         nozzle_exit_diameter_m: Nozzle exit diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)
-        mass: Optional mass properties for distributed mass calculation.
+        mass: Mass Properties
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -168,7 +168,7 @@ class RamjetEngine(BaseModel):
     
     mass: MassProperties | None = Field(
         default=None,
-        description='''Optional mass properties for distributed mass calculation.'''
+        description='''Mass Properties'''
     )
 
     @model_validator(mode="after")
@@ -182,3 +182,99 @@ class RamjetEngine(BaseModel):
                     f"diameters (implies {implied_ratio:.4f}); update one to match"
                 )
         return self
+
+class TurbojetEngine(BaseModel):
+    """Turbojet engine definition.
+
+    Attributes:
+        name: Engine designation.
+        thrust_N: Static sea-level thrust in newtons. (> 0)
+        sfc_kg_per_Ns: Thrust-specific fuel consumption in kg/(N*s). (> 0)
+        mach_range: Operational (min, max) Mach numbers, increasing.
+        mass_flow_kg_per_s: Optional air/mass flow rate in kg/s. Defaults to None. (> 0)
+        compression_ratio: Optional compressor pressure ratio. Defaults to None. (> 1.0)
+        egt_K: Optional exhaust gas temperature in kelvin. Defaults to None. (> 0)
+        diameter_m: Optional engine diameter in meters. Defaults to None. (> 0)
+        length_m: Optional engine length in meters. Defaults to None. (> 0)
+        max_rpm: Optional maximum RPM. Defaults to None. (> 0)
+        mass: Mass Properties
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["turbojet_engine"] = Field(default="turbojet_engine", frozen=True)
+    
+    name: str = Field(
+        description='''Engine designation.'''
+    )
+    
+    thrust_N: float = Field(
+        gt=0.0,
+        description='''Static sea-level thrust in newtons. (> 0)'''
+    )
+    
+    sfc_kg_per_Ns: float = Field(
+        gt=0.0,
+        description='''Thrust-specific fuel consumption in kg/(N*s). (> 0)'''
+    )
+    
+    mach_range: tuple[float, float] = Field(
+        description='''Operational (min, max) Mach numbers, increasing.'''
+    )
+    
+    mass_flow_kg_per_s: float | None = Field(
+        default=None, 
+        gt=0.0,
+        description='''Optional air/mass flow rate in kg/s. Defaults to None. (> 0)'''
+    )
+    
+    compression_ratio: float | None = Field(
+        default=None, 
+        gt=1.0,
+        description='''Optional compressor pressure ratio. Defaults to None. (> 1.0)'''
+    )
+    
+    egt_K: float | None = Field(
+        default=None, 
+        gt=0.0,
+        description='''Optional exhaust gas temperature in kelvin. Defaults to None. (> 0)'''
+    )
+    
+    diameter_m: float | None = Field(
+        default=None, 
+        gt=0.0,
+        description='''Optional engine diameter in meters. Defaults to None. (> 0)'''
+    )
+    
+    length_m: float | None = Field(
+        default=None, 
+        gt=0.0,
+        description='''Optional engine length in meters. Defaults to None. (> 0)'''
+    )
+    
+    max_rpm: float | None = Field(
+        default=None, 
+        gt=0.0,
+        description='''Optional maximum RPM. Defaults to None. (> 0)'''
+    )
+    
+    mass: MassProperties | None = Field(
+        default=None,
+        description='''Mass Properties'''
+    )
+
+    @field_validator("mach_range")
+    @classmethod
+    def _mach_range_valid(cls, v: tuple[float, float]) -> tuple[float, float]:
+        """Require 0 <= mach_min < mach_max."""
+        lo, hi = v
+        if lo < 0.0:
+            raise ValueError("mach_range minimum must be >= 0")
+        if hi <= lo:
+            raise ValueError("mach_range must be increasing (min < max)")
+        return v
+
+AnyPropulsionComponent = Annotated[
+    SolidMotor | RamjetEngine | TurbojetEngine, 
+    Field(discriminator="type")
+]
