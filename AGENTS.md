@@ -17,7 +17,7 @@ While the repository currently contains reference configurations in `Hangar/` (l
 ├── IADE_Core/               # Core Framework (extend via inheritance, do not hardcode)
 │   ├── Foundation/          # BaseComponent, BaseAnalysis, FidelityLevel (L0–L3)
 │   ├── FlightDeck/          # OpenMDAO Problems, mission evaluation logic
-│   ├── Inspectors/          # Pydantic v2 schemas (strict type validation)
+│   ├── ComponentStore/          # Pydantic v2 schemas (strict type validation)
 │   ├── modules/             # Swappable physics solvers
 │   │   ├── wind_tunnel/     # AVL, XFOIL, SU2, empirical correlations
 │   │   ├── powerplant/      # pyCycle, generic engine maps
@@ -36,11 +36,9 @@ While the repository currently contains reference configurations in `Hangar/` (l
 1. **Always use SI units.** Field names must have a unit suffix (`thrust_N`, `span_m`, `isp_s`). Use `openmdao.utils.units` or Pint where possible.
 2. **Type hints** are required on all public functions.
 3. **Google-style docstrings** (in English) for every public class and method.
-4. Every new file must start with: `# MELprop-IADE | [module name] | v[version]`.
-5. **No specific project logic in Core:** `IADE_Core` must operate on base Pydantic models. Never import a specific project schema from `Hangar/` into a core solver.
-6. **Extend via inheritance:** Do not rewrite base code in `IADE_Core/Foundation/` — extend it through inheritance.
-7. After every change, run tests: `uv run pytest IADE_Core/tests/ --tb=short`.
-8. Values marked with `# TBD` in YAML files are placeholders — they require real data before running analyses.
+4. **No specific project logic in Core:** `IADE_Core` must operate on base Pydantic models. Never import a specific project schema from `Hangar/` into a core solver.
+5. **Extend via inheritance:** Do not rewrite base code in `IADE_Core/Foundation/` — extend it through inheritance.
+6. After every change, run tests: `uv run pytest IADE_Core/tests/ --tb=short`.
 
 ## Running Tests
 
