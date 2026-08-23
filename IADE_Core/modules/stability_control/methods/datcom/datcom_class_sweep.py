@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.stability.datcom_class_sweep | v0.1.0
 """DATCOM-class supersonic component-buildup static stability (Generic Vehicle, vehicle).
 
 Replaces the out-of-regime Barrowman supersonic result as the CDR stability gate.

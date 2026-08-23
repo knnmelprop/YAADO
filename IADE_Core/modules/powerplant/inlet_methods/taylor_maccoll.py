@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.propulsion.inlet_performance_v2 | v0.1.0
 """Taylor-Maccoll conical-inlet performance.
 
 Method: full Taylor-Maccoll conical-flow integration for the external cone

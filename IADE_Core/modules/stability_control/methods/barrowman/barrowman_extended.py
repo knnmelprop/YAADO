@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.aero.barrowman_extended | v0.1.0
 """Extended Barrowman static-stability sensitivity analysis (Generic Vehicle).
 
 Extends the existing subsonic/supersonic Barrowman method in

@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.geometry.cad_station_sweep | v0.1.0
 """Production STEP cross-section station sweep.
 
 For a real STEP assembly, sweeps a series of axial (X) stations along the
