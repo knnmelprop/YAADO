@@ -21,7 +21,7 @@ from IADE_Core.modules.powerplant.inlet_methods.wedge import (
     R_AIR,
     isa_atmosphere,
 )
-from IADE_Core.Foundation.component_base import FidelityLevel
+from IADE_Core.Foundation.analysis_base import FidelityLevel
 
 
 def _independent_ideal_closed_form(mach0: float, altitude_m: float, tt4_K: float) -> dict:

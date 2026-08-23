@@ -93,7 +93,7 @@ import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 
 from IADE_Core.modules.wind_tunnel.methods.avl.avl_wrapper import helmbold_cl_alpha  # noqa: E402
-from IADE_Core.Foundation.component_base import (  # noqa: E402
+from IADE_Core.Foundation.analysis_base import (  # noqa: E402
     AnalysisResults,
     BaseAnalysis,
     FidelityLevel,

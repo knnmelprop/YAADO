@@ -53,7 +53,7 @@ if __package__ in (None, ""):
     # behavior for pytest runs.
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
 
 # --------------------------------------------------------------------------
 # Physical / model constants (SI units)

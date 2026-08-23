@@ -90,7 +90,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
 
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
 from IADE_Core.Foundation.solver_registry import DEFAULT_REGISTRY  # noqa: E402
 
 #: Fin section geometry (Fusion Assembly v6 / fusion_extraction_v6.yaml).
