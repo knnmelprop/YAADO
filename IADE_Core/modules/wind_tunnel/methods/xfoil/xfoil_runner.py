@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.aero.xfoil_runner | v0.2.0
 """Supersonic fin polar for the MELprop ramjet rocket (Ackeret fallback).
 
 The MELprop ramjet rocket uses rectangular steel fins with a maximum

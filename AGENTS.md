@@ -9,7 +9,7 @@ IADE is a **general, vehicle-agnostic preliminary design and MDO framework** int
 * **Do NOT hardcode solvers to specific vehicles.** 
 * **Do NOT import from `Hangar/` inside `IADE_Core/`.** 
 
-While the repository currently contains reference configurations in `Hangar/` (like the GTM-140 drone and Ramjet Rocket), the core framework (`IADE_Core/`) must remain entirely generic and capable of analyzing any vehicle defined by the Pydantic schemas.
+While the repository currently contains reference configurations in `Hangar/` (like the generic_uav and generic_rocket), the core framework (`IADE_Core/`) must remain entirely generic and capable of analyzing any vehicle defined by the Pydantic schemas.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ While the repository currently contains reference configurations in `Hangar/` (l
 2. **Type hints** are required on all public functions.
 3. **Google-style docstrings** (in English) for every public class and method.
 4. **No specific project logic in Core:** `IADE_Core` must operate on base Pydantic models. Never import a specific project schema from `Hangar/` into a core solver.
-5. **Extend via inheritance:** Do not rewrite base code in `IADE_Core/Foundation/` — extend it through inheritance.
+5. **Inheritance for Solvers, Composition for Data:** Extend solvers by inheriting from `BaseAnalysis`. However, vehicles and Pydantic schemas must be built using Composition (Lego bricks), not deep inheritance trees.
 6. After every change, run tests: `uv run pytest IADE_Core/tests/ --tb=short`.
 
 ## Running Tests

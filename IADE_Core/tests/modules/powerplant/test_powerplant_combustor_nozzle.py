@@ -1,4 +1,3 @@
-# MELprop-IADE | tests.unit.test_propulsion_combustor_nozzle | v0.1.0
 """Unit tests for analyses.propulsion.combustor_nozzle_cycle (Grzywka)."""
 
 import math

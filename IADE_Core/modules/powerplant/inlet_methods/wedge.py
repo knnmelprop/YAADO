@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.propulsion.inlet_performance | v0.2.0
 """Low-order axisymmetric conical-spike inlet performance analysis.
 
 Shock chain (design/on-cone-axis approximation):

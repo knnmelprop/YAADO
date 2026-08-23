@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.propulsion.combustor_nozzle_cycle | v0.1.0
 """Grzywka-station combustor + nozzle cycle model (stations 1-2-21-3).
 
 Complementary — NOT a replacement — to

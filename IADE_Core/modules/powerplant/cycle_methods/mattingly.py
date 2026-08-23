@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.propulsion.ramjet_cycle | v0.1.0
 """Design-point 1-D (station-based) ramjet combustor + nozzle cycle model.
 
 Models the Generic Vehicle stage-2 ramjet thermodynamic cycle at the design

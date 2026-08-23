@@ -1,4 +1,3 @@
-# MELprop-IADE | IADE_Core.vehicle_factory | v0.1.0
 """Factory translating MELprop-IADE vehicle configs into SUAVE vehicles.
 
 SUAVE lives in ``external/suave`` (git submodule, pinned tag 2.5.2 — see

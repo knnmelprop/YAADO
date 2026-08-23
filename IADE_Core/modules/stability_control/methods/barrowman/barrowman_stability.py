@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.stability.barrowman_stability | v0.1.0
 """Low-order static-stability analysis for the ramjet rocket (Generic Vehicle).
 
 Implements the classical Barrowman method for the subsonic center of
