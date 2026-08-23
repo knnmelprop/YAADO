@@ -1,4 +1,3 @@
-# MELprop-IADE | tests.unit.test_propulsion_ramjet_cycle | v0.1.0
 """Unit tests for analyses.propulsion.ramjet_cycle."""
 
 import math

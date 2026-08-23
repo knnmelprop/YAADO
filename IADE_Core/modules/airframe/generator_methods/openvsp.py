@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.geometry.openvsp_export | v0.1.0
 """OpenVSP AngelScript (``.vspscript``) export stub.
 
 **EXPORT STUB -- this module never invokes the ``vsp`` / ``vspscript``

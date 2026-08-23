@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.stability.ackeret_fin_check | v0.1.0
 """Ackeret / slender-body independent fin CP hand-check (Generic Vehicle, vehicle).
 
 Independent closed-form cross-check of the FIN center of pressure and fin-alone
