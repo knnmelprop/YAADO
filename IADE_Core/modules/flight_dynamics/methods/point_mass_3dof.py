@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.trajectory.booster_burnout | v0.1.0
 """Low-order 3-DOF boost-phase trajectory point-mass integrator.
 
 This module integrates a point-mass, vertical-plane (3-DOF: range, altitude,
