@@ -28,4 +28,4 @@ Users define their aircraft using simple, declarative YAML files in the `Hangar/
 
 # Vehicle Base (`vehicle_base.py`)
 
-The purpose of this method is to be a global I/O manager for all vehicle configurations. It contains the list of all available modules as well.
+The purpose of this method is to be a global I/O manager for all vehicle configurations.

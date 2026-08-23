@@ -6,16 +6,11 @@ This class handles importing and exporting the vehicle configuration
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
-from IADE_Core.ComponentStore import MassProperties
 
-AnyComponent = Annotated[
-    MassProperties,
-    Field(discriminator="type")
-]
+from IADE_Core.ComponentStore import AnyComponent
 
 class BaseVehicleConfig(BaseModel):
     """The universal blueprint for all vehicles.
@@ -59,4 +54,3 @@ class BaseVehicleConfig(BaseModel):
             yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
-
