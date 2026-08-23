@@ -39,7 +39,7 @@ git submodule update --init --recursive
 # Create a virtual environment and install all dependencies using uv
 uv sync
 ```
-> **Science Club Members:** You must copy the internal `.agents/` and `.claude/` folders (containing the proprietary Ramjet and GTM-140 data) from the shared network drive directly into the root directory of this repository. These folders are ignored by Git to prevent sensitive data from leaking into the open-source repository. If you get any project specific results, make sure to upload them to the shared network drive.
+> **MELProp Members:** If needed, you can copy the internal folders (containing the Science-Club-specific data) from the shared network drive directly into this repository. If you get any project specific results, make sure to upload them to the shared network drive and NEVER upload them to GitHub.
 
 ### Step 4: Verify your installation
 Ensure everything installed correctly by running the test suite. 
