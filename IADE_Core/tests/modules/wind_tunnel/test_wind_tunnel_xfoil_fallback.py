@@ -1,4 +1,3 @@
-# MELprop-IADE | tests.unit.test_aero_xfoil_fallback | v0.1.0
 """Unit tests for analyses.aero.xfoil_runner (Ackeret supersonic fallback)."""
 
 import math

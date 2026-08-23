@@ -1,4 +1,3 @@
-# MELprop-IADE | IADE_Core.component_base | v0.1.0
 """Base abstractions for MELprop-IADE components and analyses.
 
 Every physical component (wing, engine, stage) derives from

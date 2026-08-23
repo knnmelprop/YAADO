@@ -1,4 +1,3 @@
-# MELprop-IADE | core | v0.1.0
 """Core infrastructure for the MELprop-IADE multi-fidelity design environment.
 
 Exposes the base abstractions used by all analysis and vehicle modules:

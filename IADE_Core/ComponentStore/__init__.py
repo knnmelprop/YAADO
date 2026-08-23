@@ -1,4 +1,3 @@
-# MELprop-IADE | src.schemas | v0.1.0
 """Pydantic v2 configuration schemas for MELprop-IADE vehicles."""
 
 from .mass import MassProperties

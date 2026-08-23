@@ -1,4 +1,3 @@
-# MELprop-IADE | tests.unit.test_propulsion_inlet | v0.1.0
 """Unit tests for analyses.propulsion.inlet_performance."""
 
 import math
