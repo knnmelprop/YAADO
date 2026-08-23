@@ -6,7 +6,7 @@ This directory contains the core abstractions and data contracts for the entire 
 
 `IADE` uses explicit, decoupled data handoffs between modules.
 
-This architecture relies on two strict rules defined in `component_base.py`:
+This architecture relies on two strict rules defined in `analysis_base.py`:
 
 ### 1. `BaseAnalysis`
 Every solver—whether it is a simple empirical equation or a massive CFD wrapper—must inherit from `BaseAnalysis`.
@@ -25,3 +25,7 @@ Because this contract is composed entirely of primitive Python dictionaries, it 
 `IADE_Core` acts as a user-friendly superstructure over the highly complex `SUAVE` flight mechanics engine.
 
 Users define their aircraft using simple, declarative YAML files in the `Hangar/` workspace. The `vehicle_factory.py` script takes those validated YAML configurations and automatically translates them into `SUAVE.Vehicle` objects in the background.
+
+# Vehicle Base (`vehicle_base.py`)
+
+The purpose of this method is to be a global I/O manager for all vehicle configurations.

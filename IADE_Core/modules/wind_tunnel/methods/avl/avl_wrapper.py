@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
 
 #: AVL applicability limits (linear potential-flow method).
 MAX_MACH = 0.6
