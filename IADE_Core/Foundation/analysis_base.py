@@ -1,9 +1,7 @@
-# MELprop-IADE | IADE_Core.component_base | v0.1.0
-"""Base abstractions for MELprop-IADE components and analyses.
+"""Base abstractions for MELprop-IADE analyses.
 
-Every physical component (wing, engine, stage) derives from
-:class:`BaseComponent`, and every computational method (VLM, cycle
-analysis, empirical correlations) derives from :class:`BaseAnalysis`.
+Every computational method (VLM, cycle analysis, empirical correlations) 
+derives from :class:`BaseAnalysis`.
 Analyses declare their fidelity via :class:`FidelityLevel` and return a
 uniform :class:`AnalysisResults` container so that workflows can swap
 methods of different fidelity without changing downstream code.
@@ -58,30 +56,6 @@ class AnalysisResults:
         return key in self.data
 
 
-class BaseComponent(ABC):
-    """Abstract base class for all physical components.
-
-    Args:
-        name: Unique, human-readable component name.
-        mass_kg: Component mass in kilograms (SI).
-    """
-
-    def __init__(self, name: str, mass_kg: float = 0.0) -> None:
-        self.name = name
-        self.mass_kg = mass_kg
-
-    @abstractmethod
-    def validate(self) -> bool:
-        """Check physical consistency of the component parameters.
-
-        Returns:
-            True if the component definition is physically valid.
-        """
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}(name={self.name!r}, mass_kg={self.mass_kg})"
-
-
 class BaseAnalysis(ABC):
     """Abstract base class for all analysis methods.
 
@@ -122,40 +96,3 @@ class BaseAnalysis(ABC):
         implementation only verifies the container is non-empty.
         """
         return bool(results.data)
-
-
-class ComponentRegistry:
-    """Registry mapping names to component/analysis classes.
-
-    Enables config-driven instantiation: YAML files reference registered
-    names instead of Python import paths.
-    """
-
-    def __init__(self) -> None:
-        self._registry: dict[str, type] = {}
-
-    def register(self, name: str, cls: type) -> None:
-        """Register a class under a unique name.
-
-        Raises:
-            KeyError: If the name is already registered.
-        """
-        if name in self._registry:
-            raise KeyError(f"Component {name!r} is already registered")
-        self._registry[name] = cls
-
-    def get(self, name: str) -> type:
-        """Return the class registered under ``name``.
-
-        Raises:
-            KeyError: If the name is not registered.
-        """
-        if name not in self._registry:
-            raise KeyError(
-                f"Component {name!r} not found; available: {sorted(self._registry)}"
-            )
-        return self._registry[name]
-
-    def names(self) -> list[str]:
-        """Return all registered names, sorted."""
-        return sorted(self._registry)

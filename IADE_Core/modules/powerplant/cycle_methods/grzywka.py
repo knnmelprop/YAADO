@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.propulsion.combustor_nozzle_cycle | v0.1.0
 """Grzywka-station combustor + nozzle cycle model (stations 1-2-21-3).
 
 Complementary — NOT a replacement — to
@@ -57,7 +56,7 @@ relations with a continuity-solved sonic throat) — the same rung as
 ``ramjet_cycle``. It is kept at ``FidelityLevel.LEVEL_2`` deliberately:
 the extra throat station (21) is finer station granularity, NOT a
 higher-fidelity method class (LEVEL_3 is reserved for RANS CFD / FEM per
-:class:`IADE_Core.component_base.FidelityLevel`).
+:class:`IADE_Core.analysis_base.FidelityLevel`).
 
 Cross-checks surfaced (not hidden) in metadata, matching this repo's
 convention of quantifying method discrepancies:
@@ -122,7 +121,7 @@ from IADE_Core.modules.powerplant.cycle_methods.mattingly import (
     stagnation_pressure_Pa,
     stagnation_temperature_K,
 )
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
 
 # --------------------------------------------------------------------------
 # Grzywka 2022 loss coefficients (SI / dimensionless)
