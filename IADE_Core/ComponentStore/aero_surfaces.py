@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal, Annotated
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .mass import MassProperties
 
@@ -46,6 +46,80 @@ class ControlSurface(BaseModel):
         description='''Maximum physical deflection angle in degrees. (> 0)'''
     )
 
+class Wings(BaseModel):
+    """Fixed-wing planform definition.
+
+    Attributes:
+        aspect_ratio: Wing aspect ratio b^2/S. (> 0)
+        sweep_deg: Quarter-chord sweep in degrees. (Range: -10 to 70)
+        taper_ratio: Tip/root chord ratio. (Range: 0 to 1)
+        span_m: Wing span in meters. (> 0)
+        dihedral_deg: Dihedral angle in degrees. (Range: -20 to 20)
+        airfoil_root: Root airfoil designation (e.g. "NACA2412").
+        airfoil_tip: Tip airfoil designation. Defaults to root airfoil if omitted.
+        control_surfaces: List of control surfaces attached to the wing.
+        mass: Mass Properties
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["wing"] = Field(default="wing", frozen=True)
+
+    aspect_ratio: float = Field(
+        gt=0.0, 
+        le=50.0,
+        description='''Wing aspect ratio b^2/S. (> 0)'''
+    )
+    
+    sweep_deg: float = Field(
+        ge=-10.0, 
+        le=70.0,
+        description='''Quarter-chord sweep in degrees. (Range: -10 to 70)'''
+    )
+    
+    taper_ratio: float = Field(
+        gt=0.0, 
+        le=1.0,
+        description='''Tip/root chord ratio. (Range: 0 to 1)'''
+    )
+    
+    span_m: float = Field(
+        gt=0.0,
+        description='''Wing span in meters. (> 0)'''
+    )
+    
+    dihedral_deg: float = Field(
+        default=0.0,
+        ge=-20.0, 
+        le=20.0,
+        description='''Dihedral angle in degrees. (Range: -20 to 20)'''
+    )
+    
+    airfoil_root: str = Field(
+        description='''Root airfoil designation (e.g. "NACA2412").'''
+    )
+    
+    airfoil_tip: str | None = Field(
+        default=None,
+        description='''Tip airfoil designation. Defaults to root airfoil if omitted.'''
+    )
+    
+    control_surfaces: list[ControlSurface] = Field(
+        default_factory=list,
+        description='''List of control surfaces attached to the wing.'''
+    )
+
+    mass: MassProperties | None = Field(
+        default=None,
+        description='''Mass Properties'''
+    )
+
+    @model_validator(mode="after")
+    def _default_tip_airfoil(self) -> Wings:
+        """If no tip airfoil is provided, default to the root airfoil."""
+        if self.airfoil_tip is None:
+            self.airfoil_tip = self.airfoil_root
+        return self
 
 class Fins(BaseModel):
     """Rocket fin set definition.
@@ -57,7 +131,7 @@ class Fins(BaseModel):
         chord_root_m: Root chord length in meters. Defaults to None. (> 0)
         chord_tip_m: Tip chord length in meters. Defaults to None. (>= 0)
         control_surfaces: List of control surfaces attached to the trailing edge of these fins.
-        mass: Optional mass properties for distributed mass calculation.
+        mass: Mass Properties
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -100,5 +174,11 @@ class Fins(BaseModel):
     
     mass: MassProperties | None = Field(
         default=None,
-        description='''Optional mass properties for distributed mass calculation.'''
+        description='''Mass Properties'''
     )
+
+
+AnyAeroComponent = Annotated[
+    Fins | Wings, 
+    Field(discriminator="type")
+]
