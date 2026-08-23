@@ -2,7 +2,7 @@
 
 from .mass import MassProperties
 
-from IADE_Core.ComponentStore.vehicle_schema import (
+from IADE_Core.Foundation.vehicle_base import (
     BaseVehicleConfig,
 )
 

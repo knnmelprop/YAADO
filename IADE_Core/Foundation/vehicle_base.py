@@ -1,39 +1,38 @@
-"""Pydantic v2 schemas for MELprop-IADE vehicle configurations.
+"""Basic vehicle configuration
 
-All quantities are SI; unit suffixes are encoded in field names
-(``thrust_N``, ``span_m``, ``isp_s``). Configs round-trip to YAML via
-:meth:`BaseVehicleConfig.from_yaml` / :meth:`BaseVehicleConfig.to_yaml`.
+This class handles importing and exporting the vehicle configuration
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field
+from IADE_Core.ComponentStore import MassProperties
 
+AnyComponent = Annotated[
+    MassProperties,
+    Field(discriminator="type")
+]
 
 class BaseVehicleConfig(BaseModel):
-    """Common root of every MELprop-IADE vehicle configuration.
-
+    """The universal blueprint for all vehicles.
     Attributes:
         name: Unique vehicle name.
-        vehicle_type: Discriminator — ``"UAV"`` or ``"Rocket"``.
         description: Free-text description.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(..., min_length=1)
-    vehicle_type: Literal["UAV", "Rocket"]
-    description: str = ""
+    name: str = Field(min_length=1)
+    description: str = Field(default="not provided")
+    components: dict[str, AnyComponent] = Field(default_factory=dict)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "BaseVehicleConfig":
         """Load and validate a vehicle config from a YAML file.
-
-        Validates the YAML data directly against the calling class.
 
         Args:
             path: Path to the YAML file.
@@ -42,7 +41,6 @@ class BaseVehicleConfig(BaseModel):
             A validated config instance.
 
         Raises:
-            ValueError: If ``vehicle_type`` is missing or unknown.
             pydantic.ValidationError: If the data violates the schema.
         """
         raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))

@@ -2,6 +2,7 @@
     represent mass properties and center of gravity (CG).
 '''
 
+from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 class MassProperties(BaseModel):
@@ -9,11 +10,12 @@ class MassProperties(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    type: Literal["mass"] = Field(default="mass", frozen=True)
+
     cg_from_nose_m: float = Field(
         gt=0.0,
-        description='''Longitudinal centre of gravity measured from the nose tip
-           in meters. Must be strictly positive (> 0) and less than the total
-           vehicle length.''',
+        description='''Longitudinal centre of gravity measured from the nose tip of the entire vehicle
+           in meters. Must be strictly positive (> 0) and less than the total vehicle length.''',
     )
     cg_source: str = Field(
         default="not provided",
