@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from .mass import MassProperties
@@ -20,7 +20,7 @@ class AxisymmetricBody(BaseModel):
         nose_diameter_m: Diameter at the base of the nose in meters. Defaults to None if unmeasured. (> 0)
         total_length_m: Total length of the vehicle including protrusions in meters. Defaults to None if unmeasured. (> 0)
         max_diameter_m: Maximum diameter including any transitions in meters. Defaults to None if unmeasured. (> 0)
-        mass: Optional mass properties for distributed mass calculation.
+        mass: Mass Properties
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -70,3 +70,8 @@ class AxisymmetricBody(BaseModel):
         default=None,
         description='''Mass properties.'''
     )
+
+AnyBodyComponent = Annotated[
+    AxisymmetricBody, 
+    Field(discriminator="type")
+]
