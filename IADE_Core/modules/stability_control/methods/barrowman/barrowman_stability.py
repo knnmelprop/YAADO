@@ -240,6 +240,9 @@ def load_geometry(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> RocketGeo
     fins = config["fins"]
     mass = config["mass_properties"]
 
+    if float(body["total_length_m"]) / float(body["diameter_m"]) < 5.0:
+        raise ValueError("fineness ratio L/D < 5: slender-body empirical aero invalid. Please use a CFD solver for blunt bodies.")
+
     return RocketGeometry(
         d_ref_m=float(body["diameter_m"]),
         nose_length_m=float(body["nose_length_m"]),
