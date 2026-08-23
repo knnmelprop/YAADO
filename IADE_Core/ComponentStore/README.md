@@ -1,9 +1,9 @@
-# Inspectors
+# ComponentStore
 
 This directory contains the Pydantic v2 schemas used to validate incoming declarative YAML configurations before they are passed to the physics solvers.
 
-## Why We Use Inspectors
-Inspectors provide "front-door" validation for the `IADE_Core` framework. 
+## Why We Use ComponentStore
+ComponentStore provide "front-door" validation for the `IADE_Core` framework. 
 If a user accidentally types a string (`"five"`) instead of a float (`5.0`), or specifies a negative mass (`-10 kg`) in their YAML configuration, these Pydantic schemas catch the error instantly. Without this layer, bad data might flow deep into the core framework and cause a mythical failure somewhere down the road.
 
 ---

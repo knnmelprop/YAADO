@@ -1,35 +1,17 @@
-# MELprop-IADE | src.schemas.vehicle_schema | v0.1.0
 """Pydantic v2 schemas for MELprop-IADE vehicle configurations.
 
 All quantities are SI; unit suffixes are encoded in field names
 (``thrust_N``, ``span_m``, ``isp_s``). Configs round-trip to YAML via
 :meth:`BaseVehicleConfig.from_yaml` / :meth:`BaseVehicleConfig.to_yaml`.
-
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-
-class MassProperties(BaseModel):
-    """Vehicle mass properties (from CAD or estimate).
-
-    Attributes:
-        cg_from_nose_m: Longitudinal centre of gravity measured from the
-            nose tip in meters (> 0).
-        cg_source: Provenance of the CG value.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cg_from_nose_m: float = Field(..., gt=0.0)
-    cg_source: str = ""
-    total_mass_kg: Union[float, None] = Field(default=None, gt=0.0)
 
 
 class BaseVehicleConfig(BaseModel):
