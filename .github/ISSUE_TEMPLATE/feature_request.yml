@@ -10,7 +10,7 @@ body:
       options:
         - FlightDeck
         - Foundation
-        - Inspectors
+        - ComponentStore
         - modules (airframe)
         - modules (flight_dynamics)
         - modules (powerplant)
