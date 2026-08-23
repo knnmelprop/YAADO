@@ -158,7 +158,7 @@ from IADE_Core.modules.powerplant.inlet_methods.wedge import (
     MultiConeInletPerformanceAnalysis,
     isa_atmosphere,
 )
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
 
 # --------------------------------------------------------------------------
 # Physical / model constants (SI units)

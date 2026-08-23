@@ -56,7 +56,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
 from IADE_Core.modules.powerplant.inlet_methods.wedge import DESIGN_ALTITUDE_M
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
 
 #: Mach numbers swept for the external-aero study (transonic -> Mach 3,
 #: i.e. entirely above the AVL applicability ceiling of Mach 0.6).
