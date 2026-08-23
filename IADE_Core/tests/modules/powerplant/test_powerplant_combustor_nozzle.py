@@ -1,4 +1,3 @@
-# MELprop-IADE | tests.unit.test_propulsion_combustor_nozzle | v0.1.0
 """Unit tests for analyses.propulsion.combustor_nozzle_cycle (Grzywka)."""
 
 import math
@@ -24,7 +23,7 @@ from IADE_Core.modules.powerplant.cycle_methods.mattingly import (
     R_HOT,
     RamjetCycleAnalysis,
 )
-from IADE_Core.Foundation.component_base import AnalysisResults, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
 
 
 # --------------------------------------------------------------------------

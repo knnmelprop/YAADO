@@ -1,4 +1,3 @@
-# MELprop-IADE | tests.unit.test_propulsion_inlet | v0.1.0
 """Unit tests for analyses.propulsion.inlet_performance."""
 
 import math
@@ -26,7 +25,7 @@ from IADE_Core.modules.powerplant.inlet_methods.wedge import (
     optimize_multi_cone_angles,
     spike_half_angle_rad,
 )
-from IADE_Core.Foundation.component_base import FidelityLevel
+from IADE_Core.Foundation.analysis_base import FidelityLevel
 
 
 def test_spike_half_angle_matches_fusion_v6_geometry() -> None:

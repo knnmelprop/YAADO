@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.propulsion.cycle_v2.hp_stream_thrust_cycle | v0.1.0
 """Heiser & Pratt stream-thrust ramjet cycle with station-wise gamma.
 
 Rebuild of the RamP ramjet thermodynamic cycle motivated by the

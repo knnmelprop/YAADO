@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.propulsion.inlet_performance | v0.2.0
 """Low-order axisymmetric conical-spike inlet performance analysis.
 
 Shock chain (design/on-cone-axis approximation):
@@ -54,7 +53,7 @@ if __package__ in (None, ""):
     # behavior for pytest runs.
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
 
 # --------------------------------------------------------------------------
 # Physical / model constants (SI units)

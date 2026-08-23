@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.stability.barrowman_stability | v0.1.0
 """Low-order static-stability analysis for the ramjet rocket (Generic Vehicle).
 
 Implements the classical Barrowman method for the subsonic center of
@@ -94,7 +93,7 @@ import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 
 from IADE_Core.modules.wind_tunnel.methods.avl.avl_wrapper import helmbold_cl_alpha  # noqa: E402
-from IADE_Core.Foundation.component_base import (  # noqa: E402
+from IADE_Core.Foundation.analysis_base import (  # noqa: E402
     AnalysisResults,
     BaseAnalysis,
     FidelityLevel,
@@ -240,6 +239,9 @@ def load_geometry(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> RocketGeo
     body = config["body"]
     fins = config["fins"]
     mass = config["mass_properties"]
+
+    if float(body["total_length_m"]) / float(body["diameter_m"]) < 5.0:
+        raise ValueError("fineness ratio L/D < 5: slender-body empirical aero invalid. Please use a CFD solver for blunt bodies.")
 
     return RocketGeometry(
         d_ref_m=float(body["diameter_m"]),

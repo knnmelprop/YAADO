@@ -1,4 +1,3 @@
-# MELprop-IADE | tests.unit.test_aero_xfoil_fallback | v0.1.0
 """Unit tests for analyses.aero.xfoil_runner (Ackeret supersonic fallback)."""
 
 import math
@@ -15,7 +14,7 @@ from IADE_Core.modules.wind_tunnel.methods.xfoil.xfoil_runner import (
     ackeret_polar,
     main as xfoil_main,
 )
-from IADE_Core.Foundation.component_base import FidelityLevel
+from IADE_Core.Foundation.analysis_base import FidelityLevel
 
 
 def test_ackeret_cl_matches_hand_calculation() -> None:

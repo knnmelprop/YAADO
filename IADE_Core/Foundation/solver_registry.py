@@ -1,4 +1,3 @@
-# MELprop-IADE | IADE_Core.solver_registry | v0.1.0
 """Registry of external solvers (AVL, XFOIL, pyCycle, ...).
 
 Central place to declare which external tools a workflow needs and to
