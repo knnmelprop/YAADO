@@ -51,7 +51,7 @@ import tempfile
 from pathlib import Path
 
 from IADE_Core.modules.wind_tunnel.methods.avl.avl_wrapper import helmbold_cl_alpha
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
 
 #: AVL applicability limits (same as avl_wrapper.py).
 MAX_MACH = 0.6

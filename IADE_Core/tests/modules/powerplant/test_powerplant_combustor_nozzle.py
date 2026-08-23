@@ -23,7 +23,7 @@ from IADE_Core.modules.powerplant.cycle_methods.mattingly import (
     R_HOT,
     RamjetCycleAnalysis,
 )
-from IADE_Core.Foundation.component_base import AnalysisResults, FidelityLevel
+from IADE_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
 
 
 # --------------------------------------------------------------------------

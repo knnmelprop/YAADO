@@ -63,7 +63,7 @@ from typing import Any
 if __name__ in ("__main__",) and __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
 
 #: Repository root, resolved from this file's location.
 REPO_ROOT: Path = Path(__file__).resolve().parents[4]
