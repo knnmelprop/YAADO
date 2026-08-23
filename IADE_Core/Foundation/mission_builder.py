@@ -1,4 +1,3 @@
-# MELprop-IADE | IADE_Core.mission_builder | v0.1.0
 """Builder for mission profiles composed of ordered segments.
 
 A mission is an ordered list of segments (climb, cruise, boost, staging
