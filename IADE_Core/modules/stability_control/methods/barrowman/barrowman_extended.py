@@ -1,4 +1,3 @@
-# MELprop-IADE | analyses.aero.barrowman_extended | v0.1.0
 """Extended Barrowman static-stability sensitivity analysis (Generic Vehicle).
 
 Extends the existing subsonic/supersonic Barrowman method in
@@ -98,7 +97,7 @@ from IADE_Core.modules.stability_control.methods.barrowman.barrowman_stability i
     compute_stability_at_mach,
     load_geometry,
 )
-from IADE_Core.Foundation.component_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
+from IADE_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
 
 # --------------------------------------------------------------------------
 # Named constants.
