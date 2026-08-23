@@ -74,7 +74,7 @@ When developing, it is crucial to know where things belong. The repository is st
 ├── IADE_Core/               # Foundation — extend via inheritance, DO NOT rewrite
 │   ├── Foundation/          # Base abstractions (BaseComponent, BaseAnalysis, FidelityLevels)
 │   ├── FlightDeck/          # OpenMDAO Problems and mission evaluation logic
-│   ├── Inspectors/          # Pydantic v2 schemas (strict type validation)
+│   ├── ComponentStore/          # Pydantic v2 schemas (strict type validation)
 │   ├── modules/             # Swappable physics solvers (wind_tunnel, powerplant, etc.)
 │   └── tests/               # Pytest unit suite perfectly mirroring the modules
 │
