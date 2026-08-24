@@ -1,5 +1,5 @@
 [project]
-name = "melprop"
+name = "YAADO"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,11 +13,5 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["IADE_Core/tests"]
+testpaths = ["YAADO_Core/tests"]
 pythonpath = ["."]
-addopts = "-m 'not cfd_nightly'"
-markers = [
-    "fast: quick unit tests, always run (default tier).",
-    "cfd_smoke: coarse/stub CFD-pipeline tests using fake SU2_CFD stubs.",
-    "cfd_nightly: full production CFD tier.",
-]
