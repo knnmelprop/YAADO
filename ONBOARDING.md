@@ -1,4 +1,4 @@
-# How to join the IADE team
+# How to join the YAADO team
 
 Welcome! To join the development team, pick an issue you want to work on, complete the onboarding steps below, and open a Pull Request (PR). Once your first PR is merged, you can pick a subteam and officially join the development!
 
@@ -21,17 +21,17 @@ Before downloading the code, ensure your system is ready:
 Follow these exact steps to set up your environment and make your first contribution:
 
 ### Step 1: Fork the repository
-Navigate to the [IADE GitHub page](https://github.com/knnmelprop/iade) and click the **"Fork"** button at the top right of the screen. This creates a personal copy of the repository on your GitHub account.
+Navigate to the [YAADO GitHub page](https://github.com/knnmelprop/yaado) and click the **"Fork"** button at the top right of the screen. This creates a personal copy of the repository on your GitHub account.
 
 ### Step 2: Clone your fork locally
-Navigate to your newly created fork on GitHub (it will be under `your_username/iade`). Click the green **"Code"** button, copy the provided HTTPS or SSH URL, and run this in your terminal:
+Navigate to your newly created fork on GitHub (it will be under `your_username/yaado`). Click the green **"Code"** button, copy the provided HTTPS or SSH URL, and run this in your terminal:
 ```bash
 git clone <PASTE_YOUR_COPIED_LINK_HERE>
-cd iade
+cd yaado
 ```
 
 ### Step 3: Initialize the project
-IADE relies on heavily integrated physics engines (like SUAVE and SU2). You must pull these submodules and install the Python environment:
+YAADO relies on heavily integrated physics engines (like SUAVE and SU2). You must pull these submodules and install the Python environment:
 ```bash
 # Pull all required external submodules
 git submodule update --init --recursive
@@ -44,9 +44,8 @@ uv sync
 ### Step 4: Verify your installation
 Ensure everything installed correctly by running the test suite. 
 ```bash
-uv run pytest IADE_Core/tests/ --tb=short
+uv run pytest
 ```
-> **Warning:** Always explicitly target the `IADE_Core/tests/` directory! Do not run a bare `pytest` from the repository root, as it will attempt to collect tests from the external submodules and crash.
 
 ### Step 5: Branch and Develop
 Create a new branch for the issue you want to work on:
@@ -68,10 +67,10 @@ Go to your fork on GitHub, and you will see a green button to **"Compare & pull 
 
 ## 3. Repository Architecture
 
-When developing, it is crucial to know where things belong. The repository is strictly divided between the generic execution framework (`IADE_Core`) and user-defined workspaces (`Hangar` and `FlightLogs`).
+When developing, it is crucial to know where things belong. The repository is strictly divided between the generic execution framework (`YAADO_Core`) and user-defined workspaces (`Hangar` and `FlightLogs`).
 
 ```text
-├── IADE_Core/               # Foundation — extend via inheritance, DO NOT rewrite
+├── YAADO_Core/               # Foundation — extend via inheritance, DO NOT rewrite
 │   ├── Foundation/          # Base abstractions (BaseComponent, BaseAnalysis, FidelityLevels)
 │   ├── FlightDeck/          # OpenMDAO Problems and mission evaluation logic
 │   ├── ComponentStore/          # Pydantic v2 schemas (strict type validation)
