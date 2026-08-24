@@ -1,9 +1,7 @@
-# IADE — by MELprop
+# YAADO — by MELprop
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)
 
-**Integrated Aerospace Design Environment** — MELprop Science Club, Warsaw University of Technology
-
-The project aims to be a user-friendly preliminary design and Multidisciplinary Design Optimization (MDO) environment for aerospace vehicles. IADE's goal is to enable everybody to use variable-fidelity design analysis tools to move your designs from paper and laptop to the sky.
+The project aims to be a user-friendly preliminary design and Multidisciplinary Design Optimization (MDO) environment for aerospace vehicles. YAADO's goal is to enable everybody to use variable-fidelity design analysis tools to move your designs from paper and laptop to the sky.
 
 ## Features
 * **Declarative Design:** Build rockets and UAVs using simple YAML configurations — no Python programming required.
@@ -15,11 +13,11 @@ The project aims to be a user-friendly preliminary design and Multidisciplinary 
 > If you want to join the project please check [`ONBOARDING.md`](ONBOARDING.md). README is for end-users.
 
 ### 1. Installation
-To use IADE, clone the repository and install the environment. Because IADE relies on heavily integrated physics engines, you must initialize the submodules:
+To use YAADO, clone the repository and install the environment. Because YAADO relies on heavily integrated physics engines, you must initialize the submodules:
 
 ```bash
-git clone https://github.com/MELprop/iade.git
-cd iade
+git clone https://github.com/MELprop/yaado.git
+cd yaado
 git submodule update --init --recursive
 uv sync
 ```
