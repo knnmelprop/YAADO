@@ -24,7 +24,7 @@ Follow these exact steps to set up your environment and make your first contribu
 Navigate to the [YAADO GitHub page](https://github.com/knnmelprop/yaado) and click the **"Fork"** button at the top right of the screen. This creates a personal copy of the repository on your GitHub account.
 
 ### Step 2: Clone your fork locally
-Navigate to your newly created fork on GitHub (it will be under `your_username/yaado`). Click the green **"Code"** button, copy the provided HTTPS or SSH URL, and run this in your terminal:
+Navigate to your newly created fork on GitHub (it will be under `your_username/yaado`). Click the green **"Code"** button, copy the provided HTTPS or SSH URL (if you do not know what SSH is, just use HTTPS), and run this in your terminal:
 ```bash
 git clone <PASTE_YOUR_COPIED_LINK_HERE>
 cd yaado
