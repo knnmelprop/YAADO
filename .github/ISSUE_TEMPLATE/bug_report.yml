@@ -31,7 +31,7 @@ body:
   - type: input
     id: where-other
     attributes:
-      label: If "Other" (or for a specific script), please specify:
+      label: 'If "Other" (or for a specific script), please specify:'
       description: Provide the specific path or description (e.g., YAADO_Core/modules/...)
     validations:
       required: false
