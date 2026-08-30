@@ -4,21 +4,29 @@ title: "[FEATURE] "
 labels: ["feature-request"]
 body:
   - type: dropdown
-    id: category
+    id: framework-part
     attributes:
       label: Which part of the framework is this related to?
+      description: Select the core directory this issue affects.
       options:
-        - FlightDeck
-        - Foundation
-        - ComponentStore
-        - modules (airframe)
-        - modules (flight_dynamics)
-        - modules (powerplant)
-        - modules (stability_control)
-        - modules (wind_tunnel)
-        - other
+        - 🧩 ComponentStore
+        - ⚙️ Foundation
+        - 🧠 FlightDeck
+        - ✈️ modules/airframe
+        - 🚀 modules/flight_dynamics
+        - 🔥 modules/powerplant
+        - 📐 modules/stability_control
+        - 💨 modules/wind_tunnel
+        - 📂 Hangar / User Workspace
+        - ❓ Other
     validations:
       required: true
+  - type: input
+    id: where-other
+    attributes:
+      label: If "Other", please specify:
+    validations:
+      required: false
   - type: textarea
     id: description
     attributes:

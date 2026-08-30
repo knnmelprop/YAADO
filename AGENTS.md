@@ -16,7 +16,7 @@ While the repository currently contains reference configurations in `Hangar/` (l
 ```text
 ├── YAADO_Core/              # Core Framework
 │   ├── Foundation/          # BaseComponent, BaseAnalysis, FidelityLevel (L0–L3)
-│   ├── FlightDeck/          # OpenMDAO Problems, mission evaluation logic
+│   ├── FlightDeck/          # Mission & Optimization Orchestrator
 │   ├── ComponentStore/      # Pydantic v2 schemas (strict type validation)
 │   ├── modules/             # Swappable physics solvers
 │   │   ├── wind_tunnel/     # AVL, XFOIL, SU2, empirical correlations
