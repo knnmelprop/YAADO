@@ -24,7 +24,7 @@ body:
   - type: input
     id: where-other
     attributes:
-      label: If "Other", please specify:
+      label: 'If "Other", please specify:'
     validations:
       required: false
   - type: textarea
