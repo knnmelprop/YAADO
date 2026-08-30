@@ -10,13 +10,31 @@ body:
       description: A clear description of the incorrect behavior.
     validations:
       required: true
-  - type: input
-    id: where
+  - type: dropdown
+    id: framework-part
     attributes:
-      label: Where
-      description: Full path to the script or module (e.g., IADE_Core/modules/...)
+      label: Which part of the framework is this related to?
+      description: Select the core directory this issue affects.
+      options:
+        - 🧩 ComponentStore
+        - ⚙️ Foundation
+        - 🧠 FlightDeck
+        - ✈️ modules/airframe
+        - 🚀 modules/flight_dynamics
+        - 🔥 modules/powerplant
+        - 📐 modules/stability_control
+        - 💨 modules/wind_tunnel
+        - 📂 Hangar / User Workspace
+        - ❓ Other
     validations:
       required: true
+  - type: input
+    id: where-other
+    attributes:
+      label: If "Other" (or for a specific script), please specify:
+      description: Provide the specific path or description (e.g., YAADO_Core/modules/...)
+    validations:
+      required: false
   - type: textarea
     id: steps
     attributes:
@@ -24,7 +42,7 @@ body:
       description: How do we replicate the issue?
       value: |
         ```bash
-        uv run pytest IADE_Core/tests/unit/test_XXX.py -v
+        uv run pytest YAADO_Core/tests/unit/test_XXX.py -v
         ```
     validations:
       required: true
