@@ -156,9 +156,11 @@ from YAADO_Core.modules.powerplant.inlet_methods.wedge import (
     MACH_DESIGN,
     R_AIR,
     MultiConeInletPerformanceAnalysis,
+    _first_ramjet_engine,
     isa_atmosphere,
 )
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 # --------------------------------------------------------------------------
 # Physical / model constants (SI units)
@@ -405,7 +407,7 @@ class RamjetCycleAnalysis(BaseAnalysis):
 
     Example:
         >>> analysis = RamjetCycleAnalysis()
-        >>> analysis.setup(mach0=2.5, altitude_m=10_000.0)
+        >>> analysis.setup(vehicle, operating_state={"mach0": 2.5, "altitude_m": 10_000.0})
         >>> results = analysis.execute()
         >>> results["thrust_N"] > 0.0  # doctest: +SKIP
     """
@@ -414,6 +416,7 @@ class RamjetCycleAnalysis(BaseAnalysis):
 
     def __init__(self, name: str = "ramjet_cycle") -> None:
         super().__init__(name)
+        self._vehicle: BaseVehicleConfig | None = None
         self._mach0 = MACH_DESIGN
         self._altitude_m = DESIGN_ALTITUDE_M
         self._tt4_K = TT4_DEFAULT_K
@@ -430,58 +433,81 @@ class RamjetCycleAnalysis(BaseAnalysis):
 
     def setup(
         self,
-        mach0: float = MACH_DESIGN,
-        altitude_m: float = DESIGN_ALTITUDE_M,
-        tt4_K: float = TT4_DEFAULT_K,
-        eta_inlet: float | None = None,
-        pi_b: float = PI_B_DEFAULT,
-        eta_b: float = ETA_B_DEFAULT,
-        h_PR: float = KEROSENE_H_PR,
-        gamma_c: float = GAMMA_COLD,
-        cp_c: float = CP_COLD,
-        gamma_t: float = GAMMA_HOT,
-        cp_t: float = CP_HOT,
-        capture_area_m2: float = CAPTURE_AREA_M2,
-        nozzle_area_ratio: float = NOZZLE_AREA_RATIO_DESIGN,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
     ) -> None:
         """Bind the analysis to a design point and cycle parameters.
 
+        All vehicle data is read from ``vehicle``; flight-condition and
+        loss-coefficient overrides are read from ``operating_state``. If
+        ``vehicle`` defines a
+        :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
+        propulsion component, its ``design_mach``, ``combustor_temp_K``
+        and ``nozzle_area_ratio`` are used as defaults for ``mach0``,
+        ``tt4_K`` and ``nozzle_area_ratio`` respectively when
+        ``operating_state`` does not override them. The remaining cycle
+        parameters (burner/inlet loss coefficients, gas properties, fuel
+        heating value, capture area) have no corresponding fields in
+        :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
+        yet, so they fall back to the documented module placeholders
+        unless overridden via ``operating_state``.
+
         Args:
-            mach0: Freestream design Mach number (must be > 1).
-            altitude_m: ISA design/cruise altitude [m].
-            tt4_K: Combustor-exit total temperature [K] (placeholder
-                default 2000.0 -- see combustor risk baseline in the
-                module docstring).
-            eta_inlet: Inlet total-pressure recovery override. If
-                ``None`` (default), computed from the 4-cone preset
-                chain of :class:`MultiConeInletPerformanceAnalysis`
-                at (``mach0``, ``altitude_m``) -- ~0.874 at Mach 2.5.
-            pi_b: Burner total-pressure ratio pt4/pt2 (placeholder,
-                default 0.95).
-            eta_b: Burner (combustion) efficiency (placeholder,
-                default 0.95).
-            h_PR: Fuel lower heating value [J/kg] (default kerosene,
-                43.1e6).
-            gamma_c: Cold-gas ratio of specific heats.
-            cp_c: Cold-gas specific heat at constant pressure
-                [J/(kg*K)].
-            gamma_t: Hot-gas ratio of specific heats.
-            cp_t: Hot-gas specific heat at constant pressure
-                [J/(kg*K)].
-            capture_area_m2: Inlet capture area [m^2] (full-capture
-                assumption at the design Mach, as in
-                ``inlet_performance``).
-            nozzle_area_ratio: Documented "design intent" nozzle area
-                ratio (informational; both the matched and the
+            vehicle: Validated, vehicle-agnostic configuration. Searched
+                for a ``RamjetEngine`` propulsion component to source the
+                default Mach, combustor-exit temperature and nozzle area
+                ratio.
+            operating_state: Optional operating conditions (SI units).
+                Recognized keys: ``mach0`` (freestream design Mach,
+                must be > 1), ``altitude_m`` (ISA design/cruise altitude
+                [m]), ``tt4_K`` (combustor-exit total temperature [K]),
+                ``eta_inlet`` (inlet total-pressure recovery override;
+                if absent, computed from the 4-cone preset chain of
+                :class:`MultiConeInletPerformanceAnalysis` at (``mach0``,
+                ``altitude_m``) -- ~0.874 at Mach 2.5), ``pi_b`` (burner
+                total-pressure ratio pt4/pt2, placeholder default 0.95),
+                ``eta_b`` (burner combustion efficiency, placeholder
+                default 0.95), ``h_PR`` (fuel lower heating value [J/kg],
+                default kerosene 43.1e6), ``gamma_c``/``cp_c`` (cold-gas
+                properties), ``gamma_t``/``cp_t`` (hot-gas properties),
+                ``capture_area_m2`` (inlet capture area [m^2],
+                full-capture assumption), ``nozzle_area_ratio``
+                (documented "design intent" nozzle area ratio;
+                informational -- both the matched and the
                 cylindrical-choked nozzle are always evaluated and
-                reported regardless of this value -- see module
-                docstring).
+                reported regardless of this value). ``None`` falls back
+                to the vehicle/design defaults.
 
         Raises:
             ValueError: If mach0 <= 1; eta_inlet, pi_b or eta_b outside
                 (0, 1]; or tt4_K does not exceed the recovered
                 combustor-entry total temperature Tt2 (= Tt0).
         """
+        operating_state = operating_state or {}
+        ramjet = _first_ramjet_engine(vehicle)
+
+        default_mach0 = ramjet.design_mach if ramjet is not None else MACH_DESIGN
+        default_tt4_K = ramjet.combustor_temp_K if ramjet is not None else TT4_DEFAULT_K
+        default_nozzle_area_ratio = (
+            ramjet.nozzle_area_ratio if ramjet is not None else NOZZLE_AREA_RATIO_DESIGN
+        )
+
+        mach0 = operating_state.get("mach0", default_mach0)
+        altitude_m = operating_state.get("altitude_m", DESIGN_ALTITUDE_M)
+        tt4_K = operating_state.get("tt4_K", default_tt4_K)
+        eta_inlet = operating_state.get("eta_inlet", None)
+        pi_b = operating_state.get("pi_b", PI_B_DEFAULT)
+        eta_b = operating_state.get("eta_b", ETA_B_DEFAULT)
+        h_PR = operating_state.get("h_PR", KEROSENE_H_PR)
+        gamma_c = operating_state.get("gamma_c", GAMMA_COLD)
+        cp_c = operating_state.get("cp_c", CP_COLD)
+        gamma_t = operating_state.get("gamma_t", GAMMA_HOT)
+        cp_t = operating_state.get("cp_t", CP_HOT)
+        capture_area_m2 = operating_state.get("capture_area_m2", CAPTURE_AREA_M2)
+        nozzle_area_ratio = operating_state.get(
+            "nozzle_area_ratio", default_nozzle_area_ratio
+        )
+
         if mach0 <= 1.0:
             raise ValueError(f"mach0 must be > 1, got {mach0}")
         if eta_inlet is not None and not (0.0 < eta_inlet <= 1.0):
@@ -502,6 +528,7 @@ class RamjetCycleAnalysis(BaseAnalysis):
                 f"mach0={mach0}, altitude_m={altitude_m}"
             )
 
+        self._vehicle = vehicle
         self._mach0 = mach0
         self._altitude_m = altitude_m
         self._tt4_K = tt4_K
@@ -530,10 +557,13 @@ class RamjetCycleAnalysis(BaseAnalysis):
 
         inlet_analysis = MultiConeInletPerformanceAnalysis()
         inlet_analysis.setup(
-            mach_design=self._mach0,
-            altitude_m=self._altitude_m,
-            n_cones=DEFAULT_N_CONES_M25,
-            optimize_angles=False,
+            self._vehicle,
+            operating_state={
+                "mach_design": self._mach0,
+                "altitude_m": self._altitude_m,
+                "n_cones": DEFAULT_N_CONES_M25,
+                "optimize_angles": False,
+            },
         )
         inlet_results = inlet_analysis.execute()
         return inlet_results["eta_inlet"], "multi_cone_4preset_chain"
@@ -856,8 +886,28 @@ def _build_output_dict(results: AnalysisResults) -> dict[str, Any]:
 
 def main() -> None:
     """Run the design-point ramjet cycle, save JSON, and print a summary."""
+    from YAADO_Core.ComponentStore.propulsion import RamjetEngine
+
+    vehicle = BaseVehicleConfig(
+        name="generic_ramjet_vehicle",
+        propulsion={
+            "stage2_ramjet": RamjetEngine(
+                design_mach=MACH_DESIGN,
+                combustor_temp_K=TT4_DEFAULT_K,
+                nozzle_area_ratio=NOZZLE_AREA_RATIO_DESIGN,
+            )
+        },
+    )
+
     analysis = RamjetCycleAnalysis()
-    analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M, tt4_K=TT4_DEFAULT_K)
+    analysis.setup(
+        vehicle,
+        operating_state={
+            "mach0": MACH_DESIGN,
+            "altitude_m": DESIGN_ALTITUDE_M,
+            "tt4_K": TT4_DEFAULT_K,
+        },
+    )
     results = analysis.execute()
     output = _build_output_dict(results)
 
