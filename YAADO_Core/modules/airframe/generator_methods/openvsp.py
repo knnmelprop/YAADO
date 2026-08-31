@@ -57,13 +57,18 @@ from __future__ import annotations
 import datetime
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 if __name__ in ("__main__",) and __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
+from YAADO_Core.ComponentStore import AxisymmetricBody, Fins  # noqa: E402
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
+
+if TYPE_CHECKING:
+    from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 #: Repository root, resolved from this file's location.
 REPO_ROOT: Path = Path(__file__).resolve().parents[4]
@@ -92,6 +97,28 @@ HR1_FIN_SPAN_NOTE: str = (
     "reading, not a labeled dimension callout; regenerate this script "
     "after the drawing dimension is confirmed."
 )
+
+
+@dataclass
+class _VehicleGeometryAdapter:
+    """Adapts a generic ``BaseVehicleConfig`` to this exporter's body/fins pair.
+
+    :func:`build_vspscript` and :func:`build_manifest` were written against
+    a bespoke rocket schema exposing single ``body``/``fins`` attributes;
+    this adapter lets :meth:`OpenVSPExporter.setup` bind the generic,
+    dict-based :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
+    (``vehicle.bodies`` / ``vehicle.aero_surfaces``) without touching that
+    downstream rendering logic.
+
+    Attributes:
+        name: Vehicle name, forwarded from the source ``BaseVehicleConfig``.
+        body: The vehicle's axisymmetric body geometry.
+        fins: The vehicle's fin-set geometry.
+    """
+
+    name: str
+    body: AxisymmetricBody
+    fins: Fins
 
 
 def load_rocket_config(path: Path | str = VEHICLE_CONFIG_PATH) -> Any:
@@ -325,7 +352,7 @@ class OpenVSPExporter(BaseAnalysis):
 
     Example:
         >>> analysis = OpenVSPExporter()
-        >>> analysis.setup(rocket_config)
+        >>> analysis.setup(vehicle)
         >>> results = analysis.execute()
         >>> results.metadata["script_path"]  # doctest: +SKIP
     """
@@ -334,32 +361,60 @@ class OpenVSPExporter(BaseAnalysis):
 
     def __init__(self, name: str = "openvsp_vehicle_export") -> None:
         super().__init__(name)
-        self._config: Any | None = None
+        self._config: _VehicleGeometryAdapter | None = None
         self._output_dir: Path = RUNS_OUTPUT_DIR
 
     def setup(
         self,
-        vehicle_config: Any,
-        output_dir: Path | str = RUNS_OUTPUT_DIR,
+        vehicle: "BaseVehicleConfig",
+        operating_state: dict | None = None,
     ) -> None:
-        """Bind the analysis to a rocket config and output directory.
+        """Bind the analysis to a validated vehicle configuration.
+
+        Geometry is read exclusively from ``vehicle``: the first entry of
+        ``vehicle.bodies`` (an
+        :class:`~YAADO_Core.ComponentStore.body.AxisymmetricBody`) and the
+        first :class:`~YAADO_Core.ComponentStore.aero_surfaces.Fins`
+        aero surface found in ``vehicle.aero_surfaces``.
 
         Args:
-            vehicle_config: Validated rocket configuration with body/fins.
-            output_dir: Directory the ``.vspscript`` and manifest are
-                written into (created if missing). Injectable so tests
-                can point it at ``tmp_path`` instead of the repo-root
-                ``runs/openvsp/`` default.
+            vehicle: Validated, vehicle-agnostic configuration providing
+                the body and fin-set geometry this exporter needs.
+            operating_state: Optional SI-unit operating conditions. This
+                geometry-only exporter has no operating-state dependence,
+                except that an ``"output_dir"`` key (``str`` or
+                :class:`~pathlib.Path``) overrides the directory the
+                ``.vspscript`` and manifest are written into (default:
+                the constructor's :data:`RUNS_OUTPUT_DIR`, injectable so
+                tests can point it at ``tmp_path``).
 
         Raises:
-            ValueError: If the config has no body/fins definition.
+            ValueError: If ``vehicle`` defines no body, or no ``Fins``
+                aero surface.
         """
-        if getattr(vehicle_config, "body", None) is None:
-            raise ValueError("vehicle_config must define body")
-        if getattr(vehicle_config, "fins", None) is None:
-            raise ValueError("vehicle_config must define fins")
-        self._config = vehicle_config
-        self._output_dir = Path(output_dir)
+        body = next(iter(vehicle.bodies.values()), None)
+        if body is None:
+            raise ValueError("vehicle must define at least one body (vehicle.bodies)")
+
+        fins = next(
+            (
+                surface
+                for surface in vehicle.aero_surfaces.values()
+                if isinstance(surface, Fins)
+            ),
+            None,
+        )
+        if fins is None:
+            raise ValueError(
+                "vehicle must define at least one Fins aero surface "
+                "(vehicle.aero_surfaces)"
+            )
+
+        self._config = _VehicleGeometryAdapter(name=vehicle.name, body=body, fins=fins)
+
+        if operating_state is not None and "output_dir" in operating_state:
+            self._output_dir = Path(operating_state["output_dir"])
+
         self._is_setup = True
 
     def execute(self) -> AnalysisResults:
