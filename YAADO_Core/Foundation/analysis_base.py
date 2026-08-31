@@ -12,7 +12,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 
 class FidelityLevel(IntEnum):
@@ -75,8 +78,28 @@ class BaseAnalysis(ABC):
         self._is_setup = False
 
     @abstractmethod
-    def setup(self, *args: Any, **kwargs: Any) -> None:
-        """Bind the analysis to a vehicle configuration and prepare inputs."""
+    def setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
+    ) -> None:
+        """Bind the analysis to a validated vehicle configuration and prepare inputs.
+
+        All vehicle geometry and component data must be read from the
+        ``vehicle`` object (the centralized, validated
+        :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`);
+        analyses must not parse configuration files from disk or accept
+        bespoke, untyped payloads. This uniform ``setup`` contract is what
+        lets ``FlightDeck`` swap and re-parametrize solvers inside an MDO
+        loop.
+
+        Args:
+            vehicle: Validated, vehicle-agnostic configuration providing the
+                geometry and component data the analysis needs.
+            operating_state: Optional operating conditions in SI units
+                (e.g. ``mach``, ``altitude_m``, ``alpha_deg``). ``None`` lets
+                the analysis fall back to its documented defaults.
+        """
 
     @abstractmethod
     def execute(self) -> AnalysisResults:
