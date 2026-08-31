@@ -95,9 +95,11 @@ from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability 
     RocketGeometry,
     StabilityResult,
     compute_stability_at_mach,
+    geometry_from_vehicle,
     load_geometry,
 )
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
 
 # --------------------------------------------------------------------------
 # Named constants.
@@ -648,7 +650,7 @@ class BarrowmanExtendedAnalysis(BaseAnalysis):
 
     Example:
         >>> analysis = BarrowmanExtendedAnalysis()
-        >>> analysis.setup()
+        >>> analysis.setup(vehicle)  # doctest: +SKIP
         >>> results = analysis.execute()
         >>> results["neutral_span_m"] < results["fin_span_yaml_m"]  # doctest: +SKIP
     """
@@ -659,18 +661,31 @@ class BarrowmanExtendedAnalysis(BaseAnalysis):
         super().__init__(name)
         self._geometry: RocketGeometry | None = None
 
-    def setup(self, config_path: Path | str | None = None) -> None:
-        """Load geometry via the reused ``barrowman_stability.load_geometry``.
+    def setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
+    ) -> None:
+        """Bind the analysis to a validated vehicle configuration.
+
+        Geometry is read from ``vehicle`` via the reused
+        ``barrowman_stability.geometry_from_vehicle`` (never parsed from
+        disk), per the :class:`BaseAnalysis` contract.
 
         Args:
-            config_path: Optional override path to the ramjet-rocket
-                ``vehicle_config.yaml``; defaults to the module's own
-                default (``DEFAULT_VEHICLE_CONFIG``) when omitted.
+            vehicle: Validated vehicle configuration providing the
+                axisymmetric body, fin-set geometry, and CG.
+            operating_state: Unused by this method -- the fin-span
+                sensitivity sweep is evaluated at the fixed
+                ``COMPARISON_MACH`` design point. Accepted for
+                :class:`BaseAnalysis` contract compatibility.
+
+        Raises:
+            ValueError: If a field the method needs is missing from
+                ``vehicle`` (see
+                ``barrowman_stability.geometry_from_vehicle``).
         """
-        if config_path is None:
-            self._geometry = load_geometry()
-        else:
-            self._geometry = load_geometry(config_path)
+        self._geometry = geometry_from_vehicle(vehicle)
         self._is_setup = True
 
     def execute(self) -> AnalysisResults:
