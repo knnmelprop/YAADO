@@ -10,11 +10,22 @@ from YAADO_Core.modules.wind_tunnel.methods.xfoil.xfoil_runner import (
     MAX_MACH,
     MIN_MACH,
     XFOILAnalysis,
-    XfoilCase,
     ackeret_polar,
     main as xfoil_main,
 )
 from YAADO_Core.Foundation.analysis_base import FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+
+
+def _placeholder_vehicle() -> BaseVehicleConfig:
+    """Minimal vehicle used to exercise `XFOILAnalysis.setup()`.
+
+    The Ackeret double-wedge fin polar does not map cleanly onto the
+    `BaseVehicleConfig` schema (no fin thickness-to-chord field exists),
+    so an empty vehicle is sufficient here; run parameters are supplied
+    via `operating_state` instead.
+    """
+    return BaseVehicleConfig(name="xfoil_test_vehicle")
 
 
 def test_ackeret_cl_matches_hand_calculation() -> None:
@@ -55,18 +66,21 @@ def test_ackeret_rejects_subsonic_mach() -> None:
 def test_setup_rejects_out_of_envelope_mach_and_alpha() -> None:
     """setup() must reject Mach <= 1.05 and Mach/alpha outside the fin envelope."""
     analysis = XFOILAnalysis()
+    vehicle = _placeholder_vehicle()
 
     with pytest.raises(ValueError, match="Mach"):
-        analysis.setup(XfoilCase(mach_list=[1.0], alpha_deg_list=[0.0]))
+        analysis.setup(vehicle, {"mach_list": [1.0], "alpha_deg_list": [0.0]})
 
     with pytest.raises(ValueError, match="Mach"):
-        analysis.setup(XfoilCase(mach_list=[4.0], alpha_deg_list=[0.0]))
+        analysis.setup(vehicle, {"mach_list": [4.0], "alpha_deg_list": [0.0]})
 
     with pytest.raises(ValueError, match="alpha"):
-        analysis.setup(XfoilCase(mach_list=[2.5], alpha_deg_list=[15.0]))
+        analysis.setup(vehicle, {"mach_list": [2.5], "alpha_deg_list": [15.0]})
 
     # Boundary values should be accepted.
-    analysis.setup(XfoilCase(mach_list=[MIN_MACH, MAX_MACH], alpha_deg_list=[-10.0, 10.0]))
+    analysis.setup(
+        vehicle, {"mach_list": [MIN_MACH, MAX_MACH], "alpha_deg_list": [-10.0, 10.0]}
+    )
 
 
 def test_execute_before_setup_raises() -> None:
@@ -78,7 +92,7 @@ def test_execute_before_setup_raises() -> None:
 def test_execute_falls_back_to_ackeret_and_warns() -> None:
     """No xfoil binary in this sandbox -> Ackeret fallback fires with a warning."""
     analysis = XFOILAnalysis()
-    analysis.setup(XfoilCase(mach_list=[2.5], alpha_deg_list=[5.0]))
+    analysis.setup(_placeholder_vehicle(), {"mach_list": [2.5], "alpha_deg_list": [5.0]})
 
     with pytest.warns(UserWarning, match="Ackeret"):
         results = analysis.execute()
@@ -91,8 +105,10 @@ def test_execute_falls_back_to_ackeret_and_warns() -> None:
 def test_execute_output_structure_is_json_safe_nested_dict() -> None:
     """Results.data nests as {mach_str: {alpha_str: {CL, CD, CL_over_CD}}}."""
     analysis = XFOILAnalysis()
-    case = XfoilCase(mach_list=[2.0, 3.0], alpha_deg_list=[-5.0, 0.0, 5.0])
-    analysis.setup(case)
+    analysis.setup(
+        _placeholder_vehicle(),
+        {"mach_list": [2.0, 3.0], "alpha_deg_list": [-5.0, 0.0, 5.0]},
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
