@@ -1,4 +1,3 @@
-from typing import Any
 # YAADO | analyses.aero.avl_builder | v0.1.0
 """AVL geometry-deck generation for the ramjet rocket fin set.
 
@@ -49,9 +48,12 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 from YAADO_Core.modules.wind_tunnel.methods.avl.avl_wrapper import helmbold_cl_alpha
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 #: AVL applicability limits (same as avl_wrapper.py).
 MAX_MACH = 0.6
@@ -61,6 +63,22 @@ MAX_ALPHA_DEG = 15.0
 def avl_is_available() -> bool:
     """Return True if the ``avl`` executable is on ``PATH``."""
     return shutil.which("avl") is not None
+
+
+def _first_component_of_type(components: dict[str, Any], type_name: str) -> Any | None:
+    """Return the first component in ``components`` whose ``.type`` matches.
+
+    Args:
+        components: A vehicle component dict (e.g. ``vehicle.aero_surfaces``).
+        type_name: Discriminator value to match (e.g. ``"fins"``).
+
+    Returns:
+        The first matching component, or ``None`` if no component matches.
+    """
+    for component in components.values():
+        if getattr(component, "type", None) == type_name:
+            return component
+    return None
 
 
 def build_avl_deck(config: Any, mach: float = 0.0) -> str:
@@ -141,25 +159,54 @@ class AVLFinAnalysis(BaseAnalysis):
         self._config: Any | None = None
         self._mach = 0.0
 
-    def setup(self, vehicle_config: Any, mach: float = 0.3) -> None:
-        """Bind the analysis to a rocket config and flight condition.
+    def setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
+    ) -> None:
+        """Bind the analysis to a vehicle configuration and flight condition.
 
         Args:
-            vehicle_config: Validated rocket configuration with fins.
-            mach: Freestream Mach number (must be < 0.6).
+            vehicle: Validated, vehicle-agnostic configuration. The fin set
+                is read from ``vehicle.aero_surfaces`` (the first component
+                whose ``type == "fins"``), the body from ``vehicle.bodies``
+                (the first ``type == "axisymmetric_body"``), and the CG
+                from ``vehicle.mass_properties``.
+            operating_state: Optional operating conditions in SI units.
+                Recognized key: ``mach`` (freestream Mach number, must be
+                < :data:`MAX_MACH`). Defaults to 0.3 when omitted or the
+                key is absent.
 
         Raises:
             ValueError: If Mach >= 0.6 (AVL applicability violated), or if
-                the config has no fin definition.
+                ``vehicle`` has no ``fins`` component in ``aero_surfaces``
+                or no ``axisymmetric_body`` component in ``bodies``.
         """
+        operating_state = operating_state or {}
+        mach = operating_state.get("mach", 0.3)
+
         if mach >= MAX_MACH:
             raise ValueError(
                 f"Mach {mach} outside AVL applicability (Mach < {MAX_MACH}); "
                 "use empirical supersonic correlations instead"
             )
-        if getattr(vehicle_config, "fins", None) is None:
-            raise ValueError("vehicle_config must define fins")
-        self._config = vehicle_config
+        fins = _first_component_of_type(vehicle.aero_surfaces, "fins")
+        if fins is None:
+            raise ValueError("vehicle.aero_surfaces must define a 'fins' component")
+        body = _first_component_of_type(vehicle.bodies, "axisymmetric_body")
+        if body is None:
+            raise ValueError("vehicle.bodies must define an 'axisymmetric_body' component")
+
+        # Internal adapter preserving the `.name` / `.fins` / `.body` /
+        # `.mass_properties` attribute shape consumed by build_avl_deck /
+        # _execute_analytical below, so only the data *source* changes
+        # (vehicle-derived, not a bespoke payload), not the numerics.
+        self._config = SimpleNamespace(
+            name=vehicle.name,
+            fins=fins,
+            body=body,
+            mass_properties=vehicle.mass_properties,
+        )
         self._mach = mach
         self._is_setup = True
 
