@@ -106,16 +106,21 @@ class VehicleFactory:
         Raises:
             TypeError: If the component's type is not a supported
                 propulsion component.
+            NotImplementedError: If the component is a ``SolidMotor``.
+                SUAVE 2.5.2 does not ship an energy network for solid-
+                propellant motors (available high-speed/rocket networks:
+                ``Liquid_Rocket``, ``Ramjet``, ``Scramjet``); translating
+                ``SolidMotor`` is a pending follow-up.
         """
         networks = self.suave.Components.Energy.Networks
 
         if isinstance(component, SolidMotor):
-            network = networks.Solid_Propulsion()
-            network.tag = component.type
-            network.thrust_mean_N = component.thrust_mean_N
-            network.isp_vacuum_s = component.isp_vacuum_s
-            network.burn_time_s = component.burn_time_s
-            return network
+            raise NotImplementedError(
+                "SUAVE 2.5.2 ships no energy network for solid-propellant "
+                "motors (available high-speed/rocket networks: Liquid_Rocket, "
+                "Ramjet, Scramjet); SolidMotor translation is a pending "
+                "follow-up."
+            )
 
         if isinstance(component, RamjetEngine):
             network = networks.Ramjet()
@@ -126,7 +131,7 @@ class VehicleFactory:
             return network
 
         if isinstance(component, TurbojetEngine):
-            network = networks.Turbojet()
+            network = networks.Turbojet_Super()
             network.tag = component.name
             network.thrust_N = component.thrust_N
             network.sfc_kg_per_Ns = component.sfc_kg_per_Ns
