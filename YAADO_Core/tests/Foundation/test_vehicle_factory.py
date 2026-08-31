@@ -63,9 +63,8 @@ class _FakeVehicle:
 def make_fake_suave() -> SimpleNamespace:
     """Build a fake SUAVE module exposing the factory's required surface."""
     networks = SimpleNamespace(
-        Solid_Propulsion=_FakeNetwork,
         Ramjet=_FakeNetwork,
-        Turbojet=_FakeNetwork,
+        Turbojet_Super=_FakeNetwork,
     )
     components = SimpleNamespace(
         Energy=SimpleNamespace(Networks=networks),
@@ -131,3 +130,30 @@ def test_build_without_suave_raises_runtime_error() -> None:
 
     with pytest.raises(RuntimeError, match="SUAVE is not importable"):
         factory.build(config)
+
+
+def test_build_with_real_suave_produces_real_vehicle() -> None:
+    """Integration test: build() against the real SUAVE package (skipped if not installed).
+
+    This exercises VehicleFactory() with no injected stand-in, so it only
+    runs once SUAVE 2.5.2 is actually installed in the environment (e.g.
+    `pip install -e external/suave/trunk`); until then it is skipped, not
+    failed.
+    """
+    suave = pytest.importorskip("SUAVE")
+
+    factory = VehicleFactory()
+    config = make_generic_vehicle_config()
+
+    result = factory.build(config)
+
+    assert result.tag == "generic-test-vehicle"
+
+    # SUAVE's Vehicle sorts appended components into typed containers
+    # (see SUAVE.Vehicle.Vehicle._component_root_map): networks land in
+    # `.networks`, wings land in `.wings`.
+    networks = list(result.networks.values())
+    assert any(isinstance(n, suave.Components.Energy.Networks.Turbojet_Super) for n in networks)
+
+    wings = list(result.wings.values())
+    assert any(isinstance(w, suave.Components.Wings.Wing) for w in wings)
