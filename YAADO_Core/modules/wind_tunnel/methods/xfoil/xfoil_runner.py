@@ -92,6 +92,7 @@ import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
 
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
 from YAADO_Core.Foundation.solver_registry import DEFAULT_REGISTRY  # noqa: E402
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
 
 #: Fin section geometry (Fusion Assembly v6 / fusion_extraction_v6.yaml).
 FIN_CHORD_M = 0.1768
@@ -194,20 +195,68 @@ class XFOILAnalysis(BaseAnalysis):
     def __init__(self, name: str = "xfoil_fin_supersonic_polar") -> None:
         super().__init__(name)
         self._case: XfoilCase | None = None
+        #: Airfoil designation read from a `Wings` component's
+        #: `airfoil_root`, if the vehicle has one (metadata/traceability
+        #: only -- this section-level Ackeret polar does not otherwise
+        #: use the airfoil string; see the `setup()` docstring gap note).
+        self._airfoil: str | None = None
 
-    def setup(self, case: XfoilCase | None = None) -> None:
+    def setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
+    ) -> None:
         """Bind and validate a supersonic fin polar run case.
 
+        XFOIL/Ackeret is a 2-D section method driven by flight condition,
+        not full vehicle geometry, so most of ``vehicle`` does not map
+        onto this analysis. What *is* extracted: an airfoil designation
+        from a ``Wings`` component's ``airfoil_root`` (first match in
+        ``vehicle.aero_surfaces``), stored only for traceability -- the
+        Ackeret double-wedge model does not consume it numerically. The
+        double-wedge thickness-to-chord ratio has **no corresponding
+        field** in the ``Fins``/``Wings`` schemas (gap -- see
+        ``issues_discovered_out_of_scope``); it defaults to the real
+        MELprop fin geometry (:data:`FIN_THICKNESS_TO_CHORD`) unless
+        overridden via ``operating_state["thickness_to_chord"]``.
+
         Args:
-            case: Run case (Mach list, alpha list, t/c). Defaults to a
-                new :class:`XfoilCase` built from the real fin geometry.
+            vehicle: Validated, vehicle-agnostic configuration. Only used
+                to (optionally) recover an airfoil designation; see above.
+            operating_state: Optional operating conditions in SI units.
+                Recognized keys: ``mach_list`` (list[float], sweep of
+                freestream Mach numbers), ``alpha_deg_list`` (list[float],
+                sweep of angles of attack in degrees), and
+                ``thickness_to_chord`` (float, double-wedge t/c override).
+                Any key absent (or ``operating_state=None``) falls back to
+                the corresponding :class:`XfoilCase` default.
 
         Raises:
             ValueError: If any Mach number is outside
                 ``[MIN_MACH, MAX_MACH]`` or ``<= MIN_MACH_ABSOLUTE``, or
                 any alpha is outside ``[MIN_ALPHA_DEG, MAX_ALPHA_DEG]``.
         """
-        case = case or XfoilCase()
+        operating_state = operating_state or {}
+        defaults = XfoilCase()
+        case = XfoilCase(
+            mach_list=list(operating_state.get("mach_list", defaults.mach_list)),
+            alpha_deg_list=list(
+                operating_state.get("alpha_deg_list", defaults.alpha_deg_list)
+            ),
+            thickness_to_chord=operating_state.get(
+                "thickness_to_chord", defaults.thickness_to_chord
+            ),
+        )
+
+        wing = next(
+            (
+                component
+                for component in vehicle.aero_surfaces.values()
+                if getattr(component, "type", None) == "wing"
+            ),
+            None,
+        )
+        self._airfoil = getattr(wing, "airfoil_root", None) if wing is not None else None
 
         for mach in case.mach_list:
             if mach <= MIN_MACH_ABSOLUTE:
@@ -308,6 +357,7 @@ class XFOILAnalysis(BaseAnalysis):
                 "xfoil_binary_available": xfoil_registered_and_present,
                 "mach_range": [MIN_MACH, MAX_MACH],
                 "alpha_deg_range": [MIN_ALPHA_DEG, MAX_ALPHA_DEG],
+                "airfoil_root": self._airfoil,
             },
         )
 
@@ -378,9 +428,14 @@ def main() -> dict[str, Any]:
         ``xfoil_runner_results.json`` next to this module).
     """
     analysis = XFOILAnalysis()
+    # No committed vehicle config carries fin thickness data (see the
+    # `setup()` docstring gap note), so a minimal placeholder vehicle is
+    # used here; the Ackeret polar defaults to the real MELprop fin
+    # geometry (FIN_THICKNESS_TO_CHORD) regardless.
+    placeholder_vehicle = BaseVehicleConfig(name="xfoil_fin_polar_placeholder")
     with warnings.catch_warnings():
         warnings.simplefilter("always")
-        analysis.setup()
+        analysis.setup(placeholder_vehicle)
         results = analysis.execute()
 
     assert analysis.validate_results(results), "Ackeret polar failed self-consistency check"

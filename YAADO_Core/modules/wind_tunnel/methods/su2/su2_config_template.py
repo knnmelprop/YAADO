@@ -1,4 +1,3 @@
-from typing import Any
 # YAADO | analyses.cfd.su2_config_template | v0.3.0
 """SU2 external-aerodynamics configuration generator for the ramjet rocket.
 
@@ -51,12 +50,15 @@ import json
 import math
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
 from YAADO_Core.modules.powerplant.inlet_methods.wedge import DESIGN_ALTITUDE_M
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 #: Mach numbers swept for the external-aero study (transonic -> Mach 3,
 #: i.e. entirely above the AVL applicability ceiling of Mach 0.6).
@@ -140,6 +142,22 @@ _BASE_CONFIG: dict[str, str] = {
     "OUTPUT_FILES": "(RESTART, PARAVIEW, SURFACE_CSV)",
     "HISTORY_OUTPUT": "(ITER, RMS_RES, AERO_COEFF)",
 }
+
+
+def _first_component_of_type(components: dict[str, Any], type_name: str) -> Any | None:
+    """Return the first component in ``components`` whose ``.type`` matches.
+
+    Args:
+        components: A vehicle component dict (e.g. ``vehicle.bodies``).
+        type_name: Discriminator value to match (e.g. ``"axisymmetric_body"``).
+
+    Returns:
+        The first matching component, or ``None`` if no component matches.
+    """
+    for component in components.values():
+        if getattr(component, "type", None) == type_name:
+            return component
+    return None
 
 
 def load_rocket_config(path: Path | str = VEHICLE_CONFIG_PATH) -> Any:
@@ -532,33 +550,53 @@ class SU2ConfigGeneration(BaseAnalysis):
 
     def setup(
         self,
-        vehicle_config: Any,
-        mach_sweep: tuple[float, ...] = MACH_SWEEP,
-        aoa_deg: float = 0.0,
-        altitude_m: float = DESIGN_ALTITUDE_M,
-        output_dir: Path | str = OUTPUT_DIR,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
     ) -> None:
-        """Bind the analysis to a rocket config and Mach sweep.
+        """Bind the analysis to a vehicle configuration and Mach sweep.
 
         Args:
-            vehicle_config: Validated rocket configuration with body/fins.
-            mach_sweep: Mach numbers to generate a case for.
-            aoa_deg: Angle of attack in degrees, shared by all cases.
-            altitude_m: ISA altitude [m] for the freestream state.
-            output_dir: Directory the ``.cfg`` files are written into.
+            vehicle: Validated, vehicle-agnostic configuration. Body
+                geometry is read from ``vehicle.bodies`` (the first
+                component whose ``type == "axisymmetric_body"``) and fin
+                geometry from ``vehicle.aero_surfaces`` (the first
+                ``type == "fins"``).
+            operating_state: Optional operating conditions and run
+                settings in SI units. Recognized keys: ``mach_sweep``
+                (``tuple[float, ...]``, defaults to :data:`MACH_SWEEP`),
+                ``alpha_deg`` (float, angle of attack shared by all cases,
+                defaults to 0.0), ``altitude_m`` (float, ISA altitude,
+                defaults to ``DESIGN_ALTITUDE_M``), and ``output_dir``
+                (``str | Path``, destination directory, defaults to
+                :data:`OUTPUT_DIR`). ``None`` falls back to all defaults.
 
         Raises:
-            ValueError: If the config has no body/fins definition.
+            ValueError: If ``vehicle`` has no ``axisymmetric_body``
+                component in ``bodies`` or no ``fins`` component in
+                ``aero_surfaces``.
         """
-        if getattr(vehicle_config, "body", None) is None:
-            raise ValueError("vehicle_config must define body")
-        if getattr(vehicle_config, "fins", None) is None:
-            raise ValueError("vehicle_config must define fins")
-        self._config = vehicle_config
-        self._mach_sweep = mach_sweep
-        self._aoa_deg = aoa_deg
-        self._altitude_m = altitude_m
-        self._output_dir = Path(output_dir)
+        operating_state = operating_state or {}
+        body = _first_component_of_type(vehicle.bodies, "axisymmetric_body")
+        if body is None:
+            raise ValueError("vehicle.bodies must define an 'axisymmetric_body' component")
+        fins = _first_component_of_type(vehicle.aero_surfaces, "fins")
+        if fins is None:
+            raise ValueError("vehicle.aero_surfaces must define a 'fins' component")
+
+        # Internal adapter preserving the `.name` / `.body` / `.fins` /
+        # `.mass_properties` attribute shape consumed by build_su2_config
+        # below, so only the data *source* changes (vehicle-derived, not a
+        # bespoke payload), not the generated .cfg numerics.
+        self._config = SimpleNamespace(
+            name=vehicle.name,
+            body=body,
+            fins=fins,
+            mass_properties=vehicle.mass_properties,
+        )
+        self._mach_sweep = tuple(operating_state.get("mach_sweep", MACH_SWEEP))
+        self._aoa_deg = operating_state.get("alpha_deg", 0.0)
+        self._altitude_m = operating_state.get("altitude_m", DESIGN_ALTITUDE_M)
+        self._output_dir = Path(operating_state.get("output_dir", OUTPUT_DIR))
         self._is_setup = True
 
     def execute(self) -> AnalysisResults:
@@ -641,30 +679,48 @@ class SU2ConfigGenerator(BaseAnalysis):
 
     def setup(
         self,
-        vehicle_config: Any,
-        altitude_m: float = DESIGN_ALTITUDE_M,
-        output_dir: Path | str = RUNS_OUTPUT_DIR,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
     ) -> None:
-        """Bind the analysis to a rocket config and output directory.
+        """Bind the analysis to a vehicle configuration and output directory.
 
         Args:
-            vehicle_config: Validated rocket configuration with body/fins.
-            altitude_m: ISA altitude [m] for the freestream state.
-            output_dir: Directory the ``.cfg`` files and manifest are
-                written into (created if missing). Injectable so tests
-                can point it at ``tmp_path`` instead of the repo-root
-                ``runs/su2/`` default.
+            vehicle: Validated, vehicle-agnostic configuration. Body
+                geometry is read from ``vehicle.bodies`` (the first
+                component whose ``type == "axisymmetric_body"``) and fin
+                geometry from ``vehicle.aero_surfaces`` (the first
+                ``type == "fins"``).
+            operating_state: Optional operating conditions and run
+                settings in SI units. Recognized keys: ``altitude_m``
+                (float, ISA altitude, defaults to ``DESIGN_ALTITUDE_M``)
+                and ``output_dir`` (``str | Path``, destination directory
+                for the ``.cfg`` files and manifest -- created if
+                missing -- defaults to :data:`RUNS_OUTPUT_DIR`). Injectable
+                so tests can point ``output_dir`` at ``tmp_path`` instead
+                of the repo-root ``runs/su2/`` default. ``None`` falls
+                back to both defaults.
 
         Raises:
-            ValueError: If the config has no body/fins definition.
+            ValueError: If ``vehicle`` has no ``axisymmetric_body``
+                component in ``bodies`` or no ``fins`` component in
+                ``aero_surfaces``.
         """
-        if getattr(vehicle_config, "body", None) is None:
-            raise ValueError("vehicle_config must define body")
-        if getattr(vehicle_config, "fins", None) is None:
-            raise ValueError("vehicle_config must define fins")
-        self._config = vehicle_config
-        self._altitude_m = altitude_m
-        self._output_dir = Path(output_dir)
+        operating_state = operating_state or {}
+        body = _first_component_of_type(vehicle.bodies, "axisymmetric_body")
+        if body is None:
+            raise ValueError("vehicle.bodies must define an 'axisymmetric_body' component")
+        fins = _first_component_of_type(vehicle.aero_surfaces, "fins")
+        if fins is None:
+            raise ValueError("vehicle.aero_surfaces must define a 'fins' component")
+
+        self._config = SimpleNamespace(
+            name=vehicle.name,
+            body=body,
+            fins=fins,
+            mass_properties=vehicle.mass_properties,
+        )
+        self._altitude_m = operating_state.get("altitude_m", DESIGN_ALTITUDE_M)
+        self._output_dir = Path(operating_state.get("output_dir", RUNS_OUTPUT_DIR))
         self._is_setup = True
 
     def generate(

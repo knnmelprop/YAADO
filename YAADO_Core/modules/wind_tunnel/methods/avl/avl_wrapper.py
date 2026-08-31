@@ -1,4 +1,3 @@
-from typing import Any
 # YAADO | analyses.aerodynamics.avl_wrapper | v0.1.0
 """AVL (Athena Vortex Lattice) wrapper for subsonic fixed-wing analysis.
 
@@ -17,8 +16,11 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 #: AVL applicability limits (linear potential-flow method).
 MAX_MACH = 0.6
@@ -58,6 +60,22 @@ def avl_is_available() -> bool:
     return shutil.which("avl") is not None
 
 
+def _first_component_of_type(components: dict[str, Any], type_name: str) -> Any | None:
+    """Return the first component in ``components`` whose ``.type`` matches.
+
+    Args:
+        components: A vehicle component dict (e.g. ``vehicle.aero_surfaces``).
+        type_name: Discriminator value to match (e.g. ``"wing"``).
+
+    Returns:
+        The first matching component, or ``None`` if no component matches.
+    """
+    for component in components.values():
+        if getattr(component, "type", None) == type_name:
+            return component
+    return None
+
+
 class AVLAnalysis(BaseAnalysis):
     """Subsonic wing aerodynamics via AVL, with analytical fallback.
 
@@ -82,22 +100,31 @@ class AVLAnalysis(BaseAnalysis):
 
     def setup(
         self,
-        vehicle_config: Any,
-        mach: float = 0.3,
-        alpha_deg: float = 2.0,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
     ) -> None:
         """Bind the analysis to a vehicle and flight condition.
 
         Args:
-            vehicle_config: Validated UAV configuration with a wing.
-            mach: Freestream Mach number (must be < 0.6).
-            alpha_deg: Angle of attack in degrees (must be < 15).
+            vehicle: Validated, vehicle-agnostic configuration. The wing is
+                read from ``vehicle.aero_surfaces`` (the first component
+                whose ``type == "wing"``).
+            operating_state: Optional operating conditions in SI units.
+                Recognized keys: ``mach`` (freestream Mach number, must be
+                < :data:`MAX_MACH`; defaults to 0.3) and ``alpha_deg``
+                (angle of attack in degrees, must satisfy
+                ``|alpha_deg| < MAX_ALPHA_DEG``; defaults to 2.0). ``None``
+                falls back to both defaults.
 
         Raises:
             ValueError: If the flight condition violates AVL applicability
-                limits (Mach >= 0.6 or alpha >= 15 deg), or the config has
-                no wing definition.
+                limits (Mach >= 0.6 or alpha >= 15 deg), or ``vehicle`` has
+                no ``wing`` component in ``aero_surfaces``.
         """
+        operating_state = operating_state or {}
+        mach = operating_state.get("mach", 0.3)
+        alpha_deg = operating_state.get("alpha_deg", 2.0)
+
         if mach >= MAX_MACH:
             raise ValueError(
                 f"Mach {mach} outside AVL applicability (Mach < {MAX_MACH}); "
@@ -108,9 +135,15 @@ class AVLAnalysis(BaseAnalysis):
                 f"alpha {alpha_deg} deg outside AVL applicability "
                 f"(|alpha| < {MAX_ALPHA_DEG} deg)"
             )
-        if getattr(vehicle_config, "wing", None) is None:
-            raise ValueError("vehicle_config must define a wing")
-        self._config = vehicle_config
+        wing = _first_component_of_type(vehicle.aero_surfaces, "wing")
+        if wing is None:
+            raise ValueError("vehicle.aero_surfaces must define a 'wing' component")
+
+        # Internal adapter preserving the `.name` / `.wing` attribute shape
+        # consumed by _build_avl_wing_deck / _execute_analytical below, so
+        # only the data *source* changes (vehicle-derived, not a bespoke
+        # payload), not the downstream numerics.
+        self._config = SimpleNamespace(name=vehicle.name, wing=wing)
         self._mach = mach
         self._alpha_deg = alpha_deg
         self._is_setup = True
