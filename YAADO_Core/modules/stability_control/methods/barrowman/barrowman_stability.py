@@ -93,11 +93,14 @@ import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 
 from YAADO_Core.modules.wind_tunnel.methods.avl.avl_wrapper import helmbold_cl_alpha  # noqa: E402
+from YAADO_Core.ComponentStore.aero_surfaces import Fins  # noqa: E402
+from YAADO_Core.ComponentStore.body import AxisymmetricBody  # noqa: E402
 from YAADO_Core.Foundation.analysis_base import (  # noqa: E402
     AnalysisResults,
     BaseAnalysis,
     FidelityLevel,
 )
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
 
 # --------------------------------------------------------------------------
 # Named constants (Barrowman / Rogers-extension correlation parameters).
@@ -255,6 +258,86 @@ def load_geometry(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> RocketGeo
         fin_tip_chord_m=float(fins["chord_tip_m"]),
         fin_sweep_deg=float(fins["sweep_deg"]),
         cg_from_nose_m=float(mass["cg_from_nose_m"]),
+    )
+
+
+def geometry_from_vehicle(vehicle: BaseVehicleConfig) -> RocketGeometry:
+    """Build Barrowman-method geometry from a validated vehicle configuration.
+
+    Reads the axisymmetric body, fin-set geometry, and vehicle CG directly
+    from ``vehicle`` (no file I/O), per the ``BaseAnalysis.setup`` contract.
+    Exactly one :class:`~YAADO_Core.ComponentStore.body.AxisymmetricBody`
+    is expected in ``vehicle.bodies`` and exactly one
+    :class:`~YAADO_Core.ComponentStore.aero_surfaces.Fins` component in
+    ``vehicle.aero_surfaces``; the vehicle CG is taken from
+    ``vehicle.mass_properties`` if set, otherwise from the body's own
+    ``mass`` field.
+
+    Args:
+        vehicle: Validated, vehicle-agnostic configuration.
+
+    Returns:
+        Populated :class:`RocketGeometry`.
+
+    Raises:
+        ValueError: If ``vehicle`` does not define exactly one body and
+            one fin set, if a geometry field the Barrowman method needs
+            is left unset (``None``) on the schema, if no CG is
+            available, or if the fineness ratio is too low for
+            slender-body empirical aero (``L/D < 5``).
+    """
+    bodies = [b for b in vehicle.bodies.values() if isinstance(b, AxisymmetricBody)]
+    if len(bodies) != 1:
+        raise ValueError(
+            "Barrowman method requires exactly one AxisymmetricBody in "
+            f"vehicle.bodies; found {len(bodies)}"
+        )
+    body = bodies[0]
+
+    fin_sets = [f for f in vehicle.aero_surfaces.values() if isinstance(f, Fins)]
+    if len(fin_sets) != 1:
+        raise ValueError(
+            "Barrowman method requires exactly one Fins component in "
+            f"vehicle.aero_surfaces; found {len(fin_sets)}"
+        )
+    fins = fin_sets[0]
+
+    if body.nose_length_m is None:
+        raise ValueError("AxisymmetricBody.nose_length_m is required by the Barrowman method but is unset")
+    if body.nose_diameter_m is None:
+        raise ValueError("AxisymmetricBody.nose_diameter_m is required by the Barrowman method but is unset")
+    if fins.chord_root_m is None:
+        raise ValueError("Fins.chord_root_m is required by the Barrowman method but is unset")
+    if fins.chord_tip_m is None:
+        raise ValueError("Fins.chord_tip_m is required by the Barrowman method but is unset")
+
+    total_length_m = body.total_length_m if body.total_length_m is not None else body.length_m
+
+    mass = vehicle.mass_properties if vehicle.mass_properties is not None else body.mass
+    if mass is None:
+        raise ValueError(
+            "Barrowman method requires a CG: set vehicle.mass_properties "
+            "or the body's own mass.cg_from_nose_m"
+        )
+
+    if total_length_m / body.diameter_m < 5.0:
+        raise ValueError(
+            "fineness ratio L/D < 5: slender-body empirical aero invalid. "
+            "Please use a CFD solver for blunt bodies."
+        )
+
+    return RocketGeometry(
+        d_ref_m=body.diameter_m,
+        nose_length_m=body.nose_length_m,
+        nose_base_diameter_m=body.nose_diameter_m,
+        total_length_m=total_length_m,
+        transition_length_m=TRANSITION_LENGTH_M,
+        fin_count=fins.count,
+        fin_span_m=fins.span_m,
+        fin_root_chord_m=fins.chord_root_m,
+        fin_tip_chord_m=fins.chord_tip_m,
+        fin_sweep_deg=fins.sweep_deg,
+        cg_from_nose_m=mass.cg_from_nose_m,
     )
 
 
@@ -484,7 +567,7 @@ class BarrowmanStabilityAnalysis(BaseAnalysis):
 
     Example:
         >>> analysis = BarrowmanStabilityAnalysis()
-        >>> analysis.setup()
+        >>> analysis.setup(vehicle)  # doctest: +SKIP
         >>> results = analysis.execute()
         >>> results["static_margin_cal"] > 0  # doctest: +SKIP
     """
@@ -500,16 +583,31 @@ class BarrowmanStabilityAnalysis(BaseAnalysis):
         """Rocket geometry bound by :meth:`setup`, or None before setup."""
         return self._geometry
 
-    def setup(self, config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> None:
-        """Load geometry from the vehicle YAML and validate it.
+    def setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
+    ) -> None:
+        """Bind the analysis to a validated vehicle configuration.
+
+        Geometry is read from ``vehicle`` via :func:`geometry_from_vehicle`
+        (never parsed from disk), per the :class:`BaseAnalysis` contract.
 
         Args:
-            config_path: Path to the ramjet-rocket ``vehicle_config.yaml``.
+            vehicle: Validated vehicle configuration providing the
+                axisymmetric body, fin-set geometry, and CG.
+            operating_state: Unused by this method -- the Barrowman/Rogers
+                CP location does not depend on altitude or dynamic
+                pressure, only on Mach number (swept internally by
+                :meth:`execute`). Accepted for :class:`BaseAnalysis`
+                contract compatibility.
 
         Raises:
-            ValueError: If any geometry field is non-physical (<= 0).
+            ValueError: If any geometry field is non-physical (<= 0) or a
+                field the method needs is missing from ``vehicle`` (see
+                :func:`geometry_from_vehicle`).
         """
-        geometry = load_geometry(config_path)
+        geometry = geometry_from_vehicle(vehicle)
         for field_name in (
             "d_ref_m",
             "nose_length_m",
