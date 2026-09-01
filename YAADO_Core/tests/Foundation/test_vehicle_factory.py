@@ -119,7 +119,7 @@ def test_build_appends_wing_and_propulsion_with_injected_suave() -> None:
     assert wing.sweeps.quarter_chord == pytest.approx(5.0)
 
     network = networks[0]
-    assert network.tag == "generic-turbojet"
+    assert network.tag == "main_engine"
 
 
 def test_build_without_suave_raises_runtime_error() -> None:
