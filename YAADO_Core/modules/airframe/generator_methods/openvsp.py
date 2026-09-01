@@ -383,7 +383,7 @@ class OpenVSPExporter(BaseAnalysis):
             operating_state: Optional SI-unit operating conditions. This
                 geometry-only exporter has no operating-state dependence,
                 except that an ``"output_dir"`` key (``str`` or
-                :class:`~pathlib.Path``) overrides the directory the
+                :class:`~pathlib.Path`) overrides the directory the
                 ``.vspscript`` and manifest are written into (default:
                 the constructor's :data:`RUNS_OUTPUT_DIR`, injectable so
                 tests can point it at ``tmp_path``).

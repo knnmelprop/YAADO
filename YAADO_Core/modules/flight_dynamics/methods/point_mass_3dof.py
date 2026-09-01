@@ -765,7 +765,11 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
             "range_at_burnout_m": result["range_at_burnout_m"],
         }
         metadata = dict(result["metadata"])
-        metadata["_samples"] = result["_samples"]
+        samples = result["_samples"]
+        metadata["_samples"] = {
+            key: value.tolist() if isinstance(value, np.ndarray) else value
+            for key, value in samples.items()
+        }
 
         results = AnalysisResults(
             name=self.name,
