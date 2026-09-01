@@ -1,5 +1,5 @@
 # YAADO — by MELprop
-![Python](https://img.shields.io/badge/python-3.11+-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)
+![Python](https://img.shields.io/badge/python-3.11+-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/knnmelprop/YAADO)
 
 The project aims to be a user-friendly preliminary design and Multidisciplinary Design Optimization (MDO) environment for aerospace vehicles. YAADO's goal is to enable everybody to use variable-fidelity design analysis tools to move your designs from paper and laptop to the sky.
 
