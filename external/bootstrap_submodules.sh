@@ -44,7 +44,7 @@ if [ "$status" -eq 0 ]; then
   
   echo ""
   echo "Installing SUAVE legacy dependencies to bypass outdated setup.py..."
-  uv pip install wheel scikit-learn plotly numpy scipy
+  uv pip install "setuptools<70" wheel scikit-learn plotly numpy scipy
 
   echo "Installing SUAVE..."
   uv pip install --no-build-isolation -e ./external/suave/trunk
