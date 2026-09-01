@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 try:
+    import YAADO_Core.modules.suave_compat  # Apply modern Python shims first
     import SUAVE  # type: ignore[import-not-found]
 
     SUAVE_AVAILABLE = True

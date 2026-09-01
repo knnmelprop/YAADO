@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
-# MELprop-IADE | external/bootstrap_submodules.sh | v0.1.0
 #
 # Initializes and pins external/ submodules (SUAVE, pyCycle, SU2,
-# OpenVSP). Safe to re-run. Does NOT install Python packages or build
-# anything — see docs/environment-native.md, environment-conda.yml, or
-# .devcontainer/ for that.
-#
-# Verified 2026-07-10: `git submodule update --init --recursive` was run
-# as part of adding these submodules in this session and all four landed
-# at their pinned commits correctly. The idempotent re-run behavior below
-# (running this script a second time) was NOT separately re-tested.
+# OpenVSP). It then automatically installs SUAVE into the active
+# virtual environment using `--no-build-isolation` to bypass
+# legacy setup.py failures.
 #
 # external/su2 (257 MB recursive) and external/openvsp (412 MB) checked out add real
-# weight to a full recursive clone — see docs/EXTERNAL_TOOLS.md.
+# weight to a full recursive clone.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-echo "MELprop-IADE: initializing submodules..."
+echo "YAADO: initializing submodules..."
 git submodule update --init --recursive
 
 EXPECTED_SUAVE="6554d2b3d1e7c2f1d4ba572aec99e1fd69d34a93"
@@ -36,7 +30,7 @@ status=0
 check() {
   local name="$1" actual="$2" expected="$3" ref_label="$4"
   if [ "$actual" != "$expected" ]; then
-    echo "WARNING: external/$name is at $actual, expected $expected ($ref_label). See docs/EXTERNAL_TOOLS.md." >&2
+    echo "WARNING: external/$name is at $actual, expected $expected ($ref_label)." >&2
     status=1
   fi
 }
@@ -47,8 +41,17 @@ check openvsp "$actual_openvsp" "$EXPECTED_OPENVSP" "tag OpenVSP_3.51.0"
 
 if [ "$status" -eq 0 ]; then
   echo "Submodules OK: external/suave @ 2.5.2, external/pycycle @ 4.1.2, external/su2 @ v8.5.0, external/openvsp @ 3.51.0"
+  
+  echo ""
+  echo "Installing SUAVE legacy dependencies to bypass outdated setup.py..."
+  uv pip install "setuptools<70" wheel scikit-learn plotly numpy scipy
+
+  echo "Installing SUAVE..."
+  uv pip install --no-build-isolation -e ./external/suave/trunk
+  
+  echo "SUAVE bootstrap complete!"
 else
-  echo "One or more submodules are NOT at their pinned ref — do not proceed without human review." >&2
+  echo "One or more submodules are NOT at their pinned ref" >&2
 fi
 
 exit "$status"
