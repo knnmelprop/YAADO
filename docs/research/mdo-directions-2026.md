@@ -47,12 +47,13 @@ flowchart TD
 1. **OpenMDAO is already a (transitive) dependency.** `om-pycycle==4.1.2` pulls
    `openmdao==3.45.0` into `uv.lock`; it is importable today, just unused directly. So R1
    is not a "new heavy dependency" decision — it is a "wire up what's already here" decision.
-2. **The optimization vision is already declared, but unratified.** `YAADO_Core/FlightDeck/README.md`
-   (commit `8339c88`, single contributor) states the "Hidden OpenMDAO Engine" design; `mission_builder.py`
-   already mentions mapping segments "onto SUAVE mission segments or an OpenMDAO trajectory."
-   FlightDeck itself is an empty stub (`__init__.py` only). The *identity* question
-   ("analysis tool vs optimization tool") is therefore already answered in the repo's own
-   docs — what is unsettled and RFC-worthy is the **mechanism**.
+2. **The optimization vision is already set by the lead engineer.** `YAADO_Core/FlightDeck/README.md`
+   (commit `8339c88`, by lead engineer **Arseni10Lk**) states the "Hidden OpenMDAO Engine" design;
+   `mission_builder.py` already mentions mapping segments "onto SUAVE mission segments or an OpenMDAO
+   trajectory." FlightDeck itself is an empty stub (`__init__.py` only). The *identity* question
+   ("analysis tool vs optimization tool") is therefore already answered in the repo's own docs — so
+   RFC 0004 does not re-open the direction; it details the **mechanism** for Arseni's outline, with
+   the go/no-go left to him.
 3. **SU2 integration is scaffold-only.** `wind_tunnel/methods/su2/` only *writes* `.cfg`
    files — it never meshes (gmsh), never invokes `su2_CFD`, and has no results parser. AVL is
    the only real subprocess-backed solver. This is why R4 (surrogate) is XL: it would optimize
@@ -131,9 +132,10 @@ wiki.
 
 ## Recommendations & sequencing
 
-1. **Write RFC 0004 (OpenMDAO optimization engine in FlightDeck) now** — ratify the mechanism the
-   FlightDeck README already assumes, scoped to a BaseAnalysis-direct loop first (skip SUAVE
-   routing to de-risk against RFC #41). Name Dymos and differentiable methods as sub-parts.
+1. **RFC 0004 (OpenMDAO optimization engine in FlightDeck)** details the mechanism for the direction
+   lead engineer **Arseni10Lk** already outlined in `FlightDeck/README.md`, scoped to a
+   BaseAnalysis-direct loop first (skip SUAVE routing to de-risk against RFC #41), with Dymos and
+   differentiable methods as sub-parts. It is a proposal for Arseni's review — the go/no-go is his.
 2. **Close the two foundational gaps as their own tracked work**, because multiple directions
    depend on them and neither is X-Plane/surrogate-specific:
    - Vehicle **spatial layout + inertia tensor** schema (unblocks X-Plane and 6-DOF/S&C).
