@@ -6,10 +6,11 @@ the import is guarded — the factory raises a clear error only when SUAVE
 is actually needed.
 
 The factory works on the generic :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
-composition (dictionaries of ``propulsion``, ``aero_surfaces`` and ``bodies``
-components) rather than a per-project ``vehicle_type`` discriminator: each
-component is translated to a SUAVE object based on its own ``type``/class and
-appended to the SUAVE vehicle being assembled.
+composition rather than a per-project ``vehicle_type`` discriminator: each
+``propulsion`` and ``aero_surfaces`` component is translated to a SUAVE object
+based on its own ``type``/class and appended to the SUAVE vehicle being
+assembled. (``bodies`` is not yet translated -- SUAVE fuselage/body mapping is
+a pending follow-up, not implemented here.)
 """
 
 from __future__ import annotations
@@ -22,11 +23,8 @@ from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 try:
     import SUAVE as _SUAVE  # type: ignore[import-not-found]
-
-    SUAVE_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on environment
     _SUAVE = None
-    SUAVE_AVAILABLE = False
 
 
 class VehicleFactory:
@@ -82,22 +80,26 @@ class VehicleFactory:
         suave_vehicle = self.suave.Vehicle()
         suave_vehicle.tag = vehicle.name
 
-        for component in vehicle.propulsion.values():
-            network = self._translate_propulsion(component)
+        for key, component in vehicle.propulsion.items():
+            network = self._translate_propulsion(component, tag=key)
             suave_vehicle.append_component(network)
 
-        for component in vehicle.aero_surfaces.values():
-            surface = self._translate_aero_surface(component)
+        for key, component in vehicle.aero_surfaces.items():
+            surface = self._translate_aero_surface(component, tag=key)
             suave_vehicle.append_component(surface)
 
         return suave_vehicle
 
-    def _translate_propulsion(self, component: Any) -> Any:
+    def _translate_propulsion(self, component: Any, tag: str) -> Any:
         """Translate a propulsion component into a SUAVE energy network.
 
         Args:
             component: One of ``SolidMotor``, ``RamjetEngine`` or
                 ``TurbojetEngine``.
+            tag: The component's key in ``vehicle.propulsion``, used as the
+                SUAVE network's ``.tag`` so multiple components of the same
+                type stay distinguishable (a fixed ``type`` literal or a
+                free-text ``name`` field would not guarantee uniqueness).
 
         Returns:
             A SUAVE ``Components.Energy.Networks`` instance carrying the
@@ -124,7 +126,7 @@ class VehicleFactory:
 
         if isinstance(component, RamjetEngine):
             network = networks.Ramjet()
-            network.tag = component.type
+            network.tag = tag
             network.design_mach = component.design_mach
             network.combustor_temp_K = component.combustor_temp_K
             network.nozzle_area_ratio = component.nozzle_area_ratio
@@ -132,7 +134,7 @@ class VehicleFactory:
 
         if isinstance(component, TurbojetEngine):
             network = networks.Turbojet_Super()
-            network.tag = component.name
+            network.tag = tag
             network.thrust_N = component.thrust_N
             network.sfc_kg_per_Ns = component.sfc_kg_per_Ns
             network.mach_range = component.mach_range
@@ -140,11 +142,15 @@ class VehicleFactory:
 
         raise TypeError(f"No SUAVE translation known for propulsion component type {type(component)!r}")
 
-    def _translate_aero_surface(self, component: Any) -> Any:
+    def _translate_aero_surface(self, component: Any, tag: str) -> Any:
         """Translate an aerodynamic surface component into a SUAVE wing.
 
         Args:
             component: One of ``Wings`` or ``Fins``.
+            tag: The component's key in ``vehicle.aero_surfaces``, used as
+                the SUAVE wing's ``.tag`` so multiple components of the same
+                type stay distinguishable (a fixed ``type`` literal would
+                not guarantee uniqueness).
 
         Returns:
             A SUAVE ``Components.Wings.Wing`` instance carrying the
@@ -158,7 +164,7 @@ class VehicleFactory:
 
         if isinstance(component, Wings):
             wing = Wing()
-            wing.tag = component.type
+            wing.tag = tag
             wing.aspect_ratio = component.aspect_ratio
             wing.sweeps.quarter_chord = component.sweep_deg
             wing.taper = component.taper_ratio
@@ -168,7 +174,7 @@ class VehicleFactory:
 
         if isinstance(component, Fins):
             wing = Wing()
-            wing.tag = component.type
+            wing.tag = tag
             wing.spans.projected = component.span_m
             wing.sweeps.leading_edge = component.sweep_deg
             wing.vertical = True
