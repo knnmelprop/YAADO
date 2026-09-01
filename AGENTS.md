@@ -26,7 +26,7 @@ While the repository currently contains reference configurations in `Hangar/` (l
 │   │   └── airframe/        # Geometry generation (OpenVSP) and meshing (Gmsh)
 │   └── tests/               # Pytest unit suite mirroring modules/
 │
-├── Hangar/                  # User workspace: Declarative vehicle YAML configs
+├── Hangar/                  # User workspace: Declarative vehicle TOML configs
 ├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
 └── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
 ```
