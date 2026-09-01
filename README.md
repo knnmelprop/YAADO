@@ -16,8 +16,8 @@ The project aims to be a user-friendly preliminary design and Multidisciplinary 
 To use YAADO, clone the repository and install the environment. Because YAADO relies on heavily integrated physics engines, you must initialize the submodules:
 
 ```bash
-git clone https://github.com/MELprop/yaado.git
-cd yaado
+git clone https://github.com/MELprop/YAADO.git
+cd YAADO
 uv sync
 ./external/bootstrap_submodules.sh
 ```
