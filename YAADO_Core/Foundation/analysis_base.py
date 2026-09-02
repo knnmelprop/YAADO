@@ -83,22 +83,16 @@ class BaseAnalysis(ABC):
         vehicle: BaseVehicleConfig,
         operating_state: dict | None = None,
     ) -> None:
-        """Bind the analysis to a validated vehicle configuration and prepare inputs.
+        """Bind the analysis to a vehicle configuration and prepare inputs.
 
-        All vehicle geometry and component data must be read from the
-        ``vehicle`` object (the centralized, validated
-        :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`);
-        analyses must not parse configuration files from disk or accept
-        bespoke, untyped payloads. This uniform ``setup`` contract is what
-        lets ``FlightDeck`` swap and re-parametrize solvers inside an MDO
-        loop.
+        Extracts the necessary geometry, component parameters, and operating 
+        conditions to initialize the underlying solver for execution.
 
         Args:
-            vehicle: Validated, vehicle-agnostic configuration providing the
-                geometry and component data the analysis needs.
-            operating_state: Optional operating conditions in SI units
-                (e.g. ``mach``, ``altitude_m``, ``alpha_deg``). ``None`` lets
-                the analysis fall back to its documented defaults.
+            vehicle: The centralized vehicle configuration to analyze.
+            operating_state: Optional dictionary of operating conditions in SI units
+                (e.g., ``mach``, ``altitude_m``, ``alpha_deg``). If ``None``,
+                the analysis will use its documented defaults.
         """
 
     @abstractmethod
