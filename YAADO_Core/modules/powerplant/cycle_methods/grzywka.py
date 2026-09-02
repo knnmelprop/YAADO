@@ -106,6 +106,7 @@ from YAADO_Core.modules.powerplant.inlet_methods.wedge import (
     GAMMA as GAMMA_COLD,
     MACH_DESIGN,
     MultiConeInletPerformanceAnalysis,
+    _first_ramjet_engine,
     isa_atmosphere,
 )
 from YAADO_Core.modules.powerplant.cycle_methods.mattingly import (
@@ -122,6 +123,7 @@ from YAADO_Core.modules.powerplant.cycle_methods.mattingly import (
     stagnation_temperature_K,
 )
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 # --------------------------------------------------------------------------
 # Grzywka 2022 loss coefficients (SI / dimensionless)
@@ -309,7 +311,7 @@ class GrzywkaCombustorNozzleAnalysis(BaseAnalysis):
 
     Example:
         >>> analysis = GrzywkaCombustorNozzleAnalysis()
-        >>> analysis.setup(mach0=2.5, altitude_m=10_000.0)
+        >>> analysis.setup(vehicle, operating_state={"mach0": 2.5, "altitude_m": 10_000.0})
         >>> results = analysis.execute()
         >>> results["Thi_N"] >= results["Th1_N"] >= results["Th2_N"]  # doctest: +SKIP
     """
@@ -318,6 +320,7 @@ class GrzywkaCombustorNozzleAnalysis(BaseAnalysis):
 
     def __init__(self, name: str = "grzywka_combustor_nozzle_cycle") -> None:
         super().__init__(name)
+        self._vehicle: BaseVehicleConfig | None = None
         self._mach0 = MACH_DESIGN
         self._altitude_m = DESIGN_ALTITUDE_M
         self._tt2_K = COMBUSTOR_EXIT_TEMP_DEFAULT_K
@@ -335,43 +338,49 @@ class GrzywkaCombustorNozzleAnalysis(BaseAnalysis):
 
     def setup(
         self,
-        mach0: float = MACH_DESIGN,
-        altitude_m: float = DESIGN_ALTITUDE_M,
-        combustor_exit_temp_K: float = COMBUSTOR_EXIT_TEMP_DEFAULT_K,
-        eta_inlet: float | None = None,
-        pi_cc: float = PI_CC,
-        pi_nozzle: float = PI_NOZZLE,
-        eta_b: float = ETA_B_DEFAULT,
-        h_PR: float = KEROSENE_H_PR,
-        gamma_t: float = GAMMA_HOT,
-        cp_t: float = CP_HOT,
-        cp_cold: float = CP_COLD,
-        capture_area_m2: float = CAPTURE_AREA_M2,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
     ) -> None:
         """Bind the analysis to a design point and Grzywka loss set.
 
+        If ``vehicle`` defines a
+        :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
+        propulsion component, its ``design_mach`` and ``combustor_temp_K``
+        are used as defaults for ``mach0`` and ``combustor_exit_temp_K``
+        respectively when ``operating_state`` does not override them.
+        The Grzywka-specific loss coefficients and gas properties have no
+        corresponding fields in
+        :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
+        yet, so they fall back to the documented Grzywka defaults unless
+        overridden via ``operating_state``.
+
         Args:
-            mach0: Freestream Mach number (must be > 1).
-            altitude_m: ISA altitude [m].
-            combustor_exit_temp_K: Station-2 total temperature Tt2 [K]
-                (placeholder default 2000 -- see the combustor risk
-                baseline in ramjet_cycle / assumptions A4).
-            eta_inlet: Inlet total-pressure recovery override. If ``None``
-                (default), computed from the 4-cone preset chain of
+            vehicle: Validated, vehicle-agnostic configuration. Searched
+                for a ``RamjetEngine`` propulsion component to source the
+                default Mach and combustor-exit temperature.
+            operating_state: Optional operating conditions (SI units).
+                Recognized keys: ``mach0`` (freestream Mach, must be
+                > 1), ``altitude_m`` (ISA altitude [m]),
+                ``combustor_exit_temp_K`` (station-2 total temperature
+                Tt2 [K]; placeholder default 2000 -- see the combustor
+                risk baseline in ramjet_cycle / assumptions A4),
+                ``eta_inlet`` (inlet total-pressure recovery override;
+                if absent, computed from the 4-cone preset chain of
                 :class:`MultiConeInletPerformanceAnalysis` at (``mach0``,
-                ``altitude_m``), exactly as ``ramjet_cycle`` does.
-            pi_cc: Combustion-chamber total-pressure ratio pt2/pt1
-                (Grzywka, default 0.8924).
-            pi_nozzle: Nozzle-duct total-pressure ratio pt3/pt2 (Grzywka,
-                default 0.97).
-            eta_b: Combustion efficiency (placeholder, default 0.95 --
-                shared with ramjet_cycle).
-            h_PR: Fuel lower heating value [J/kg] (default kerosene).
-            gamma_t: Hot-gas ratio of specific heats.
-            cp_t: Hot-gas specific heat at constant pressure [J/(kg*K)].
-            cp_cold: Cold-gas specific heat (for the Brayton cross-check).
-            capture_area_m2: Inlet capture area [m^2] (full-capture
-                assumption, as in inlet_performance / ramjet_cycle).
+                ``altitude_m``), exactly as ``ramjet_cycle`` does),
+                ``pi_cc`` (combustion-chamber total-pressure ratio
+                pt2/pt1, Grzywka default 0.8924), ``pi_nozzle``
+                (nozzle-duct total-pressure ratio pt3/pt2, Grzywka
+                default 0.97), ``eta_b`` (combustion efficiency,
+                placeholder default 0.95 -- shared with ramjet_cycle),
+                ``h_PR`` (fuel lower heating value [J/kg], default
+                kerosene), ``gamma_t`` (hot-gas ratio of specific
+                heats), ``cp_t`` (hot-gas specific heat at constant
+                pressure [J/(kg*K)]), ``cp_cold`` (cold-gas specific
+                heat, for the Brayton cross-check), ``capture_area_m2``
+                (inlet capture area [m^2], full-capture assumption, as
+                in inlet_performance / ramjet_cycle). ``None`` falls
+                back to the vehicle/design defaults.
 
         Raises:
             ValueError: If mach0 <= 1; pi_cc, pi_nozzle, eta_b or (when
@@ -379,6 +388,29 @@ class GrzywkaCombustorNozzleAnalysis(BaseAnalysis):
                 does not exceed the recovered combustor-inlet total
                 temperature Tt1 (= Tt0).
         """
+        operating_state = operating_state or {}
+        ramjet = _first_ramjet_engine(vehicle)
+
+        default_mach0 = ramjet.design_mach if ramjet is not None else MACH_DESIGN
+        default_tt2_K = (
+            ramjet.combustor_temp_K if ramjet is not None else COMBUSTOR_EXIT_TEMP_DEFAULT_K
+        )
+
+        mach0 = operating_state.get("mach0", default_mach0)
+        altitude_m = operating_state.get("altitude_m", DESIGN_ALTITUDE_M)
+        combustor_exit_temp_K = operating_state.get(
+            "combustor_exit_temp_K", default_tt2_K
+        )
+        eta_inlet = operating_state.get("eta_inlet", None)
+        pi_cc = operating_state.get("pi_cc", PI_CC)
+        pi_nozzle = operating_state.get("pi_nozzle", PI_NOZZLE)
+        eta_b = operating_state.get("eta_b", ETA_B_DEFAULT)
+        h_PR = operating_state.get("h_PR", KEROSENE_H_PR)
+        gamma_t = operating_state.get("gamma_t", GAMMA_HOT)
+        cp_t = operating_state.get("cp_t", CP_HOT)
+        cp_cold = operating_state.get("cp_cold", CP_COLD)
+        capture_area_m2 = operating_state.get("capture_area_m2", CAPTURE_AREA_M2)
+
         if mach0 <= 1.0:
             raise ValueError(f"mach0 must be > 1, got {mach0}")
         for label, value in (
@@ -402,6 +434,7 @@ class GrzywkaCombustorNozzleAnalysis(BaseAnalysis):
                 f"({tt1_preview_K:.2f} K) at mach0={mach0}, altitude_m={altitude_m}"
             )
 
+        self._vehicle = vehicle
         self._mach0 = mach0
         self._altitude_m = altitude_m
         self._tt2_K = combustor_exit_temp_K
@@ -435,10 +468,13 @@ class GrzywkaCombustorNozzleAnalysis(BaseAnalysis):
 
         inlet_analysis = MultiConeInletPerformanceAnalysis()
         inlet_analysis.setup(
-            mach_design=mach0,
-            altitude_m=altitude_m,
-            n_cones=DEFAULT_N_CONES_M25,
-            optimize_angles=False,
+            self._vehicle,
+            operating_state={
+                "mach_design": mach0,
+                "altitude_m": altitude_m,
+                "n_cones": DEFAULT_N_CONES_M25,
+                "optimize_angles": False,
+            },
         )
         return inlet_analysis.execute()["eta_inlet"], "multi_cone_4preset_chain"
 
@@ -801,8 +837,23 @@ def _build_output_dict(results: AnalysisResults) -> dict[str, Any]:
 
 def main() -> None:
     """Run the design-point Grzywka cycle, save JSON and print a summary."""
+    from YAADO_Core.ComponentStore.propulsion import RamjetEngine
+
+    vehicle = BaseVehicleConfig(
+        name="generic_ramjet_vehicle",
+        propulsion={
+            "stage2_ramjet": RamjetEngine(
+                design_mach=MACH_DESIGN,
+                combustor_temp_K=COMBUSTOR_EXIT_TEMP_DEFAULT_K,
+                nozzle_area_ratio=NOZZLE_AREA_RATIO_DESIGN,
+            )
+        },
+    )
+
     analysis = GrzywkaCombustorNozzleAnalysis()
-    analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M)
+    analysis.setup(
+        vehicle, operating_state={"mach0": MACH_DESIGN, "altitude_m": DESIGN_ALTITUDE_M}
+    )
     results = analysis.execute()
     output = _build_output_dict(results)
 

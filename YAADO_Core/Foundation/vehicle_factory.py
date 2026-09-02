@@ -22,6 +22,7 @@ from YAADO_Core.ComponentStore import Fins, RamjetEngine, SolidMotor, TurbojetEn
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 try:
+    import YAADO_Core.modules.suave_compat  # noqa: F401  # apply modern-Python shims before importing SUAVE
     import SUAVE as _SUAVE  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - depends on environment
     _SUAVE = None
