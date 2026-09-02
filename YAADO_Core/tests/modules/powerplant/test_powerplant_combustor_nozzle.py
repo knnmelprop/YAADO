@@ -82,11 +82,14 @@ def test_brayton_estimate_increases_with_fuel_air_ratio() -> None:
 # --------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def design_results() -> AnalysisResults:
+@pytest.fixture()
+def design_results(generic_ramjet_vehicle) -> AnalysisResults:
     """Design-point (Mach 2.5 / 10 km) Grzywka cycle results."""
     analysis = GrzywkaCombustorNozzleAnalysis()
-    analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M)
+    analysis.setup(
+        generic_ramjet_vehicle,
+        operating_state={"mach0": MACH_DESIGN, "altitude_m": DESIGN_ALTITUDE_M},
+    )
     return analysis.execute()
 
 
@@ -125,14 +128,18 @@ def test_throat_is_choked_and_dynamic(design_results: AnalysisResults) -> None:
     assert design_results["D21_throat_m"] > 0.0
 
 
-def test_throat_area_tracks_flight_condition() -> None:
+def test_throat_area_tracks_flight_condition(generic_ramjet_vehicle) -> None:
     """Dynamic throat: a different (V, H) yields a different A21."""
     design = GrzywkaCombustorNozzleAnalysis()
-    design.setup(mach0=2.5, altitude_m=10_000.0)
+    design.setup(
+        generic_ramjet_vehicle, operating_state={"mach0": 2.5, "altitude_m": 10_000.0}
+    )
     a_design = design.execute()["A21_throat_m2"]
 
     other = GrzywkaCombustorNozzleAnalysis()
-    other.setup(mach0=2.5, altitude_m=6_000.0)
+    other.setup(
+        generic_ramjet_vehicle, operating_state={"mach0": 2.5, "altitude_m": 6_000.0}
+    )
     a_other = other.execute()["A21_throat_m2"]
 
     # The throat is solved from continuity at each (V, H): a different
@@ -144,11 +151,14 @@ def test_throat_area_tracks_flight_condition() -> None:
 
 
 def test_thi_within_15pct_of_ramjet_cycle_design_thrust(
-    design_results: AnalysisResults,
+    design_results: AnalysisResults, generic_ramjet_vehicle
 ) -> None:
     """Ideal/matched thrust within 15% of ramjet_cycle at the same point."""
     ramjet = RamjetCycleAnalysis()
-    ramjet.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M)
+    ramjet.setup(
+        generic_ramjet_vehicle,
+        operating_state={"mach0": MACH_DESIGN, "altitude_m": DESIGN_ALTITUDE_M},
+    )
     ramjet_thrust_N = ramjet.execute()["thrust_N"]
 
     # Th1 (fully expanded + combustor loss) is the closest apples-to-apples
@@ -208,30 +218,42 @@ def test_execute_before_setup_raises() -> None:
         GrzywkaCombustorNozzleAnalysis().execute()
 
 
-def test_setup_rejects_subsonic_mach() -> None:
+def test_setup_rejects_subsonic_mach(generic_ramjet_vehicle) -> None:
     with pytest.raises(ValueError):
-        GrzywkaCombustorNozzleAnalysis().setup(mach0=0.8, altitude_m=10_000.0)
+        GrzywkaCombustorNozzleAnalysis().setup(
+            generic_ramjet_vehicle, operating_state={"mach0": 0.8, "altitude_m": 10_000.0}
+        )
 
 
-def test_setup_rejects_out_of_range_loss_coefficient() -> None:
+def test_setup_rejects_out_of_range_loss_coefficient(generic_ramjet_vehicle) -> None:
     with pytest.raises(ValueError):
-        GrzywkaCombustorNozzleAnalysis().setup(mach0=2.5, pi_cc=1.5)
+        GrzywkaCombustorNozzleAnalysis().setup(
+            generic_ramjet_vehicle, operating_state={"mach0": 2.5, "pi_cc": 1.5}
+        )
 
 
-def test_setup_rejects_combustor_temp_below_inlet_total() -> None:
+def test_setup_rejects_combustor_temp_below_inlet_total(generic_ramjet_vehicle) -> None:
     """Tt2 must exceed the recovered inlet total temperature."""
     with pytest.raises(ValueError):
         GrzywkaCombustorNozzleAnalysis().setup(
-            mach0=2.5, altitude_m=10_000.0, combustor_exit_temp_K=300.0
+            generic_ramjet_vehicle,
+            operating_state={
+                "mach0": 2.5,
+                "altitude_m": 10_000.0,
+                "combustor_exit_temp_K": 300.0,
+            },
         )
 
 
 def test_validate_results_rejects_broken_hierarchy(
-    design_results: AnalysisResults,
+    design_results: AnalysisResults, generic_ramjet_vehicle
 ) -> None:
     """A hierarchy violation (Th2 > Th1) must fail validation."""
     analysis = GrzywkaCombustorNozzleAnalysis()
-    analysis.setup(mach0=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M)
+    analysis.setup(
+        generic_ramjet_vehicle,
+        operating_state={"mach0": MACH_DESIGN, "altitude_m": DESIGN_ALTITUDE_M},
+    )
     bad = AnalysisResults(
         name="bad",
         fidelity=FidelityLevel.LEVEL_2,

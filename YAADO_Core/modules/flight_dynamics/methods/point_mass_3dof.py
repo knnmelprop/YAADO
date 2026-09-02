@@ -44,7 +44,6 @@ import csv
 import json
 import math
 import sys
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -59,6 +58,14 @@ from scipy.integrate import solve_ivp  # noqa: E402
 from scipy.integrate._ivp.ivp import OdeResult  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+
+from YAADO_Core.ComponentStore import AxisymmetricBody, Fins, SolidMotor  # noqa: E402
+from YAADO_Core.Foundation.analysis_base import (  # noqa: E402
+    AnalysisResults,
+    BaseAnalysis,
+    FidelityLevel,
+)
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -215,43 +222,116 @@ class BoosterParams:
         return self.isp_sl_s * self.mdot_kg_s * G0_MS2
 
 
-def load_booster_params(
-    config_path: Path = VEHICLE_CONFIG_PATH,
-    launch_angle_deg: float = LAUNCH_ANGLE_DEG,
-) -> BoosterParams:
-    """Load stage-1 booster parameters from the rocket vehicle config.
+def _first_solid_motor(vehicle: BaseVehicleConfig) -> SolidMotor | None:
+    """Return the first :class:`SolidMotor` in the vehicle's propulsion set.
 
     Args:
-        config_path: Path to ``vehicle_config.yaml`` for the ramjet rocket.
-        launch_angle_deg: Fixed thrust/body angle above horizontal [deg].
-            Defaults to the module's nominal near-vertical rail-launch angle
-            (``LAUNCH_ANGLE_DEG = 83.0``); overridden by
-            :func:`run_launch_angle_sweep` to explore shallower angles.
+        vehicle: Validated vehicle configuration to search.
+
+    Returns:
+        The first ``SolidMotor`` propulsion component found, or ``None``
+        if the vehicle defines no solid-motor propulsion component.
+    """
+    for component in vehicle.propulsion.values():
+        if isinstance(component, SolidMotor):
+            return component
+    return None
+
+
+def _first_axisymmetric_body(vehicle: BaseVehicleConfig) -> AxisymmetricBody | None:
+    """Return the first :class:`AxisymmetricBody` in the vehicle's bodies set.
+
+    Args:
+        vehicle: Validated vehicle configuration to search.
+
+    Returns:
+        The first ``AxisymmetricBody`` component found, or ``None`` if the
+        vehicle defines no axisymmetric body.
+    """
+    for component in vehicle.bodies.values():
+        if isinstance(component, AxisymmetricBody):
+            return component
+    return None
+
+
+def _first_fins(vehicle: BaseVehicleConfig) -> Fins | None:
+    """Return the first :class:`Fins` aero surface in the vehicle config.
+
+    Args:
+        vehicle: Validated vehicle configuration to search.
+
+    Returns:
+        The first ``Fins`` aero-surface component found, or ``None`` if the
+        vehicle defines no fin set.
+    """
+    for component in vehicle.aero_surfaces.values():
+        if isinstance(component, Fins):
+            return component
+    return None
+
+
+def resolve_booster_params_from_vehicle(
+    vehicle: BaseVehicleConfig,
+    operating_state: dict[str, float] | None = None,
+) -> BoosterParams:
+    """Resolve stage-1 booster parameters from a validated vehicle config.
+
+    All mass, propulsion and geometry data is read from ``vehicle``
+    (composition of :class:`~YAADO_Core.ComponentStore.propulsion.SolidMotor`,
+    :class:`~YAADO_Core.ComponentStore.body.AxisymmetricBody`,
+    :class:`~YAADO_Core.ComponentStore.aero_surfaces.Fins` and
+    :class:`~YAADO_Core.ComponentStore.mass.MassProperties`). The fixed
+    launch angle has no corresponding field on
+    :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig` (it is
+    a launch-site/operating condition, not a vehicle property), so it is
+    read from ``operating_state`` instead.
+
+    Args:
+        vehicle: Validated, vehicle-agnostic configuration providing the
+            propulsion, body, aero_surfaces (fins) and mass_properties
+            components.
+        operating_state: Optional operating conditions in SI units.
+            Recognized key: ``launch_angle_deg`` (fixed thrust/body angle
+            above horizontal [deg]), defaulting to the module's nominal
+            near-vertical rail-launch angle (``LAUNCH_ANGLE_DEG = 83.0``)
+            when not provided.
 
     Returns:
         Resolved :class:`BoosterParams` with the impulse-consistent thrust
         caveat already computed (see :attr:`BoosterParams.thrust_sl_N`).
 
     Raises:
-        ValueError: If the loaded config is not a :class:`Any`.
+        ValueError: If ``vehicle`` has no ``SolidMotor`` propulsion
+            component, no ``AxisymmetricBody``, no ``Fins`` aero surface,
+            or no ``mass_properties.total_mass_kg``.
     """
-    config = Any.from_yaml(config_path)
-    if not isinstance(config, Any):
-        raise ValueError(f"{config_path} is not a Generic Vehicle Any")
+    operating_state = operating_state or {}
+    launch_angle_deg = float(operating_state.get("launch_angle_deg", LAUNCH_ANGLE_DEG))
 
-    propulsion = config.stage_1.propulsion
-    if config.mass_properties is None or config.mass_properties.total_mass_kg is None:
-        raise ValueError("vehicle config is missing mass_properties.total_mass_kg")
+    propulsion = _first_solid_motor(vehicle)
+    if propulsion is None:
+        raise ValueError("vehicle has no SolidMotor propulsion component")
 
-    launch_mass_kg = config.mass_properties.total_mass_kg
+    body = _first_axisymmetric_body(vehicle)
+    if body is None:
+        raise ValueError("vehicle has no AxisymmetricBody component")
+
+    fins = _first_fins(vehicle)
+    if fins is None:
+        raise ValueError("vehicle has no Fins aero-surface component")
+
+    if vehicle.mass_properties is None or vehicle.mass_properties.total_mass_kg is None:
+        raise ValueError("vehicle.mass_properties.total_mass_kg is required")
+
+    launch_mass_kg = vehicle.mass_properties.total_mass_kg
     propellant_mass_kg = propulsion.propellant_mass_kg
     burnout_mass_kg = launch_mass_kg - propellant_mass_kg
     burn_time_s = propulsion.burn_time_s
     mdot_kg_s = propellant_mass_kg / burn_time_s
 
-    d_ref_m = config.body.diameter_m
+    d_ref_m = body.diameter_m
     a_ref_m2 = math.pi / 4.0 * d_ref_m**2
-    cd_fins = config.fins.count * CD_WAVE_PER_FIN
+    cd_fins = fins.count * CD_WAVE_PER_FIN
 
     return BoosterParams(
         launch_mass_kg=launch_mass_kg,
@@ -266,6 +346,39 @@ def load_booster_params(
         cd_fins=cd_fins,
         launch_angle_deg=launch_angle_deg,
         launch_angle_rad=math.radians(launch_angle_deg),
+    )
+
+
+def load_booster_params(
+    config_path: Path = VEHICLE_CONFIG_PATH,
+    launch_angle_deg: float = LAUNCH_ANGLE_DEG,
+) -> BoosterParams:
+    """Load stage-1 booster parameters from the rocket vehicle config file.
+
+    Thin YAML-loading wrapper around :func:`resolve_booster_params_from_vehicle`
+    for standalone script/CLI use (:func:`main`, :func:`run_launch_angle_sweep`).
+    Analyses embedded in an MDO workflow should call
+    :meth:`PointMass3DOFBoostAnalysis.setup` with an already-validated
+    ``vehicle`` object instead of reading from disk.
+
+    Args:
+        config_path: Path to ``vehicle_config.yaml`` for the rocket.
+        launch_angle_deg: Fixed thrust/body angle above horizontal [deg].
+            Defaults to the module's nominal near-vertical rail-launch angle
+            (``LAUNCH_ANGLE_DEG = 83.0``); overridden by
+            :func:`run_launch_angle_sweep` to explore shallower angles.
+
+    Returns:
+        Resolved :class:`BoosterParams` with the impulse-consistent thrust
+        caveat already computed (see :attr:`BoosterParams.thrust_sl_N`).
+
+    Raises:
+        ValueError: If the loaded config is missing required components
+            (see :func:`resolve_booster_params_from_vehicle`).
+    """
+    vehicle = BaseVehicleConfig.from_toml(config_path)
+    return resolve_booster_params_from_vehicle(
+        vehicle, operating_state={"launch_angle_deg": launch_angle_deg}
     )
 
 
@@ -411,11 +524,18 @@ def _ground_impact_event(t_s: float, state: np.ndarray, params: BoosterParams) -
     return state[1]
 
 
-def integrate_boost_phase(params: BoosterParams) -> OdeResult:
+def integrate_boost_phase(params: BoosterParams, h0_m: float = H0_M) -> OdeResult:
     """Integrate the boost-phase trajectory from ignition to burnout/impact.
 
     Args:
-        params: Booster parameters from :func:`load_booster_params`.
+        params: Booster parameters from :func:`load_booster_params` or
+            :func:`resolve_booster_params_from_vehicle`.
+        h0_m: Initial altitude [m] at ignition. Defaults to the module's
+            nominal rail-launch altitude (:data:`H0_M`); this is a
+            launch-site condition with no field on
+            :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`,
+            so callers building it from ``operating_state`` (e.g.
+            ``operating_state["altitude_m"]``) should pass it explicitly.
 
     Returns:
         The ``scipy.integrate.solve_ivp`` result, with dense output enabled.
@@ -426,7 +546,7 @@ def integrate_boost_phase(params: BoosterParams) -> OdeResult:
     _ground_impact_event.terminal = True
     _ground_impact_event.direction = -1.0
 
-    y0 = [X0_M, H0_M, V0_MS, V0_MS]
+    y0 = [X0_M, h0_m, V0_MS, V0_MS]
     sol = solve_ivp(
         fun=boost_dynamics,
         t_span=(0.0, params.burn_time_s),
@@ -443,12 +563,14 @@ def integrate_boost_phase(params: BoosterParams) -> OdeResult:
     return sol
 
 
-def postprocess(sol: OdeResult, params: BoosterParams) -> dict[str, Any]:
+def postprocess(sol: OdeResult, params: BoosterParams, h0_m: float = H0_M) -> dict[str, Any]:
     """Derive burnout state, q_max, and dense sample arrays from the solution.
 
     Args:
         sol: Result from :func:`integrate_boost_phase` (dense output).
         params: Booster parameters.
+        h0_m: Initial altitude [m] used for the integration (see
+            :func:`integrate_boost_phase`), reported back in the metadata.
 
     Returns:
         Dict with scalar results, a ``metadata`` sub-dict, and a
@@ -522,7 +644,7 @@ def postprocess(sol: OdeResult, params: BoosterParams) -> dict[str, Any]:
             "burnout_mass_kg": params.burnout_mass_kg,
             "mass_at_stop_kg": mass_at_time(t_end_s, params),
             "launch_angle_deg": params.launch_angle_deg,
-            "initial_altitude_m": H0_M,
+            "initial_altitude_m": h0_m,
             "reference_area_m2": params.a_ref_m2,
             "cd_fins": params.cd_fins,
             "atmosphere_model": (
@@ -553,6 +675,139 @@ def postprocess(sol: OdeResult, params: BoosterParams) -> dict[str, Any]:
         },
     }
     return result
+
+
+class PointMass3DOFBoostAnalysis(BaseAnalysis):
+    """3-DOF point-mass boost-phase trajectory analysis.
+
+    Wraps the module-level ISA atmosphere, drag build-up and boost-phase
+    ODE integration (see module docstring) as a :class:`BaseAnalysis`.
+    Point-mass analytical integration with empirical drag/Isp
+    correlations -> ``FidelityLevel.LEVEL_0``.
+
+    Example:
+        >>> analysis = PointMass3DOFBoostAnalysis()
+        >>> analysis.setup(vehicle)  # doctest: +SKIP
+        >>> results = analysis.execute()  # doctest: +SKIP
+        >>> results["burnout_mach"]  # doctest: +SKIP
+    """
+
+    fidelity = FidelityLevel.LEVEL_0
+
+    def __init__(self, name: str = "point_mass_3dof_boost") -> None:
+        super().__init__(name)
+        self._params: BoosterParams | None = None
+        self._h0_m: float = H0_M
+
+    def setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
+    ) -> None:
+        """Bind the analysis to a vehicle config and operating conditions.
+
+        Mass, propulsion (``SolidMotor``) and geometry (``AxisymmetricBody``
+        body diameter, ``Fins`` count) are read from ``vehicle``. The fixed
+        launch angle and initial altitude are launch-site conditions with
+        no field on :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`,
+        so they are read from ``operating_state`` instead (see
+        :func:`resolve_booster_params_from_vehicle`).
+
+        Args:
+            vehicle: Validated, vehicle-agnostic configuration providing
+                the propulsion, body, aero_surfaces (fins) and
+                mass_properties components used by the boost-phase model.
+            operating_state: Optional operating conditions in SI units.
+                Recognized keys: ``launch_angle_deg`` (fixed thrust/body
+                angle above horizontal [deg], defaults to
+                :data:`LAUNCH_ANGLE_DEG`) and ``altitude_m`` (initial
+                altitude at ignition [m], defaults to :data:`H0_M`).
+                ``None`` falls back to both module defaults.
+
+        Raises:
+            ValueError: If ``vehicle`` is missing a required component
+                (see :func:`resolve_booster_params_from_vehicle`).
+        """
+        operating_state = operating_state or {}
+        self._params = resolve_booster_params_from_vehicle(vehicle, operating_state)
+        self._h0_m = float(operating_state.get("altitude_m", H0_M))
+        self._is_setup = True
+
+    def execute(self) -> AnalysisResults:
+        """Integrate the boost-phase trajectory and return results.
+
+        Returns:
+            AnalysisResults with ``burnout_time_s``, ``burnout_velocity_ms``,
+            ``burnout_mach``, ``burnout_altitude_m``, ``q_max_pa`` and
+            ``range_at_burnout_m`` in SI units. ``metadata`` carries the
+            full postprocessing breakdown (model documentation, resolved
+            booster parameters, and dense trajectory samples under
+            ``_samples``).
+
+        Raises:
+            RuntimeError: If called before :meth:`setup`, or if results
+                fail the analytical sanity check.
+        """
+        if not self._is_setup or self._params is None:
+            raise RuntimeError(
+                "PointMass3DOFBoostAnalysis.execute() called before setup()"
+            )
+
+        sol = integrate_boost_phase(self._params, h0_m=self._h0_m)
+        result = postprocess(sol, self._params, h0_m=self._h0_m)
+
+        data = {
+            "burnout_time_s": result["burnout_time_s"],
+            "burnout_velocity_ms": result["burnout_velocity_ms"],
+            "burnout_mach": result["burnout_mach"],
+            "burnout_altitude_m": result["burnout_altitude_m"],
+            "q_max_pa": result["q_max_pa"],
+            "range_at_burnout_m": result["range_at_burnout_m"],
+        }
+        metadata = dict(result["metadata"])
+        samples = result["_samples"]
+        metadata["_samples"] = {
+            key: value.tolist() if isinstance(value, np.ndarray) else value
+            for key, value in samples.items()
+        }
+
+        results = AnalysisResults(
+            name=self.name,
+            fidelity=self.fidelity,
+            data=data,
+            metadata=metadata,
+        )
+        if not self.validate_results(results):
+            raise RuntimeError(
+                "PointMass3DOFBoostAnalysis results failed analytical "
+                "sanity check; see validate_results()"
+            )
+        return results
+
+    def validate_results(self, results: AnalysisResults) -> bool:
+        """Sanity-check the burnout state against physical bounds.
+
+        Checks that ``burnout_time_s``, ``burnout_velocity_ms`` and
+        ``q_max_pa`` are non-negative and finite, and that
+        ``burnout_altitude_m`` is not below ground level (the terminal
+        ground-impact event should have stopped the integration at or
+        above ``h = 0``).
+
+        Args:
+            results: Results produced by :meth:`execute`.
+
+        Returns:
+            True if all checks pass.
+        """
+        if not results.data:
+            return False
+        for key in ("burnout_time_s", "burnout_velocity_ms", "q_max_pa"):
+            value = results[key]
+            if not math.isfinite(value) or value < 0.0:
+                return False
+        if results["burnout_altitude_m"] < -1e-6:
+            return False
+        return True
 
 
 def plot_boost_phase(samples: dict[str, Any], output_path: Path = OUTPUT_PNG_PATH) -> None:

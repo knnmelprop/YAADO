@@ -95,19 +95,23 @@ def test_inlet_performance_analysis_execute_before_setup_raises() -> None:
         analysis.execute()
 
 
-def test_inlet_performance_analysis_setup_rejects_subsonic_design_mach() -> None:
+def test_inlet_performance_analysis_setup_rejects_subsonic_design_mach(
+    generic_ramjet_vehicle,
+) -> None:
     """InletPerformanceAnalysis.setup() raises ValueError for subsonic design Mach."""
     analysis = InletPerformanceAnalysis()
     with pytest.raises(ValueError):
-        analysis.setup(mach_design=0.8)
+        analysis.setup(generic_ramjet_vehicle, operating_state={"mach_design": 0.8})
 
 
-def test_inlet_performance_analysis_design_point_mach_2p5() -> None:
+def test_inlet_performance_analysis_design_point_mach_2p5(generic_ramjet_vehicle) -> None:
     """End-to-end design-point run: FidelityLevel.LEVEL_0, physically valid,
     and matches the hand-derived shock chain (eta_inlet ~ 0.6606, FAIL vs
     MIL-E-5007 at eta_std ~ 0.8703 for this single-cone spike)."""
     analysis = InletPerformanceAnalysis()
-    analysis.setup(mach_design=2.5, altitude_m=10_000.0)
+    analysis.setup(
+        generic_ramjet_vehicle, operating_state={"mach_design": 2.5, "altitude_m": 10_000.0}
+    )
     results = analysis.execute()
 
     assert results.fidelity == FidelityLevel.LEVEL_0
@@ -172,10 +176,15 @@ def test_optimize_multi_cone_angles_5cone_meets_mil_e_5007() -> None:
     assert eta >= mil_e_5007_eta_std(2.5) + 0.01
 
 
-def test_multi_cone_inlet_analysis_design_point_meets_mil_e_5007() -> None:
+def test_multi_cone_inlet_analysis_design_point_meets_mil_e_5007(
+    generic_ramjet_vehicle,
+) -> None:
     """End-to-end default (4-cone, optimized) design point PASSES MIL-E-5007."""
     analysis = MultiConeInletPerformanceAnalysis()
-    analysis.setup(mach_design=2.5, altitude_m=10_000.0, n_cones=4)
+    analysis.setup(
+        generic_ramjet_vehicle,
+        operating_state={"mach_design": 2.5, "altitude_m": 10_000.0, "n_cones": 4},
+    )
     results = analysis.execute()
 
     assert results.fidelity == FidelityLevel.LEVEL_0
@@ -189,11 +198,17 @@ def test_multi_cone_inlet_analysis_design_point_meets_mil_e_5007() -> None:
     assert results["mdot_design_kg_per_s"] == pytest.approx(15.17, abs=0.05)
 
 
-def test_multi_cone_inlet_analysis_4cone_design() -> None:
+def test_multi_cone_inlet_analysis_4cone_design(generic_ramjet_vehicle) -> None:
     """Fixed Mach-2.5 4-cone preset (optimize_angles=False) also PASSES."""
     analysis = MultiConeInletPerformanceAnalysis()
     analysis.setup(
-        mach_design=2.5, altitude_m=10_000.0, n_cones=4, optimize_angles=False
+        generic_ramjet_vehicle,
+        operating_state={
+            "mach_design": 2.5,
+            "altitude_m": 10_000.0,
+            "n_cones": 4,
+            "optimize_angles": False,
+        },
     )
     results = analysis.execute()
 
@@ -205,11 +220,17 @@ def test_multi_cone_inlet_analysis_4cone_design() -> None:
     assert results.metadata["angle_source"] == "fixed_mach_2p5_preset"
 
 
-def test_multi_cone_inlet_analysis_5cone_preset_design() -> None:
+def test_multi_cone_inlet_analysis_5cone_preset_design(generic_ramjet_vehicle) -> None:
     """Fixed Mach-2.5 5-cone preset gives a comfortable PASS margin."""
     analysis = MultiConeInletPerformanceAnalysis()
     analysis.setup(
-        mach_design=2.5, altitude_m=10_000.0, n_cones=5, optimize_angles=False
+        generic_ramjet_vehicle,
+        operating_state={
+            "mach_design": 2.5,
+            "altitude_m": 10_000.0,
+            "n_cones": 5,
+            "optimize_angles": False,
+        },
     )
     results = analysis.execute()
 
@@ -220,12 +241,17 @@ def test_multi_cone_inlet_analysis_5cone_preset_design() -> None:
     assert results.metadata["verdict"] == "PASS"
 
 
-def test_multi_cone_inlet_analysis_rejects_preset_for_2_and_3_cones() -> None:
+def test_multi_cone_inlet_analysis_rejects_preset_for_2_and_3_cones(
+    generic_ramjet_vehicle,
+) -> None:
     """No fixed presets exist for cone counts that cannot meet MIL-E-5007."""
     for n_cones in (2, 3):
         analysis = MultiConeInletPerformanceAnalysis()
         with pytest.raises(ValueError):
-            analysis.setup(n_cones=n_cones, optimize_angles=False)
+            analysis.setup(
+                generic_ramjet_vehicle,
+                operating_state={"n_cones": n_cones, "optimize_angles": False},
+            )
 
 
 def test_multi_cone_inlet_analysis_execute_before_setup_raises() -> None:
@@ -235,15 +261,15 @@ def test_multi_cone_inlet_analysis_execute_before_setup_raises() -> None:
         analysis.execute()
 
 
-def test_multi_cone_inlet_analysis_setup_rejects_bad_inputs() -> None:
+def test_multi_cone_inlet_analysis_setup_rejects_bad_inputs(generic_ramjet_vehicle) -> None:
     """MultiConeInletPerformanceAnalysis.setup() rejects subsonic Mach, invalid n_cones, and eta_diffuser <= 0."""
     analysis = MultiConeInletPerformanceAnalysis()
     with pytest.raises(ValueError):
-        analysis.setup(mach_design=0.8)
+        analysis.setup(generic_ramjet_vehicle, operating_state={"mach_design": 0.8})
     with pytest.raises(ValueError):
-        analysis.setup(n_cones=0)
+        analysis.setup(generic_ramjet_vehicle, operating_state={"n_cones": 0})
     with pytest.raises(ValueError):
-        analysis.setup(eta_diffuser=0.0)
+        analysis.setup(generic_ramjet_vehicle, operating_state={"eta_diffuser": 0.0})
 
 
 # ---------------------------------------------------------------------------
@@ -361,10 +387,15 @@ def test_transition_sequence_rejects_bad_inputs() -> None:
         compute_transition_sequence(-0.5, 2.5, 0.0, 0.0)
 
 
-def test_inlet_performance_analysis_mass_flow_scales_with_capture_area() -> None:
+def test_inlet_performance_analysis_mass_flow_scales_with_capture_area(
+    generic_ramjet_vehicle,
+) -> None:
     """Design-point mass flow scales linearly with inlet capture area."""
     analysis = InletPerformanceAnalysis()
-    analysis.setup(mach_design=2.5, altitude_m=10_000.0, capture_area_m2=0.1)
+    analysis.setup(
+        generic_ramjet_vehicle,
+        operating_state={"mach_design": 2.5, "altitude_m": 10_000.0, "capture_area_m2": 0.1},
+    )
     results = analysis.execute()
     assert results["mdot_design_kg_per_s"] == pytest.approx(
         results["capture_area_m2"]
