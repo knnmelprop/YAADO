@@ -12,7 +12,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 
 class FidelityLevel(IntEnum):
@@ -75,8 +78,22 @@ class BaseAnalysis(ABC):
         self._is_setup = False
 
     @abstractmethod
-    def setup(self, *args: Any, **kwargs: Any) -> None:
-        """Bind the analysis to a vehicle configuration and prepare inputs."""
+    def setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
+    ) -> None:
+        """Bind the analysis to a vehicle configuration and prepare inputs.
+
+        Extracts the necessary geometry, component parameters, and operating 
+        conditions to initialize the underlying solver for execution.
+
+        Args:
+            vehicle: The centralized vehicle configuration to analyze.
+            operating_state: Optional dictionary of operating conditions in SI units
+                (e.g., ``mach``, ``altitude_m``, ``alpha_deg``). If ``None``,
+                the analysis will use its documented defaults.
+        """
 
     @abstractmethod
     def execute(self) -> AnalysisResults:
