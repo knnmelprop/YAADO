@@ -343,9 +343,7 @@ class GrzywkaCombustorNozzleAnalysis(BaseAnalysis):
     ) -> None:
         """Bind the analysis to a design point and Grzywka loss set.
 
-        All vehicle data is read from ``vehicle``; flight-condition and
-        loss-coefficient overrides are read from ``operating_state``. If
-        ``vehicle`` defines a
+        If ``vehicle`` defines a
         :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
         propulsion component, its ``design_mach`` and ``combustor_temp_K``
         are used as defaults for ``mach0`` and ``combustor_exit_temp_K``
