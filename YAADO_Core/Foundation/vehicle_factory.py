@@ -73,9 +73,8 @@ class VehicleFactory:
         """
         if self.suave is None:
             raise RuntimeError(
-                "SUAVE is not importable; run `git submodule update --init` "
-                "and add external/suave/trunk to PYTHONPATH, or `pip install "
-                "-e external/suave/trunk`"
+                "SUAVE is not importable. You must initialize the submodules and "
+                "install the legacy dependencies by running: `./external/bootstrap_submodules.sh`"
             )
 
         suave_vehicle = self.suave.Vehicle()
