@@ -90,7 +90,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
 import numpy as np  # noqa: E402
-import yaml  # noqa: E402
+import toml  # noqa: E402
 
 from YAADO_Core.modules.wind_tunnel.methods.avl.avl_wrapper import helmbold_cl_alpha  # noqa: E402
 from YAADO_Core.ComponentStore.aero_surfaces import Fins  # noqa: E402
@@ -236,8 +236,7 @@ def load_geometry(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> RocketGeo
         KeyError: If a required geometry field is missing from the YAML.
     """
     config_path = Path(config_path)
-    with config_path.open("r", encoding="utf-8") as fh:
-        config: dict[str, Any] = yaml.safe_load(fh)
+    config: dict[str, Any] = toml.loads(config_path.read_text(encoding="utf-8"))
 
     body = config["body"]
     fins = config["fins"]
