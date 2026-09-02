@@ -1,10 +1,10 @@
 # YAADO — by MELprop
-![Python](https://img.shields.io/badge/python-3.11+-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)
+![Python](https://img.shields.io/badge/python-3.11+-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/knnmelprop/YAADO)
 
 The project aims to be a user-friendly preliminary design and Multidisciplinary Design Optimization (MDO) environment for aerospace vehicles. YAADO's goal is to enable everybody to use variable-fidelity design analysis tools to move your designs from paper and laptop to the sky.
 
 ## Features
-* **Declarative Design:** Build rockets and UAVs using simple YAML configurations — no Python programming required.
+* **Declarative Design:** Build rockets and UAVs using simple TOML configurations — no Python programming required.
 * **Variable-Fidelity Aerodynamics:** Seamlessly swap between empirical handbook formulas (DATCOM), Vortex Lattice Methods (AVL), 2D panel methods (XFOIL), and High-Fidelity CFD (SU2).
 * **Propulsion Analysis:** Built-in 1-D thermodynamic engine cycle analysis and custom turbojet performance maps.
 
@@ -16,16 +16,16 @@ The project aims to be a user-friendly preliminary design and Multidisciplinary 
 To use YAADO, clone the repository and install the environment. Because YAADO relies on heavily integrated physics engines, you must initialize the submodules:
 
 ```bash
-git clone https://github.com/MELprop/yaado.git
-cd yaado
-git submodule update --init --recursive
+git clone https://github.com/knnmelprop/YAADO.git
+cd YAADO
 uv sync
+./external/bootstrap_submodules.sh
 ```
 
 ### 2. Workspace Layout
 To make everything work, you only need to interact with two main directories:
 ```text
-├── Hangar/                  # User workspace: Declarative vehicle YAML configs
+├── Hangar/                  # User workspace: Declarative vehicle TOML configs
 └── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
 ```
 

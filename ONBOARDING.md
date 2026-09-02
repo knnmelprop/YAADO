@@ -21,23 +21,23 @@ Before downloading the code, ensure your system is ready:
 Follow these exact steps to set up your environment and make your first contribution:
 
 ### Step 1: Fork the repository
-Navigate to the [YAADO GitHub page](https://github.com/knnmelprop/yaado) and click the **"Fork"** button at the top right of the screen. This creates a personal copy of the repository on your GitHub account.
+Navigate to the [YAADO GitHub page](https://github.com/knnmelprop/YAADO) and click the **"Fork"** button at the top right of the screen. This creates a personal copy of the repository on your GitHub account.
 
 ### Step 2: Clone your fork locally
-Navigate to your newly created fork on GitHub (it will be under `your_username/yaado`). Click the green **"Code"** button, copy the provided HTTPS or SSH URL (if you do not know what SSH is, just use HTTPS), and run this in your terminal:
+Navigate to your newly created fork on GitHub (it will be under `your_username/YAADO`). Click the green **"Code"** button, copy the provided HTTPS or SSH URL (if you do not know what SSH is, just use HTTPS), and run this in your terminal:
 ```bash
 git clone <PASTE_YOUR_COPIED_LINK_HERE>
-cd yaado
+cd YAADO
 ```
 
 ### Step 3: Initialize the project
 YAADO relies on heavily integrated physics engines (like SUAVE and SU2). You must pull these submodules and install the Python environment:
 ```bash
-# Pull all required external submodules
-git submodule update --init --recursive
-
-# Create a virtual environment and install all dependencies using uv
+# Create a virtual environment and install all core dependencies using uv
 uv sync
+
+# Initialize submodules and install legacy physics engines (e.g., SUAVE)
+./external/bootstrap_submodules.sh
 ```
 > **MELProp Members:** If needed, you can copy the internal folders (containing the Science-Club-specific data) from the shared network drive directly into this repository. If you get any project specific results, make sure to upload them to the shared network drive and NEVER upload them to GitHub.
 
@@ -77,7 +77,7 @@ When developing, it is crucial to know where things belong. The repository is st
 │   ├── modules/             # Swappable physics solvers (wind_tunnel, powerplant, etc.)
 │   └── tests/               # Pytest unit suite perfectly mirroring the modules
 │
-├── Hangar/                  # User workspace: Declarative vehicle YAML configs
+├── Hangar/                  # User workspace: Declarative vehicle TOML configs
 ├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
 ├── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
 ```
