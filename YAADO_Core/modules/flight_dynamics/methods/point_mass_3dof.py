@@ -376,7 +376,7 @@ def load_booster_params(
         ValueError: If the loaded config is missing required components
             (see :func:`resolve_booster_params_from_vehicle`).
     """
-    vehicle = BaseVehicleConfig.from_yaml(config_path)
+    vehicle = BaseVehicleConfig.from_toml(config_path)
     return resolve_booster_params_from_vehicle(
         vehicle, operating_state={"launch_angle_deg": launch_angle_deg}
     )
