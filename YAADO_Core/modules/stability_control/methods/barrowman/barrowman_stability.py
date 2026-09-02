@@ -591,7 +591,6 @@ class BarrowmanStabilityAnalysis(BaseAnalysis):
         """Bind the analysis to a validated vehicle configuration.
 
         Geometry is read from ``vehicle`` via :func:`geometry_from_vehicle`
-        (never parsed from disk), per the :class:`BaseAnalysis` contract.
 
         Args:
             vehicle: Validated vehicle configuration providing the
