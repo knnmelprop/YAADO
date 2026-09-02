@@ -53,7 +53,9 @@ if __package__ in (None, ""):
     # behavior for pytest runs.
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
+from YAADO_Core.ComponentStore.propulsion import RamjetEngine
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 # --------------------------------------------------------------------------
 # Physical / model constants (SI units)
@@ -108,6 +110,22 @@ MACH_DESIGN: float = 2.5
 
 #: Assumed design/cruise altitude [m] (typical ramjet cruise band).
 DESIGN_ALTITUDE_M: float = 10_000.0
+
+
+def _first_ramjet_engine(vehicle: BaseVehicleConfig) -> RamjetEngine | None:
+    """Return the first :class:`RamjetEngine` in the vehicle's propulsion set.
+
+    Args:
+        vehicle: Validated vehicle configuration to search.
+
+    Returns:
+        The first ``RamjetEngine`` propulsion component found, or ``None``
+        if the vehicle defines no ramjet propulsion component.
+    """
+    for component in vehicle.propulsion.values():
+        if isinstance(component, RamjetEngine):
+            return component
+    return None
 
 
 @dataclass
@@ -394,7 +412,7 @@ class InletPerformanceAnalysis(BaseAnalysis):
 
     Example:
         >>> analysis = InletPerformanceAnalysis()
-        >>> analysis.setup(mach_design=2.5, altitude_m=10_000.0)
+        >>> analysis.setup(vehicle, operating_state={"mach_design": 2.5, "altitude_m": 10_000.0})
         >>> results = analysis.execute()
         >>> results["eta_inlet"]  # doctest: +SKIP
     """
@@ -412,27 +430,46 @@ class InletPerformanceAnalysis(BaseAnalysis):
 
     def setup(
         self,
-        mach_design: float = MACH_DESIGN,
-        altitude_m: float = DESIGN_ALTITUDE_M,
-        cone_length_m: float = SPIKE_CONE_LENGTH_M,
-        base_diameter_m: float = SPIKE_BASE_DIAMETER_M,
-        capture_area_m2: float = CAPTURE_AREA_M2,
-        eta_diffuser: float = ETA_DIFFUSER,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
     ) -> None:
         """Bind the analysis to a design point and inlet geometry.
 
+        If ``vehicle`` defines a
+        :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
+        propulsion component, its ``design_mach`` is used as the default
+        freestream Mach when ``operating_state`` does not override it.
+        The inlet spike geometry (cone length / base diameter), capture
+        area and diffuser efficiency have no corresponding fields in
+        :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
+        yet, so they fall back to the Fusion v6 module defaults unless
+        overridden via ``operating_state``.
+
         Args:
-            mach_design: Design (cruise) freestream Mach number (> 1).
-            altitude_m: Design/cruise altitude [m], ISA.
-            cone_length_m: Spike cone axial length [m].
-            base_diameter_m: Spike cone base diameter [m].
-            capture_area_m2: Inlet capture (cowl) area [m^2].
-            eta_diffuser: Assumed subsonic-diffuser total-pressure
-                efficiency (0-1].
+            vehicle: Validated, vehicle-agnostic configuration. Searched
+                for a ``RamjetEngine`` propulsion component to source the
+                default design Mach.
+            operating_state: Optional operating conditions (SI units).
+                Recognized keys: ``mach_design`` (freestream design Mach,
+                must be > 1), ``altitude_m`` (ISA altitude [m]),
+                ``cone_length_m`` [m], ``base_diameter_m`` [m],
+                ``capture_area_m2`` [m^2], ``eta_diffuser`` (0-1].
+                ``None`` falls back to the vehicle/design defaults.
 
         Raises:
             ValueError: If mach_design <= 1 or eta_diffuser outside (0, 1].
         """
+        operating_state = operating_state or {}
+        ramjet = _first_ramjet_engine(vehicle)
+        default_mach_design = ramjet.design_mach if ramjet is not None else MACH_DESIGN
+
+        mach_design = operating_state.get("mach_design", default_mach_design)
+        altitude_m = operating_state.get("altitude_m", DESIGN_ALTITUDE_M)
+        cone_length_m = operating_state.get("cone_length_m", SPIKE_CONE_LENGTH_M)
+        base_diameter_m = operating_state.get("base_diameter_m", SPIKE_BASE_DIAMETER_M)
+        capture_area_m2 = operating_state.get("capture_area_m2", CAPTURE_AREA_M2)
+        eta_diffuser = operating_state.get("eta_diffuser", ETA_DIFFUSER)
+
         if mach_design <= 1.0:
             raise ValueError(f"mach_design must be > 1, got {mach_design}")
         if not (0.0 < eta_diffuser <= 1.0):
@@ -773,7 +810,7 @@ class MultiConeInletPerformanceAnalysis(BaseAnalysis):
 
     Example:
         >>> analysis = MultiConeInletPerformanceAnalysis()
-        >>> analysis.setup(mach_design=2.5, altitude_m=10_000.0)
+        >>> analysis.setup(vehicle, operating_state={"mach_design": 2.5, "altitude_m": 10_000.0})
         >>> results = analysis.execute()
         >>> results["eta_inlet"] >= results["mil_e_5007_eta_std"]  # doctest: +SKIP
     """
@@ -795,34 +832,50 @@ class MultiConeInletPerformanceAnalysis(BaseAnalysis):
 
     def setup(
         self,
-        mach_design: float = MACH_DESIGN,
-        altitude_m: float = DESIGN_ALTITUDE_M,
-        n_cones: int = DEFAULT_N_CONES_M25,
-        capture_area_m2: float = CAPTURE_AREA_M2,
-        eta_diffuser: float = ETA_DIFFUSER,
-        optimize_angles: bool = True,
+        vehicle: BaseVehicleConfig,
+        operating_state: dict | None = None,
     ) -> None:
         """Bind the analysis to a design point and cone count.
 
+        If
+        ``vehicle`` defines a
+        :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
+        propulsion component, its ``design_mach`` is used as the default
+        freestream Mach when ``operating_state`` does not override it.
+        The multi-cone geometry (cone count, capture area, diffuser
+        efficiency, angle strategy) has no corresponding fields in
+        :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
+        yet, so it falls back to the module defaults unless overridden
+        via ``operating_state``.
+
         Args:
-            mach_design: Design (cruise) freestream Mach number (> 1).
-            altitude_m: Design/cruise altitude [m], ISA.
-            n_cones: Number of oblique-shock cone segments (>= 1).
-            capture_area_m2: Inlet capture (cowl) area [m^2].
-            eta_diffuser: Assumed subsonic-diffuser total-pressure
-                efficiency (0-1].
-            optimize_angles: If True, optimize the cone angles at the
-                design Mach. If False, use the fixed Mach-2.5 presets —
-                available only for n_cones in
-                ``MULTI_CONE_THETA_PRESETS_DEG`` (4 and 5; 2- and 3-cone
-                presets are deliberately undefined because those counts
-                cannot meet MIL-E-5007 at M 2.5).
+            vehicle: Validated, vehicle-agnostic configuration. Searched
+                for a ``RamjetEngine`` propulsion component to source the
+                default design Mach.
+            operating_state: Optional operating conditions (SI units).
+                Recognized keys: ``mach_design`` (freestream design Mach,
+                must be > 1), ``altitude_m`` (ISA altitude [m]),
+                ``n_cones`` (number of oblique-shock cone segments, >= 1),
+                ``capture_area_m2`` [m^2], ``eta_diffuser`` (0-1],
+                ``optimize_angles`` (bool). ``None`` falls back to the
+                vehicle/design defaults.
 
         Raises:
             ValueError: If mach_design <= 1, n_cones < 1, eta_diffuser
                 outside (0, 1], or optimize_angles=False with a cone
                 count that has no preset.
         """
+        operating_state = operating_state or {}
+        ramjet = _first_ramjet_engine(vehicle)
+        default_mach_design = ramjet.design_mach if ramjet is not None else MACH_DESIGN
+
+        mach_design = operating_state.get("mach_design", default_mach_design)
+        altitude_m = operating_state.get("altitude_m", DESIGN_ALTITUDE_M)
+        n_cones = operating_state.get("n_cones", DEFAULT_N_CONES_M25)
+        capture_area_m2 = operating_state.get("capture_area_m2", CAPTURE_AREA_M2)
+        eta_diffuser = operating_state.get("eta_diffuser", ETA_DIFFUSER)
+        optimize_angles = operating_state.get("optimize_angles", True)
+
         if mach_design <= 1.0:
             raise ValueError(f"mach_design must be > 1, got {mach_design}")
         if n_cones < 1:
@@ -1312,17 +1365,31 @@ def _plot_recovery_sweep(output_path: Path) -> None:
 
 def main() -> None:
     """Run the design-point analysis, save JSON, and generate the sweep plot."""
+    vehicle = BaseVehicleConfig(
+        name="generic_ramjet_vehicle",
+        propulsion={
+            "stage2_ramjet": RamjetEngine(
+                design_mach=MACH_DESIGN,
+                combustor_temp_K=2000.0,
+                nozzle_area_ratio=1.317,
+            )
+        },
+    )
+
     analysis = InletPerformanceAnalysis()
-    analysis.setup(mach_design=MACH_DESIGN, altitude_m=DESIGN_ALTITUDE_M)
+    analysis.setup(vehicle, operating_state={"mach_design": MACH_DESIGN, "altitude_m": DESIGN_ALTITUDE_M})
     results = analysis.execute()
     output = _build_output_dict(results)
 
     multi_analysis = MultiConeInletPerformanceAnalysis()
     multi_analysis.setup(
-        mach_design=MACH_DESIGN,
-        altitude_m=DESIGN_ALTITUDE_M,
-        n_cones=DEFAULT_N_CONES_M25,
-        optimize_angles=False,
+        vehicle,
+        operating_state={
+            "mach_design": MACH_DESIGN,
+            "altitude_m": DESIGN_ALTITUDE_M,
+            "n_cones": DEFAULT_N_CONES_M25,
+            "optimize_angles": False,
+        },
     )
     multi_results = multi_analysis.execute()
     output["multi_cone_redesign"] = dict(multi_results.data)
