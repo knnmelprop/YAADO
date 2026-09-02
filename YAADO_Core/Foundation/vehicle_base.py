@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
+import toml
 from pydantic import BaseModel, ConfigDict, Field
 
 from YAADO_Core.ComponentStore import (
@@ -40,11 +40,11 @@ class BaseVehicleConfig(BaseModel):
     mass_properties: MassProperties | None = Field(default=None)
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "BaseVehicleConfig":
-        """Load and validate a vehicle config from a YAML file.
+    def from_toml(cls, path: str | Path) -> "BaseVehicleConfig":
+        """Load and validate a vehicle config from a TOML file.
 
         Args:
-            path: Path to the YAML file.
+            path: Path to the TOML file.
 
         Returns:
             A validated config instance.
@@ -52,19 +52,19 @@ class BaseVehicleConfig(BaseModel):
         Raises:
             pydantic.ValidationError: If the data violates the schema.
         """
-        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        raw = toml.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            raise ValueError(f"YAML root of {path} must be a mapping")
+            raise ValueError(f"TOML root of {path} must be a mapping")
         return cls.model_validate(raw)
 
-    def to_yaml(self, path: str | Path) -> None:
-        """Serialize the config to a YAML file.
+    def to_toml(self, path: str | Path) -> None:
+        """Serialize the config to a TOML file.
 
         Args:
             path: Destination file path (parent directory must exist).
         """
         data = self.model_dump(mode="json")
         Path(path).write_text(
-            yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+            toml.dumps(data),
             encoding="utf-8",
         )

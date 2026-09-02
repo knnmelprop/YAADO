@@ -4,12 +4,12 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2",
-    "pyyaml",
     "scipy",
     "matplotlib",
     "om-pycycle==4.1.2",
     "pytest",
     "gmsh==4.15.1",
+    "toml>=0.10.2",
 ]
 
 [tool.pytest.ini_options]
