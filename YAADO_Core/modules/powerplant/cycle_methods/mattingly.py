@@ -438,9 +438,7 @@ class RamjetCycleAnalysis(BaseAnalysis):
     ) -> None:
         """Bind the analysis to a design point and cycle parameters.
 
-        All vehicle data is read from ``vehicle``; flight-condition and
-        loss-coefficient overrides are read from ``operating_state``. If
-        ``vehicle`` defines a
+        If ``vehicle`` defines a
         :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
         propulsion component, its ``design_mach``, ``combustor_temp_K``
         and ``nozzle_area_ratio`` are used as defaults for ``mach0``,

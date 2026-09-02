@@ -435,9 +435,7 @@ class InletPerformanceAnalysis(BaseAnalysis):
     ) -> None:
         """Bind the analysis to a design point and inlet geometry.
 
-        All vehicle data is read from ``vehicle``; flight-condition and
-        geometry overrides are read from ``operating_state``. If
-        ``vehicle`` defines a
+        If ``vehicle`` defines a
         :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
         propulsion component, its ``design_mach`` is used as the default
         freestream Mach when ``operating_state`` does not override it.
@@ -839,8 +837,7 @@ class MultiConeInletPerformanceAnalysis(BaseAnalysis):
     ) -> None:
         """Bind the analysis to a design point and cone count.
 
-        All vehicle data is read from ``vehicle``; flight-condition and
-        geometry overrides are read from ``operating_state``. If
+        If
         ``vehicle`` defines a
         :class:`~YAADO_Core.ComponentStore.propulsion.RamjetEngine`
         propulsion component, its ``design_mach`` is used as the default

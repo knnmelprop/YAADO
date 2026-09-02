@@ -669,8 +669,7 @@ class BarrowmanExtendedAnalysis(BaseAnalysis):
         """Bind the analysis to a validated vehicle configuration.
 
         Geometry is read from ``vehicle`` via the reused
-        ``barrowman_stability.geometry_from_vehicle`` (never parsed from
-        disk), per the :class:`BaseAnalysis` contract.
+        ``barrowman_stability.geometry_from_vehicle``
 
         Args:
             vehicle: Validated vehicle configuration providing the
