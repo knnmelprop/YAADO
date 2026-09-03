@@ -6,15 +6,15 @@ the import is guarded — the factory raises a clear error only when SUAVE
 is actually needed.
 
 The factory works on the generic :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
-composition rather than a per-project ``vehicle_type`` discriminator: each
-``propulsion`` and ``aero_surfaces`` component is translated to a SUAVE object
-based on its own ``type``/class and appended to the SUAVE vehicle being
-assembled. (``bodies`` is not yet translated -- SUAVE fuselage/body mapping is
-a pending follow-up, not implemented here.)
+composition: each ``propulsion`` and ``aero_surfaces`` component is translated
+to a SUAVE object based on its own ``type``/class and appended to the SUAVE
+vehicle being assembled. (``bodies`` is not yet translated -- SUAVE
+fuselage/body mapping is a pending follow-up, not implemented here.)
 """
 
 from __future__ import annotations
 
+import math
 from types import ModuleType
 from typing import Any
 
@@ -31,8 +31,7 @@ except ImportError:  # pragma: no cover - depends on environment
 class VehicleFactory:
     """Builds SUAVE ``Vehicle`` objects from validated :class:`BaseVehicleConfig` instances.
 
-    Rather than dispatching on a removed ``vehicle_type`` discriminator, the
-    factory iterates over the generic composition dictionaries exposed by
+    The factory iterates over the generic composition dictionaries exposed by
     :class:`BaseVehicleConfig` (``propulsion``, ``aero_surfaces``) and
     translates each component to its SUAVE counterpart based on the
     component's own type, appending it to a freshly created SUAVE vehicle.
@@ -166,17 +165,17 @@ class VehicleFactory:
             wing = Wing()
             wing.tag = tag
             wing.aspect_ratio = component.aspect_ratio
-            wing.sweeps.quarter_chord = component.sweep_deg
+            wing.sweeps.quarter_chord = math.radians(component.sweep_deg)
             wing.taper = component.taper_ratio
             wing.spans.projected = component.span_m
-            wing.dihedral = component.dihedral_deg
+            wing.dihedral = math.radians(component.dihedral_deg)
             return wing
 
         if isinstance(component, Fins):
             wing = Wing()
             wing.tag = tag
             wing.spans.projected = component.span_m
-            wing.sweeps.leading_edge = component.sweep_deg
+            wing.sweeps.leading_edge = math.radians(component.sweep_deg)
             wing.vertical = True
             return wing
 
