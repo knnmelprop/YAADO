@@ -8,6 +8,7 @@ factory relies on (``Vehicle``, ``Components.Energy.Networks.*``,
 
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 from typing import Any
 
@@ -116,7 +117,7 @@ def test_build_appends_wing_and_propulsion_with_injected_suave() -> None:
     wing = wings[0]
     assert wing.aspect_ratio == pytest.approx(8.0)
     assert wing.spans.projected == pytest.approx(10.0)
-    assert wing.sweeps.quarter_chord == pytest.approx(5.0)
+    assert wing.sweeps.quarter_chord == pytest.approx(math.radians(5.0))
 
     network = networks[0]
     assert network.tag == "main_engine"
