@@ -2,7 +2,7 @@
 (Briefly describe what this PR fixes or adds)
 
 **Checklist:**
-- [ ] I have run `uv run pytest YAADO_Core/tests/` and all tests pass.
+- [ ] I have run `uv run pytest` and all tests pass.
 - [ ] My code includes type hints and docstrings.
 - [ ] I added all vital READMEs.
 
