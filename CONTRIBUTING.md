@@ -6,7 +6,7 @@ You have three options when it comes to branch pre-fix
 
 | Branch Prefix | Description |
 |---|---|
-| `feature/*` | Human feature work. |
+| `feature/*` | Adding a new feature or capability. |
 | `fix/*` | Focused bug fixes. |
 | `docs/*` | Documentation-only work. |
 
