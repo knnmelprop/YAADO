@@ -12,6 +12,12 @@ AnyComponent = Annotated[
     Field(discriminator="type")
 ]
 
+# Standard tuples for runtime isinstance() checks and CLI menu generation
+AERO_COMPONENTS = (Fins, Wings)
+BODY_COMPONENTS = (AxisymmetricBody,)
+PROPULSION_COMPONENTS = (SolidMotor, RamjetEngine, TurbojetEngine)
+ALL_COMPONENTS = (MassProperties,) + AERO_COMPONENTS + BODY_COMPONENTS + PROPULSION_COMPONENTS
+
 __all__ = [
     "MassProperties",
     "AxisymmetricBody",
@@ -25,4 +31,8 @@ __all__ = [
     "AnyAeroComponent",
     "AnyBodyComponent",
     "AnyComponent",
+    "AERO_COMPONENTS",
+    "BODY_COMPONENTS",
+    "PROPULSION_COMPONENTS",
+    "ALL_COMPONENTS",
 ]
