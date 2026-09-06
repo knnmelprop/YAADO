@@ -12,5 +12,5 @@ TOML generation follows this workflow:
 To keep the CLI infinitely scalable and avoid hardcoding dummy values, the CLI utilizes Pydantic's native reflection capabilities:
 
 * **Dynamic Context (2.1):** The CLI does not hardcode help text. It dynamically reads `field_info.description` directly from the Pydantic schema to display contextual help (e.g. *"Wing aspect ratio b^2/S. (> 0)"*).
-* **Safe Fallbacks (2.2 & 2.3):** The physics developers define safe, working dummy values directly inside the `ComponentStore` schemas using Pydantic's metadata (e.g., `Field(..., json_schema_extra={"demo_default": 2.0})`). 
-* **The Logic:** When a user skips a prompt or asks for a dummy config, the CLI automatically injects the embedded `demo_default` for that specific field. This ensures the generated TOML is always mathematically valid without the CLI needing to know anything about aerospace engineering.
+* **Safe Fallbacks (2.2 & 2.3):** The physics developers define safe, working dummy values directly inside the `ComponentStore` schemas using Pydantic's examples (e.g., `Field(..., examples='example')`). 
+* **The Logic:** When a user skips a prompt or asks for a dummy config, the CLI automatically injects the embedded examples for that specific field. This ensures the generated TOML is always mathematically valid without the CLI needing to know anything about aerospace engineering.

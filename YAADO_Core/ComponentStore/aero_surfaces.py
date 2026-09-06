@@ -4,10 +4,12 @@
 
 from __future__ import annotations
 
-from typing import Literal, Annotated
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .mass import MassProperties
+
 
 class ControlSurface(BaseModel):
     """A control surface attached to the trailing edge of a lifting surface (e.g. aileron, flap, rudder).
@@ -23,26 +25,34 @@ class ControlSurface(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(
+        examples=["aft_fin_actuator_tab"],
         description='''Name of the control surface for identification.'''
     )
-    function: Literal["aileron", "flap", "elevator", "rudder", "custom"]
+    function: Literal["aileron", "flap", "elevator", "rudder", "custom"] = Field(
+        examples=["elevator"],
+        description='''Aerodynamic control function.'''
+    )
     span_fraction_start: float = Field(
         ge=0.0,
         le=1.0,
+        examples=[0.10],
         description='''The inboard starting position as a fraction of the span. (Range: 0.0 to 1.0)'''
     )
     span_fraction_end: float = Field(
         ge=0.0,
         le=1.0,
+        examples=[0.90],
         description='''The outboard ending position as a fraction of the span. (Range: 0.0 to 1.0)'''
     )
     chord_fraction: float = Field(
         ge=0.0,
         le=1.0,
+        examples=[0.28],
         description='''The fraction of the chord taken up by the control surface. (Range: 0.0 to 1.0)'''
     )
     max_deflection_deg: float = Field(
         gt=0.0,
+        examples=[30.0],
         description='''Maximum physical deflection angle in degrees. (> 0)'''
     )
 
@@ -68,23 +78,27 @@ class Wings(BaseModel):
     aspect_ratio: float = Field(
         gt=0.0, 
         le=50.0,
+        examples=[2.30],
         description='''Wing aspect ratio b^2/S. (> 0)'''
     )
     
     sweep_deg: float = Field(
         ge=-10.0, 
         le=70.0,
+        examples=[45.0],
         description='''Quarter-chord sweep in degrees. (Range: -10 to 70)'''
     )
     
     taper_ratio: float = Field(
         gt=0.0, 
         le=1.0,
+        examples=[0.20],
         description='''Tip/root chord ratio. (Range: 0 to 1)'''
     )
     
     span_m: float = Field(
         gt=0.0,
+        examples=[0.914],
         description='''Wing span in meters. (> 0)'''
     )
     
@@ -92,25 +106,30 @@ class Wings(BaseModel):
         default=0.0,
         ge=-20.0, 
         le=20.0,
+        examples=[0.0],
         description='''Dihedral angle in degrees. (Range: -20 to 20)'''
     )
     
     airfoil_root: str = Field(
+        examples=['NACA0006'],
         description='''Root airfoil designation (e.g. "NACA2412").'''
     )
     
     airfoil_tip: str | None = Field(
         default=None,
+        examples=['NACA0006'],
         description='''Tip airfoil designation. Defaults to root airfoil if omitted.'''
     )
     
     control_surfaces: list[ControlSurface] = Field(
         default_factory=list,
+        examples=[[]],
         description='''List of control surfaces attached to the wing.'''
     )
 
     mass: MassProperties | None = Field(
         default=None,
+        examples=[None],
         description='''Mass Properties'''
     )
 
@@ -141,39 +160,46 @@ class Fins(BaseModel):
     count: int = Field(
         ge=3, 
         le=8,
+        examples=[4],
         description='''Number of fins in the radial set. (Range: 3 to 8)'''
     )
     
     span_m: float = Field(
         gt=0.0,
+        examples=[0.285],
         description='''Exposed semi-span of one individual fin in meters. (> 0)'''
     )
     
     sweep_deg: float = Field(
         ge=0.0, 
         le=75.0,
+        examples=[60.0],
         description='''Leading-edge sweep angle in degrees. (Range: 0.0 to 75.0)'''
     )
     
     chord_root_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.75],
         description='''Root chord length in meters. Defaults to None. (> 0)'''
     )
     
     chord_tip_m: float | None = Field(
         default=None, 
         ge=0.0,
+        examples=[0.15],
         description='''Tip chord length in meters. Defaults to None. (>= 0)'''
     )
 
     control_surfaces: list[ControlSurface] = Field(
         default_factory=list,
+        examples=[[]],
         description='''List of control surfaces attached to the trailing edge of these fins.'''
     )
     
     mass: MassProperties | None = Field(
         default=None,
+        examples=[None],
         description='''Mass Properties'''
     )
 
