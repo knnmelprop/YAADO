@@ -14,6 +14,9 @@ from .mass import MassProperties
 class SolidMotor(BaseModel):
     """Solid Rocket Motor (SRM) definition.
 
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
+
     Attributes:
         isp_vacuum_s: Vacuum specific impulse for solid propellants in seconds. (Range: 80 to 320)
         isp_sl_s: Sea-level specific impulse for solid propellants in seconds. (Range: 80 to 320)
@@ -130,6 +133,9 @@ class SolidMotor(BaseModel):
 class RamjetEngine(BaseModel):
     """Ramjet engine definition.
 
+    Note:
+        Example values are taken from the ALVRJ (Advanced Low-Volume Ramjet).
+
     Attributes:
         design_mach: Design-point Mach number. Ramjets do not produce net thrust below ~Mach 1.5. (Range: 1.5 to 6.0)
         fuel_type: Fuel designation (e.g. "kerosene"). Defaults to kerosene.
@@ -147,39 +153,53 @@ class RamjetEngine(BaseModel):
     design_mach: float = Field(
         ge=1.5, 
         le=6.0,
+        examples=[2.60],
         description='''Design-point Mach number. Ramjets do not produce net thrust below ~Mach 1.5. (Range: 1.5 to 6.0)'''
     )
     
     fuel_type: str = Field(
         default="kerosene",
+        examples=["kerosene"],
         description='''Fuel designation (e.g. "kerosene"). Defaults to kerosene.'''
     )
     
     combustor_temp_K: float = Field(
         ge=1200.0, 
         le=2600.0,
+        examples=[2150.0],
         description='''Combustor exit total temperature in kelvin. Bounded by material/dissociation limits. (Range: 1200 to 2600)'''
     )
     
     nozzle_area_ratio: float = Field(
         ge=1.0,
+        examples=[2.25],
         description='''Nozzle exit/throat area ratio. (>= 1)'''
     )
     
     nozzle_throat_diameter_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.250],
         description='''Nozzle throat diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)'''
     )
     
     nozzle_exit_diameter_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.375],
         description='''Nozzle exit diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)'''
     )
     
     mass: MassProperties | None = Field(
         default=None,
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 3.40,
+                "cg_source": "Ramjet combustor liner and injector assembly",
+                "total_mass_kg": 115.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 
@@ -197,6 +217,9 @@ class RamjetEngine(BaseModel):
 
 class TurbojetEngine(BaseModel):
     """Turbojet engine definition.
+
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
 
     Attributes:
         name: Engine designation.

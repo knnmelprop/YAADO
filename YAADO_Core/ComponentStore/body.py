@@ -14,6 +14,9 @@ from .mass import MassProperties
 class AxisymmetricBody(BaseModel):
     """Axisymmetric body definition.
 
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
+
     Attributes:
         length_m: Total body length in meters. (> 0)
         diameter_m: Body diameter in meters. (> 0)
