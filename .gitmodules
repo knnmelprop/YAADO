@@ -1,12 +1,16 @@
 [submodule "external/suave"]
 	path = external/suave
 	url = https://github.com/suavecode/SUAVE
+	ignore = untracked
 [submodule "external/pycycle"]
 	path = external/pycycle
 	url = https://github.com/OpenMDAO/pyCycle
+	ignore = untracked
 [submodule "external/su2"]
 	path = external/su2
 	url = https://github.com/su2code/SU2
+	ignore = untracked
 [submodule "external/openvsp"]
 	path = external/openvsp
 	url = https://github.com/OpenVSP/OpenVSP
+	ignore = untracked

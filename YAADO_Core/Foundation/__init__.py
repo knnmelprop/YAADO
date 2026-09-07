@@ -3,13 +3,17 @@
 Exposes the base abstractions used by all analysis and vehicle modules
 """
 
-from YAADO_Core.Foundation.analysis_base import (
+from .analysis_base import (
     AnalysisResults,
     BaseAnalysis,
     FidelityLevel,
 )
+from .vehicle_base import (
+    BaseVehicleConfig,
+)
 
 __all__ = [
+    "BaseVehicleConfig",
     "AnalysisResults",
     "BaseAnalysis",
     "FidelityLevel",

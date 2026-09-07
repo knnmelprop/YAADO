@@ -4,13 +4,18 @@
 
 from __future__ import annotations
 
-from typing import Literal, Annotated
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from .mass import MassProperties
 
+
 class AxisymmetricBody(BaseModel):
     """Axisymmetric body definition.
+
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
 
     Attributes:
         length_m: Total body length in meters. (> 0)
@@ -29,45 +34,60 @@ class AxisymmetricBody(BaseModel):
 
     length_m: float = Field(
         gt=0.0,
+        examples=[3.84],
         description='''Total body length in meters. (> 0)'''
     )
     
     diameter_m: float = Field(
         gt=0.0,
+        examples=[0.343],
         description='''Body diameter in meters. (> 0)'''
     )
     
     nose_type: Literal["ogive", "conical", "hemispherical"] = Field(
         default="ogive",
+        examples=["ogive"],
         description='''Nose shape ("ogive", "conical" or "hemispherical"). Defaults to ogive.'''
     )
     
     nose_length_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.75],
         description='''Length of the nose section in meters. Defaults to None if unmeasured. (> 0)'''
     )
     
     nose_diameter_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.343],
         description='''Diameter at the base of the nose in meters. Defaults to None if unmeasured. (> 0)'''
     )
     
     total_length_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[3.84],
         description='''Total length of the vehicle including protrusions in meters. Defaults to None if unmeasured. (> 0)'''
     )
     
     max_diameter_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.343],
         description='''Maximum diameter including any transitions in meters. Defaults to None if unmeasured. (> 0)'''
     )
 
     mass: MassProperties | None = Field(
         default=None,
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 2.05,
+                "cg_source": "AGM-84A baseline mass properties document",
+                "total_mass_kg": 520.0,
+            }
+        ],
         description='''Mass properties.'''
     )
 
