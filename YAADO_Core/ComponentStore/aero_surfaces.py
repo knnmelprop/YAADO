@@ -14,8 +14,12 @@ from .mass import MassProperties
 class ControlSurface(BaseModel):
     """A control surface attached to the trailing edge of a lifting surface (e.g. aileron, flap, rudder).
 
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
+
     Attributes:
         name: Name of the control surface for identification.
+        function: Aerodynamic control function.
         span_fraction_start: The inboard starting position as a fraction of the span. (Range: 0.0 to 1.0)
         span_fraction_end: The outboard ending position as a fraction of the span. (Range: 0.0 to 1.0)
         chord_fraction: The fraction of the chord taken up by the control surface. (Range: 0.0 to 1.0)
@@ -58,6 +62,9 @@ class ControlSurface(BaseModel):
 
 class Wings(BaseModel):
     """Fixed-wing planform definition.
+
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
 
     Attributes:
         aspect_ratio: Wing aspect ratio b^2/S. (> 0)
@@ -142,6 +149,9 @@ class Wings(BaseModel):
 
 class Fins(BaseModel):
     """Rocket fin set definition.
+
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
 
     Attributes:
         count: Number of fins in the radial set. (Range: 3 to 8)

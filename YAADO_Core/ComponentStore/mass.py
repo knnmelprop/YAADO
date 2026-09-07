@@ -10,6 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class MassProperties(BaseModel):
     """Vehicle mass properties.
 
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
+
     Attributes:
         cg_from_nose_m: Longitudinal centre of gravity measured from the nose tip of the entire vehicle in meters. Must be less than the total vehicle length. (> 0)
         cg_source: Provenance of the CG value. Examples include "estimate", "NX file_name.prt 01-01-2026", or a specific reference URL.
