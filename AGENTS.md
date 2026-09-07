@@ -24,8 +24,9 @@ While the repository currently contains reference configurations in `Hangar/` (l
 │   │   ├── flight_dynamics/ # Trajectory simulators
 │   │   ├── stability_control/# Datcom, Barrowman
 │   │   └── airframe/        # Geometry generation (OpenVSP) and meshing (Gmsh)
-│   └── tests/               # Pytest unit suite mirroring modules/
 │
+├── tests/                   # Pytest unit suite mirroring entire repo structure
+├── Terminal/                # CLI, vehicle assembly, template generation
 ├── Hangar/                  # User workspace: Declarative vehicle TOML configs
 ├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
 └── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
@@ -38,12 +39,12 @@ While the repository currently contains reference configurations in `Hangar/` (l
 3. **Google-style docstrings** (in English) for every public class and method.
 4. **No specific project logic in Core:** `YAADO_Core` must operate on base Pydantic models. Never import a specific project schema from `Hangar/` into a core solver.
 5. **Inheritance for Solvers, Composition for Data:** Extend solvers by inheriting from `BaseAnalysis`. However, vehicles and Pydantic schemas must be built using Composition (Lego bricks), not deep inheritance trees.
-6. After every change, run tests: `uv run pytest YAADO_Core/tests/ --tb=short`.
+6. After every change, run tests: `uv run pytest tests/ --tb=short`.
 
 ## Running Tests
 
 ```bash
-uv run pytest YAADO_Core/tests/ --tb=short
+uv run pytest tests/ --tb=short
 ```
 
 Dev dependencies are managed via `uv`. Submodules in `external/` are required for full execution, but core tests mock or gracefully handle missing binaries where possible.

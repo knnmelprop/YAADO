@@ -104,8 +104,3 @@ class VehicleTemplateGenerator:
             kwargs[field_name] = field_info.examples[0] # type: ignore
 
         return component_class(**kwargs)
-
-
-generate_template = VehicleTemplateGenerator.generate_template
-assemble_vehicle = VehicleTemplateGenerator.assemble_vehicle
-prefill_component_values = VehicleTemplateGenerator.prefill_component_values
