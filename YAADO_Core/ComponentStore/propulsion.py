@@ -94,7 +94,14 @@ class SolidMotor(BaseModel):
     
     mass: MassProperties | None = Field(
         default=None,
-        examples=[None],
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 4.25,
+                "cg_source": "Aerojet booster structural balance sheet",
+                "total_mass_kg": 140.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 
@@ -305,7 +312,14 @@ class TurbojetEngine(BaseModel):
     
     mass: MassProperties | None = Field(
         default=None,
-        examples=[None],
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 3.10,
+                "cg_source": "Teledyne CAE technical datasheet",
+                "total_mass_kg": 46.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 

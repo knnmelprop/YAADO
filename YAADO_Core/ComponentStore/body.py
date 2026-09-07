@@ -80,7 +80,14 @@ class AxisymmetricBody(BaseModel):
 
     mass: MassProperties | None = Field(
         default=None,
-        examples=[None],
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 2.05,
+                "cg_source": "AGM-84A baseline mass properties document",
+                "total_mass_kg": 520.0,
+            }
+        ],
         description='''Mass properties.'''
     )
 

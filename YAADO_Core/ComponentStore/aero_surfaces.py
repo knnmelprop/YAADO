@@ -136,7 +136,14 @@ class Wings(BaseModel):
 
     mass: MassProperties | None = Field(
         default=None,
-        examples=[None],
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 1.95,
+                "cg_source": "Planar equivalent projection estimate",
+                "total_mass_kg": 24.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 
@@ -203,13 +210,31 @@ class Fins(BaseModel):
 
     control_surfaces: list[ControlSurface] = Field(
         default_factory=list,
-        examples=[[]],
+        examples=[
+            [
+                {
+                    "name": "aft_fin_actuator_tab",
+                    "function": "elevator",
+                    "span_fraction_start": 0.10,
+                    "span_fraction_end": 0.90,
+                    "chord_fraction": 0.28,
+                    "max_deflection_deg": 30.0,
+                }
+            ]
+        ],
         description='''List of control surfaces attached to the trailing edge of these fins.'''
     )
     
     mass: MassProperties | None = Field(
         default=None,
-        examples=[None],
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 3.55,
+                "cg_source": "Tail actuator package balance",
+                "total_mass_kg": 16.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 
