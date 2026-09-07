@@ -31,4 +31,9 @@ Instead of rigid vehicle templates, YAADO uses a pure **Composition** architectu
 * `MassProperties` (used for distributed mass inside components, or as a global vehicle point-mass)
 
 ### Adding New Components
-If you want to add a new component (e.g. `Rotors`), simply create a new Pydantic `BaseModel` in the appropriate file, give it a unique type (e. g. `type: Literal["rotor"]`), and inject it into the appropriate union (e. g. `AnyAeroComponent`) at the bottom of the file!
+When adding a new component (e.g. `Rotors`):
+1. **Create the Schema:** Define a new Pydantic `BaseModel` in the appropriate category file.
+2. **Discriminator:** Assign a unique type discriminator (e.g. `type: Literal["rotor"] = Field(default="rotor", frozen=True)`).
+3. **Mandatory Baseline Examples:** Every parameter field (except `type`) **MUST** define realistic baseline examples via `Field(..., examples=[...])`. YAADO's template generation (`Terminal/Assembly`), CLI prompt fallbacks, and test suites enforce that all component fields define examples.
+4. **Registry & Unions:** Add the model to the appropriate subsystem registry tuple (e.g. `AERO_COMPONENTS`) and union (e.g. `AnyAeroComponent`) in `YAADO_Core/ComponentStore/__init__.py`.
+5. **Unit Tests:** Add validation tests in `tests/YAADO_Core/ComponentStore/`. Schema example validity and typing will automatically be tested by `tests/YAADO_Core/ComponentStore/test_examples.py`.

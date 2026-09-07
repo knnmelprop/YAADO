@@ -67,13 +67,13 @@ Go to your fork on GitHub, and you will see a green button to **"Compare & pull 
 
 ## 3. Repository Architecture
 
-When developing, it is crucial to know where things belong. The repository is strictly divided between the generic execution framework (`YAADO_Core`) and user-defined workspaces (`Hangar` and `FlightLogs`).
+When developing, it is crucial to know where things belong. The repository is divided between the generic execution framework (`YAADO_Core`) and user-defined workspaces (`Hangar` and `FlightLogs`).
 
 ```text
-├── YAADO_Core/               # Foundation — extend via inheritance, DO NOT rewrite
+├── YAADO_Core/              # Foundation — extend via inheritance, DO NOT rewrite
 │   ├── Foundation/          # Base abstractions (BaseComponent, BaseAnalysis, FidelityLevels)
 │   ├── FlightDeck/          # OpenMDAO Problems and mission evaluation logic
-│   ├── ComponentStore/          # Pydantic v2 schemas (strict type validation)
+│   ├── ComponentStore/      # Pydantic v2 schemas (strict type validation)
 │   ├── modules/             # Swappable physics solvers (wind_tunnel, powerplant, etc.)
 │   └── tests/               # Pytest unit suite perfectly mirroring the modules
 │

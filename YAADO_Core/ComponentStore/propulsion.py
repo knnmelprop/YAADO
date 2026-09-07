@@ -4,13 +4,18 @@
 
 from __future__ import annotations
 
-from typing import Literal, Annotated
-from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .mass import MassProperties
 
+
 class SolidMotor(BaseModel):
     """Solid Rocket Motor (SRM) definition.
+
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
 
     Attributes:
         isp_vacuum_s: Vacuum specific impulse for solid propellants in seconds. (Range: 80 to 320)
@@ -32,54 +37,71 @@ class SolidMotor(BaseModel):
     isp_vacuum_s: float = Field(
         ge=80.0, 
         le=320.0,
+        examples=[255.0],
         description='''Vacuum specific impulse for solid propellants in seconds. (Range: 80 to 320)'''
     )
     
     isp_sl_s: float = Field(
         ge=80.0, 
         le=320.0,
+        examples=[230.0],
         description='''Sea-level specific impulse for solid propellants in seconds. (Range: 80 to 320)'''
     )
     
     propellant_mass_kg: float = Field(
         gt=0.0,
+        examples=[70.0],
         description='''Total propellant mass in kilograms. (> 0)'''
     )
     
     burn_time_s: float = Field(
         gt=0.0,
+        examples=[2.90],
         description='''Total motor burn duration in seconds. (> 0)'''
     )
     
     thrust_mean_N: float = Field(
         gt=0.0,
+        examples=[53000.0],
         description='''Time-averaged thrust over the burn duration in newtons. (> 0)'''
     )
     
     thrust_peak_N: float = Field(
         gt=0.0,
+        examples=[58000.0],
         description='''Peak thrust in newtons. Must not be less than mean thrust. (> 0)'''
     )
     
     propellant_density_kg_m3: float = Field(
         gt=0.0,
+        examples=[1750.0],
         description='''Propellant density in kg/m^3. (> 0)'''
     )
     
     casing_length_m: float | None = Field(
         default=None,
         gt=0.0,
+        examples=[0.70],
         description='''Length of the internal metal casing of the motor in meters. Defaults to None. (> 0)'''
     )
     
     casing_diameter_m: float | None = Field(
         default=None,
         gt=0.0,
+        examples=[0.343],
         description='''Diameter of the internal metal casing of the motor in meters. Defaults to None. (> 0)'''
     )
     
     mass: MassProperties | None = Field(
         default=None,
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 4.25,
+                "cg_source": "Aerojet booster structural balance sheet",
+                "total_mass_kg": 140.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 
@@ -118,6 +140,9 @@ class SolidMotor(BaseModel):
 class RamjetEngine(BaseModel):
     """Ramjet engine definition.
 
+    Note:
+        Example values are taken from the ALVRJ (Advanced Low-Volume Ramjet).
+
     Attributes:
         design_mach: Design-point Mach number. Ramjets do not produce net thrust below ~Mach 1.5. (Range: 1.5 to 6.0)
         fuel_type: Fuel designation (e.g. "kerosene"). Defaults to kerosene.
@@ -135,39 +160,53 @@ class RamjetEngine(BaseModel):
     design_mach: float = Field(
         ge=1.5, 
         le=6.0,
+        examples=[2.60],
         description='''Design-point Mach number. Ramjets do not produce net thrust below ~Mach 1.5. (Range: 1.5 to 6.0)'''
     )
     
     fuel_type: str = Field(
         default="kerosene",
+        examples=["kerosene"],
         description='''Fuel designation (e.g. "kerosene"). Defaults to kerosene.'''
     )
     
     combustor_temp_K: float = Field(
         ge=1200.0, 
         le=2600.0,
+        examples=[2150.0],
         description='''Combustor exit total temperature in kelvin. Bounded by material/dissociation limits. (Range: 1200 to 2600)'''
     )
     
     nozzle_area_ratio: float = Field(
         ge=1.0,
+        examples=[2.25],
         description='''Nozzle exit/throat area ratio. (>= 1)'''
     )
     
     nozzle_throat_diameter_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.250],
         description='''Nozzle throat diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)'''
     )
     
     nozzle_exit_diameter_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.375],
         description='''Nozzle exit diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)'''
     )
     
     mass: MassProperties | None = Field(
         default=None,
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 3.40,
+                "cg_source": "Ramjet combustor liner and injector assembly",
+                "total_mass_kg": 115.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 
@@ -185,6 +224,9 @@ class RamjetEngine(BaseModel):
 
 class TurbojetEngine(BaseModel):
     """Turbojet engine definition.
+
+    Note:
+        Example values are taken from the AGM-84 Harpoon.
 
     Attributes:
         name: Engine designation.
@@ -205,61 +247,79 @@ class TurbojetEngine(BaseModel):
     type: Literal["turbojet_engine"] = Field(default="turbojet_engine", frozen=True)
     
     name: str = Field(
+        examples=['Teledyne CAE J402-CA-400'],
         description='''Engine designation.'''
     )
     
     thrust_N: float = Field(
         gt=0.0,
+        examples=[2940.0],
         description='''Static sea-level thrust in newtons. (> 0)'''
     )
     
     sfc_kg_per_Ns: float = Field(
         gt=0.0,
+        examples=[3.25e-5],
         description='''Thrust-specific fuel consumption in kg/(N*s). (> 0)'''
     )
     
     mach_range: tuple[float, float] = Field(
+        examples=[(0.20, 0.85)],
         description='''Operational (min, max) Mach numbers, increasing.'''
     )
     
     mass_flow_kg_per_s: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[4.35],
         description='''Optional air/mass flow rate in kg/s. Defaults to None. (> 0)'''
     )
     
     compression_ratio: float | None = Field(
         default=None, 
         gt=1.0,
+        examples=[5.60],
         description='''Optional compressor pressure ratio. Defaults to None. (> 1.0)'''
     )
     
     egt_K: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[950.0],
         description='''Optional exhaust gas temperature in kelvin. Defaults to None. (> 0)'''
     )
     
     diameter_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.318],
         description='''Optional engine diameter in meters. Defaults to None. (> 0)'''
     )
     
     length_m: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[0.747],
         description='''Optional engine length in meters. Defaults to None. (> 0)'''
     )
     
     max_rpm: float | None = Field(
         default=None, 
         gt=0.0,
+        examples=[41200.0],
         description='''Optional maximum RPM. Defaults to None. (> 0)'''
     )
     
     mass: MassProperties | None = Field(
         default=None,
+        examples=[
+            {
+                "type": "mass",
+                "cg_from_nose_m": 3.10,
+                "cg_source": "Teledyne CAE technical datasheet",
+                "total_mass_kg": 46.0,
+            }
+        ],
         description='''Mass Properties'''
     )
 

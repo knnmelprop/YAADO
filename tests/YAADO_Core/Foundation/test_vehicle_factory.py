@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from YAADO_Core.ComponentStore import Wings, TurbojetEngine
+from YAADO_Core.ComponentStore import TurbojetEngine, Wings
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.Foundation.vehicle_factory import VehicleFactory
 
