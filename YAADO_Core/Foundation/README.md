@@ -6,7 +6,7 @@ This directory contains the core abstractions and data contracts for the entire 
 
 `YAADO` uses explicit, decoupled data handoffs between modules.
 
-This architecture relies on two strict rules defined in `analysis_base.py`:
+This architecture relies on two rules defined in `analysis_base.py`:
 
 ### 1. `BaseAnalysis`
 Every solver—whether it is a simple empirical equation or a massive CFD wrapper—must inherit from `BaseAnalysis`.
@@ -14,8 +14,8 @@ Every solver—whether it is a simple empirical equation or a massive CFD wrappe
 * Modules must implement an `execute()` method to run the math and output the results.
 
 ### 2. `AnalysisResults`
-When `execute()` finishes, it is strictly forbidden from returning loose floats or custom objects. It **must** return an `AnalysisResults` dataclass. This acts as a universal "shipping container" containing:
-* `data`: A dictionary of purely numerical scalar outputs in strict **SI units** (e.g., `{"thrust_N": 450.0}`).
+When `execute()` finishes, it is forbidden from returning loose floats or custom objects. It **must** return an `AnalysisResults` dataclass. This acts as a universal "shipping container" containing:
+* `data`: A dictionary of purely numerical scalar outputs in **SI units** (e.g., `{"thrust_N": 450.0}`).
 * `metadata`: A dictionary for free-form context (e.g., warnings, mesh sizes, solver assumptions).
 
 Because this contract is composed entirely of primitive Python dictionaries, it serializes instantly to JSON. Modules dump their `AnalysisResults` to the `FlightLogs/` directory, where downstream modules can load them directly from disk.

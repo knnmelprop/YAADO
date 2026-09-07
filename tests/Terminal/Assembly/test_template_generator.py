@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from Terminal.Assembly import VehicleTemplateGenerator
 from YAADO_Core.ComponentStore import (
@@ -32,6 +32,32 @@ def test_prefill_component_values_valid(comp_cls: type[BaseModel]) -> None:
         if field_name == "type":
             continue
         assert getattr(comp, field_name) is not None or field_info.examples[0] is None
+
+
+@pytest.mark.parametrize("comp_cls", ALL_COMPONENTS + (ControlSurface,))
+def test_get_field_example_all_components(comp_cls: type[BaseModel]) -> None:
+    """Test that get_field_example correctly retrieves baseline examples for all registered schemas."""
+    for field_name, field_info in comp_cls.model_fields.items():
+        if field_name == "type":
+            continue
+        example = VehicleTemplateGenerator.get_field_example(comp_cls, field_name)
+        if field_info.examples:
+            assert example == field_info.examples[0]
+
+
+def test_get_field_example_unknown_field_raises_key_error() -> None:
+    """Test that get_field_example raises KeyError when querying an unrecognised field."""
+    with pytest.raises(KeyError, match="Field 'nonexistent_param' not found"):
+        VehicleTemplateGenerator.get_field_example(ALL_COMPONENTS[0], "nonexistent_param")
+
+
+def test_get_field_example_missing_examples_raises_value_error() -> None:
+    """Test that get_field_example raises ValueError when a field has no schema examples."""
+    class IncompleteComponent(BaseModel):
+        field_without_example: float
+
+    with pytest.raises(ValueError, match="has no schema examples defined"):
+        VehicleTemplateGenerator.get_field_example(IncompleteComponent, "field_without_example")
 
 
 def test_assemble_vehicle_subsystem_routing() -> None:

@@ -39,6 +39,9 @@ Routes instantiated Pydantic models into their appropriate vehicle subsystems (`
 ### 3. `prefill_component_values(component_class)`
 Reflects on a Pydantic model class and instantiates it using values extracted from `field_info.examples`.
 
+### 4. `get_field_example(component_class, field_name)`
+Retrieves the mandatory baseline example value for an individual field, facilitating granular per-field prompt fallback (Scenario 2.3). Raises `ValueError` if the field lacks schema examples.
+
 ## Usage
 
 ```python

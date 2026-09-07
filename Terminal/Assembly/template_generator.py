@@ -5,7 +5,10 @@ Hangar workspace, either as unpopulated skeleton files or prefilled from schema
 examples.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -84,6 +87,41 @@ class VehicleTemplateGenerator:
         return template_vehicle
 
     @classmethod
+    def get_field_example(
+        cls,
+        component_class: type[BaseModel],
+        field_name: str,
+    ) -> Any:
+        """Retrieve the baseline example value for a single component field.
+
+        Extracts the first example defined in the field's metadata. In YAADO, all
+        component schema fields are strictly required to define baseline examples.
+
+        Args:
+            component_class: Pydantic component model class.
+            field_name: Name of the field to inspect.
+
+        Returns:
+            The first example value defined on the field.
+
+        Raises:
+            KeyError: If field_name is not defined on component_class.
+            ValueError: If the field does not define any schema examples.
+        """
+        field_info = component_class.model_fields.get(field_name)
+        if field_info is None:
+            raise KeyError(
+                f"Field '{field_name}' not found on model {component_class.__name__}"
+            )
+
+        if not field_info.examples or len(field_info.examples) == 0:
+            raise ValueError(
+                f"Field '{field_name}' on model {component_class.__name__} has no schema examples defined"
+            )
+
+        return field_info.examples[0]
+
+    @classmethod
     def prefill_component_values(
         cls,
         component_class: type[BaseModel],
@@ -97,10 +135,10 @@ class VehicleTemplateGenerator:
             Instantiated component model with fields populated from schema examples.
         """
         kwargs = {}
-        for field_name, field_info in component_class.model_fields.items():
+        for field_name in component_class.model_fields:
             if field_name == "type":
                 continue
 
-            kwargs[field_name] = field_info.examples[0] # type: ignore
+            kwargs[field_name] = cls.get_field_example(component_class, field_name)
 
         return component_class(**kwargs)
