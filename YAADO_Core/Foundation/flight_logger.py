@@ -57,6 +57,7 @@ class FlightLogger:
         enabled: If False, disables all disk I/O, figure rendering, and file
             logging for high-speed optimization loops (OpenMDAO/sweeps).
         log_to_console: Whether to attach a console StreamHandler. Defaults to False.
+        show_figures: Whether save_figure automatically shows pop-up windows. Defaults to False.
         log_level: Minimum severity level to capture. Defaults to logging.INFO.
     """
 
@@ -66,6 +67,7 @@ class FlightLogger:
         analysis_name: str,
         enabled: bool = True,
         log_to_console: bool = False,
+        show_figures: bool = False,
         log_level: int = logging.INFO,
     ) -> None:
         """Initialize the FlightLogger with vehicle, analysis, and datetime directory paths."""
@@ -73,6 +75,7 @@ class FlightLogger:
         self.analysis_name = analysis_name
         self.enabled = enabled
         self.log_to_console = log_to_console
+        self.show_figures = show_figures
         self.log_level = log_level
 
         # Format datetime string for folder naming: e.g. "2026-09-09_215332"
@@ -226,30 +229,49 @@ class FlightLogger:
         filename: str,
         dpi: int = 150,
         transparent: bool = False,
+        show: bool = False,
         close: bool = True,
     ) -> Path | None:
-        """Save a matplotlib figure to the run's figures directory and close it.
-
-        Functionality:
-            1. If ``self.enabled`` is False, skips file I/O. If ``close`` is True,
-               still closes ``fig`` to free RAM, then returns None.
-            2. Ensures ``filename`` has an image extension (defaults to '.png').
-            3. Calls ``fig.savefig(self.figures_dir / filename, dpi=dpi, bbox_inches='tight')``.
-            4. If ``close`` is True, calls ``matplotlib.pyplot.close(fig)`` to prevent
-               memory leaks during parameter sweeps.
-            5. Returns the resolved Path to the saved image.
+        """Save a matplotlib figure to the run's figures directory and optionally display/close it.
 
         Args:
             fig: Matplotlib Figure instance to save.
-            filename: Target filename (e.g., 'polar_grid.png').
+            filename: Target filename (e.g., 'polar_grid.png'). Defaults to '.png'
+                extension if none is provided.
             dpi: Image resolution in dots per inch. Defaults to 150.
             transparent: Whether background should be transparent. Defaults to False.
-            close: Whether to close the figure after saving. Defaults to True.
+            show: Whether to display the figure in an interactive pop-up window
+                before closing.
+            close: Whether to close the figure after saving/displaying. Defaults to True.
 
         Returns:
             Resolved Path to the saved figure, or None if logging is disabled.
         """
-        pass
+        import matplotlib.pyplot as plt
+
+        saved_path = None
+
+        if self.enabled:
+            target_path = self.figures_dir / filename
+            if not target_path.suffix:
+                target_path = target_path.with_suffix(".png")
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(target_path, dpi=dpi, transparent=transparent, bbox_inches="tight")
+            self.debug("Saved figure %s to %s", filename, target_path)
+            saved_path = target_path
+
+        should_show = self.show_figures and show
+        if should_show:
+            try:
+                plt.show()
+            except (RuntimeError, ImportError, AttributeError, OSError) as e:
+                self.warning("Unable to display interactive figure pop-up: %s", e)
+
+        if close:
+            plt.close(fig)
+
+        return saved_path
 
     # -------------------------------------------------------------------------
     # Checkpointing & Result Serialization
