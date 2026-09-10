@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import matplotlib.figure
+
     from YAADO_Core.Foundation.analysis_base import AnalysisResults
 
 
@@ -145,7 +146,7 @@ class FlightLogger:
                 console_handler = logging.StreamHandler()
                 console_handler.setLevel(self.log_level)
                 console_formatter = logging.Formatter(
-                    "[%(levelname)s] [%(name)s]: %(message)s"
+                    "%(asctime)s [%(levelname)s] [%(name)s]: %(message)s"
                 )
                 console_handler.setFormatter(console_formatter)
                 self.logger.addHandler(console_handler)
@@ -157,75 +158,63 @@ class FlightLogger:
                     self.logger.removeHandler(h)
 
     # -------------------------------------------------------------------------
-    # Diagnostic / Text Logging Methods (Replacing print())
+    # Diagnostic / Text Logging Methods
     # -------------------------------------------------------------------------
 
     def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Log an informational message to execution.log and console (if active).
-
-        Functionality:
-            Forwards informational progress messages to ``self.logger.info``
-            if ``self.enabled`` is True.
 
         Args:
             msg: Log message string (supports %-style format specifiers).
             *args: Formatting arguments for ``msg``.
             **kwargs: Extra arguments forwarded to ``logging.Logger.info``.
         """
-        pass
+        if self.enabled:
+            self.logger.info(msg, *args, **kwargs)
 
     def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Log a warning message (e.g. low stability margin, solver fallback).
-
-        Functionality:
-            Forwards warning messages to ``self.logger.warning``.
 
         Args:
             msg: Warning message string.
             *args: Formatting arguments for ``msg``.
             **kwargs: Extra arguments forwarded to ``logging.Logger.warning``.
         """
-        pass
+        if self.enabled:
+            self.logger.warning(msg, *args, **kwargs)
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Log an error message indicating an analysis failure or invalid input.
-
-        Functionality:
-            Forwards error messages to ``self.logger.error``.
 
         Args:
             msg: Error message string.
             *args: Formatting arguments for ``msg``.
             **kwargs: Extra arguments forwarded to ``logging.Logger.error``.
         """
-        pass
+        if self.enabled:
+            self.logger.error(msg, *args, **kwargs)
 
     def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Log a detailed diagnostic message for debugging solver internals.
-
-        Functionality:
-            Forwards low-level debugging details (residuals, matrix sizes,
-            intermediate iteration states) to ``self.logger.debug``.
 
         Args:
             msg: Debug message string.
             *args: Formatting arguments for ``msg``.
             **kwargs: Extra arguments forwarded to ``logging.Logger.debug``.
         """
-        pass
+        if self.enabled:
+            self.logger.debug(msg, *args, **kwargs)
 
     def exception(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Log an error message accompanied by the current exception traceback.
-
-        Functionality:
-            Forwards exception messages and stack traces to ``self.logger.exception``.
 
         Args:
             msg: Error description to accompany the traceback.
             *args: Formatting arguments for ``msg``.
             **kwargs: Extra arguments forwarded to ``logging.Logger.exception``.
         """
-        pass
+        if self.enabled:
+            self.logger.exception(msg, *args, **kwargs)
 
     # -------------------------------------------------------------------------
     # Visual Artifact Management
