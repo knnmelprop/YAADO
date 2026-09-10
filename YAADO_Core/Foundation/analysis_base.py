@@ -42,14 +42,17 @@ class AnalysisResults:
         name: Name of the analysis that produced the results.
         fidelity: Fidelity level of the method used.
         data: Scalar outputs in SI units, keyed by symbol (e.g. ``CL``,
-            ``CD``, ``CL_alpha``, ``CM``).
+            ``CD``, ``thrust``).
         metadata: Free-form context (solver version, mesh size, warnings).
+        units: Explicit physical SI units for each output in ``data`` (e.g.
+            ``{"thrust": "N", "isp": "s", "CL": "-"}``).
     """
 
     name: str
     fidelity: FidelityLevel
     data: dict[str, float] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    units: dict[str, str] = field(default_factory=dict)
 
     def __getitem__(self, key: str) -> float:
         """Return a scalar output by symbol name."""
@@ -58,6 +61,34 @@ class AnalysisResults:
     def __contains__(self, key: str) -> bool:
         return key in self.data
 
+    def get_unit(self, key: str) -> str:
+        """Return the physical unit for a metric, or '-' if dimensionless.
+
+        Args:
+            key: Metric symbol name.
+
+        Returns:
+            Unit string (e.g., 'N', 'm/s', '-').
+        """
+        return self.units.get(key, "-")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize container to a primitive dictionary for JSON export.
+
+        Returns:
+            Dictionary with name, fidelity integer, data, units, and metadata.
+        """
+        return {
+            "name": self.name,
+            "fidelity": (
+                self.fidelity.value
+                if hasattr(self.fidelity, "value")
+                else self.fidelity
+            ),
+            "data": self.data,
+            "units": self.units,
+            "metadata": self.metadata,
+        }
 
 class BaseAnalysis(ABC):
     """Abstract base class for all analysis methods.
