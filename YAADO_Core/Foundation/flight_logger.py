@@ -7,11 +7,15 @@ hierarchy.
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -34,10 +38,27 @@ class YaadoJSONEncoder(json.JSONEncoder):
             - NumPy ndarrays -> list via ``.tolist()``.
             - Pydantic models -> dict via ``.model_dump(mode="json")``.
             - Path objects -> str.
-            - Enums -> enum value or name.
-            - datetime objects -> ISO 8601 string.
+            - Enums -> enum value.
+            - datetime/date objects -> ISO 8601 string.
         """
-        # Functionality: To be implemented in next step.
+        # NumPy arrays
+        if hasattr(o, "tolist") and callable(o.tolist):
+            return o.tolist()
+        # NumPy scalars (float64, int32, bool_)
+        if hasattr(o, "item") and callable(o.item):
+            return o.item()
+        # Enums (e.g. FidelityLevel)
+        if isinstance(o, Enum):
+            return o.value
+        # Pydantic v2 models
+        if isinstance(o, BaseModel):
+            return o.model_dump(mode="json")
+        # Pathlib paths
+        if isinstance(o, Path):
+            return str(o)
+        # datetime / date objects
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
         return super().default(o)
 
 
@@ -276,56 +297,165 @@ class FlightLogger:
     # -------------------------------------------------------------------------
     # Checkpointing & Result Serialization
     # -------------------------------------------------------------------------
+    def _write_summary_csv(
+        self,
+        data: dict[str, Any],
+        units: dict[str, str],
+        filepath: Path,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Write a human-readable CSV summary table with metrics and bottom metadata table.
+
+        Args:
+            data: Dictionary of scalar outputs in SI units.
+            units: Dictionary of units mapping metric names to their SI unit symbol.
+            filepath: Destination file path for the CSV.
+            metadata: Optional dictionary of metadata to append in a secondary table.
+        """
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            # Table 1: Primary Metrics
+            writer.writerow(["metric", "value", "unit"])
+            for key, val in data.items():
+                unit = units.get(key, "-")
+                try:
+                    num_val = float(val)
+                    val_str = (
+                        f"{int(num_val)}"
+                        if num_val.is_integer()
+                        else f"{num_val:.6g}"
+                    )
+                except (ValueError, TypeError):
+                    val_str = str(val)
+                writer.writerow([key, val_str, unit])
+
+            # Table 2: Execution & Checkpoint Metadata (placed at bottom for Excel sorting)
+            writer.writerow([])
+            writer.writerow(["metadata", "value", "unit"])
+            writer.writerow(["vehicle", self.vehicle_name, "-"])
+            writer.writerow(["analysis", self.analysis_name, "-"])
+            writer.writerow(["timestamp", self.timestamp_str, "-"])
+
+            if metadata:
+                for m_key, m_val in metadata.items():
+                    # Only serialize primitive scalar metadata to avoid polluting CSV
+                    if isinstance(m_val, (int, float, bool, str)):
+                        writer.writerow([m_key, str(m_val), "-"])
 
     def save_results(
         self,
-        results: AnalysisResults | dict[str, Any],
+        results: AnalysisResults,
         filename: str = "results.json",
         indent: int = 2,
     ) -> Path | None:
-        """Save analysis outputs as a structured JSON checkpoint.
+        """Save analysis outputs as a structured JSON checkpoint and summary CSV.
 
-        Functionality:
-            1. Converts ``results`` to a dictionary containing ``vehicle_name``,
-               ``analysis_name``, ``timestamp_utc``, ``fidelity``, ``data``, and
-               ``metadata``.
-            2. Serializes dictionary into ``self.output_dir / filename`` using
-               ``YaadoJSONEncoder`` to safely encode NumPy arrays, NumPy floats,
-               and Pydantic schemas.
-            3. Logs an informational message confirming the saved checkpoint path.
-            4. Returns the resolved Path, or None if logging is disabled.
+        Writes scalar SI outputs, explicit units metadata, free-form metadata,
+        vehicle name, and timestamp into ``self.output_dir / filename`` using
+        ``YaadoJSONEncoder``, and writes ``summary.csv`` alongside it.
 
         Args:
-            results: AnalysisResults container or dictionary of results.
+            results: AnalysisResults container.
             filename: Checkpoint filename. Defaults to "results.json".
             indent: JSON indentation level. Defaults to 2.
 
         Returns:
             Resolved Path to the written JSON checkpoint, or None if disabled.
         """
-        pass
+        if not self.enabled:
+            return None
+
+        from YAADO_Core.Foundation.analysis_base import AnalysisResults
+
+        if not isinstance(results, AnalysisResults):
+            raise TypeError(
+                f"Unsupported results type: {type(results).__name__}; "
+                "save_results strictly requires an AnalysisResults instance."
+            )
+
+        target_path = self.output_dir / filename
+        if not target_path.suffix:
+            target_path = target_path.with_suffix(".json")
+
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fidelity_val = getattr(results.fidelity, "value", results.fidelity)
+        data_dict = results.data
+        units_dict = results.units
+        metadata_dict = results.metadata
+        analysis_name = results.name or self.analysis_name
+
+        payload = {
+            "vehicle_name": self.vehicle_name,
+            "analysis_name": analysis_name,
+            "timestamp": self.timestamp_str,
+            "fidelity": fidelity_val,
+            "data": data_dict,
+            "units": units_dict,
+            "metadata": metadata_dict,
+        }
+
+        with open(target_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, cls=YaadoJSONEncoder, indent=indent)
+
+        # Automatically write summary.csv alongside results.json
+        if isinstance(data_dict, dict) and data_dict:
+            summary_csv_path = self.output_dir / "summary.csv"
+            full_meta = {"fidelity": fidelity_val, **metadata_dict}
+            self._write_summary_csv(
+                data=data_dict,
+                units=units_dict,
+                filepath=summary_csv_path,
+                metadata=full_meta,
+            )
+
+        self.info("Saved results checkpoint to %s", target_path)
+        return target_path
 
     def load_results(self, filename: str = "results.json") -> AnalysisResults:
         """Load an AnalysisResults checkpoint from this run directory.
-
-        Functionality:
-            1. Reads the JSON file at ``self.output_dir / filename``.
-            2. Parses the JSON structure and reconstructs an ``AnalysisResults``
-               dataclass (restoring ``name``, ``fidelity``, scalar ``data`` dict,
-               and nested ``metadata`` dict).
-            3. Enables downstream analyses to consume precomputed physics without
-               re-running simulations.
 
         Args:
             filename: Checkpoint filename in ``self.output_dir``. Defaults to "results.json".
 
         Returns:
-            Reconstructed AnalysisResults dataclass.
+            Reconstructed AnalysisResults dataclass with data, units, and metadata.
 
         Raises:
             FileNotFoundError: If the specified checkpoint file does not exist.
+            ValueError: If the checkpoint JSON is missing 'fidelity' or contains an invalid fidelity level.
         """
-        pass
+        from YAADO_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
+
+        target_path = self.output_dir / filename
+        if not target_path.suffix:
+            target_path = target_path.with_suffix(".json")
+
+        if not target_path.is_file():
+            raise FileNotFoundError(f"Results checkpoint not found at: {target_path}")
+
+        with open(target_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        if "fidelity" not in payload:
+            raise ValueError(f"Corrupted checkpoint in {target_path}: missing 'fidelity' key")
+
+        try:
+            fidelity = FidelityLevel(payload["fidelity"])
+        except ValueError as err:
+            valid_levels = [lvl.value for lvl in FidelityLevel]
+            raise ValueError(
+                f"Corrupted checkpoint in {target_path}: invalid fidelity level {payload['fidelity']!r}. "
+                f"Must be one of {valid_levels}."
+            ) from err
+
+        return AnalysisResults(
+            name=payload.get("analysis_name", self.analysis_name),
+            fidelity=fidelity,
+            data=payload.get("data", {}),
+            metadata=payload.get("metadata", {}),
+            units=payload.get("units", {}),
+        )
 
     # -------------------------------------------------------------------------
     # Auxiliary Artifact Management
@@ -338,11 +468,6 @@ class FlightLogger:
     ) -> Path | None:
         """Save an auxiliary file (CSV sweeps, tables, meshes) to artifacts/.
 
-        Functionality:
-            Writes raw string (text/CSV) or bytes (binary data) into
-            ``self.artifacts_dir / filename``, creating the parent directory if needed.
-            Returns the saved Path, or None if logging is disabled.
-
         Args:
             filename: Destination filename within ``self.artifacts_dir``.
             content: String (text/CSV) or bytes (binary data) to write.
@@ -350,19 +475,31 @@ class FlightLogger:
         Returns:
             Resolved Path to the saved artifact, or None if logging is disabled.
         """
-        pass
+        if not self.enabled:
+            return None
+
+        target_path = self.artifacts_dir / filename
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if isinstance(content, bytes):
+            target_path.write_bytes(content)
+        elif isinstance(content, str):
+            target_path.write_text(content, encoding="utf-8")
+        else:
+            raise TypeError(f"content must be str or bytes, got {type(content)}")
+
+        self.debug("Saved artifact %s to %s", filename, target_path)
+        return target_path
 
     # -------------------------------------------------------------------------
     # Lifecycle & Cleanup
     # -------------------------------------------------------------------------
 
     def close(self) -> None:
-        """Flush and close all logging handlers cleanly.
-
-        Functionality:
-            Iterates through all handlers attached to ``self.logger``, flushes
-            their buffers, closes underlying file streams, and removes handlers
-            to prevent open file descriptor leaks.
-        """
-        pass
+        """Flush and close all logging handlers cleanly."""
+        for h in list(self.logger.handlers):
+            h.flush()
+            if isinstance(h, logging.FileHandler):
+                h.close()
+            self.logger.removeHandler(h)
 
