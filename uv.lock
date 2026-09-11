@@ -7,6 +7,21 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "ambiance"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/98/6ca0da97a869aed1375e0eaa7ecbc7d9dc1253065ebad3f33be339957ba2/ambiance-1.3.1.tar.gz", hash = "sha256:ceff180945a96996da5a3aceff2f2ff4f1ae67dadd24919675223c8e01d0a416", size = 16966, upload-time = "2022-09-25T15:17:12.18Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/b7/a9543c04d696a4bfe8a4959da6452f926c9766b3c27e9ef89db0a727965b/ambiance-1.3.1-py3-none-any.whl", hash = "sha256:d7ccd04390e59727ffca5c54079586fe0b40419db5445b524db563a9405f015a", size = 15403, upload-time = "2022-09-25T15:17:07.385Z" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1177,6 +1192,7 @@ name = "yaado"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "ambiance" },
     { name = "gmsh" },
     { name = "matplotlib" },
     { name = "om-pycycle" },
@@ -1189,6 +1205,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ambiance", specifier = ">=1.3.1" },
     { name = "gmsh", specifier = "==4.15.1" },
     { name = "matplotlib" },
     { name = "om-pycycle", specifier = "==4.1.2" },

@@ -29,40 +29,15 @@ from scipy.integrate._ivp.ivp import OdeResult
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
+import YAADO_Core.Foundation.constants as const
 from YAADO_Core.ComponentStore import AxisymmetricBody, Fins, SolidMotor
 from YAADO_Core.Foundation.analysis_base import (
     AnalysisResults,
     BaseAnalysis,
     FidelityLevel,
 )
+from YAADO_Core.Foundation.atmosphere import isa_atmosphere
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-
-G0_MS2: float = 9.80665
-"""Standard gravity [m/s^2]."""
-
-R_AIR_J_PER_KGK: float = 287.05
-"""Specific gas constant of dry air [J/(kg*K)]."""
-
-GAMMA_AIR: float = 1.4
-"""Ratio of specific heats for air (calorically perfect gas assumption)."""
-
-T0_ISA_K: float = 288.15
-"""ISA sea-level standard temperature [K]."""
-
-P0_ISA_PA: float = 101325.0
-"""ISA sea-level standard pressure [Pa]."""
-
-LAPSE_RATE_K_PER_M: float = 0.0065
-"""ISA troposphere lapse rate [K/m] (0 <= h < 11000 m)."""
-
-TROPOPAUSE_ALT_M: float = 11000.0
-"""Upper bound of the ISA troposphere layer [m]; not expected to be
-reached by this low-altitude boost phase, retained as a documented model
-boundary only."""
-
-ISA_PRESSURE_EXPONENT: float = G0_MS2 / (LAPSE_RATE_K_PER_M * R_AIR_J_PER_KGK)
-"""Barometric exponent ``g0 / (L * R)`` for ``p = p0 * (T / T0)**exponent``.
-Evaluates to ~5.2559, matching the commonly quoted ICAO manual value."""
 
 # -- Aerodynamic drag model (step CD vs. Mach; see module docstring) -------
 
@@ -183,7 +158,7 @@ class BoosterParams:
     @property
     def thrust_sl_N(self) -> float:
         """Impulse-consistent thrust at sea level, ``Isp_sl * mdot * g0`` [N]."""
-        return self.isp_sl_s * self.mdot_kg_s * G0_MS2
+        return self.isp_sl_s * self.mdot_kg_s * const.G0
 
 
 def _first_solid_motor(vehicle: BaseVehicleConfig) -> SolidMotor | None:
@@ -346,23 +321,6 @@ def load_booster_params(
     )
 
 
-def isa_atmosphere(altitude_m: float) -> tuple[float, float, float]:
-    """Evaluate the ICAO standard atmosphere in the troposphere layer.
-
-    Args:
-        altitude_m: Geometric altitude [m]. Clamped to ``>= 0`` (guard for
-            transient negative altitudes produced by the ODE solver's
-            internal trial steps before the ground-impact event fires).
-
-    Returns:
-        Tuple ``(temperature_K, pressure_Pa, density_kg_m3)``.
-    """
-    h = max(altitude_m, 0.0)
-    temperature_K = T0_ISA_K - LAPSE_RATE_K_PER_M * h
-    pressure_Pa = P0_ISA_PA * (temperature_K / T0_ISA_K) ** ISA_PRESSURE_EXPONENT
-    density_kg_m3 = pressure_Pa / (R_AIR_J_PER_KGK * temperature_K)
-    return temperature_K, pressure_Pa, density_kg_m3
-
 
 def specific_impulse_s(altitude_m: float, params: BoosterParams) -> float:
     """Interpolate Isp linearly from sea-level toward vacuum with altitude.
@@ -427,11 +385,10 @@ def flow_state(
     """
     vx, vh = velocity_ms
     speed_ms = math.hypot(vx, vh)
-    temperature_K, _pressure_Pa, density_kg_m3 = isa_atmosphere(altitude_m)
-    a_sound_ms = math.sqrt(GAMMA_AIR * R_AIR_J_PER_KGK * temperature_K)
-    mach = speed_ms / a_sound_ms if a_sound_ms > 0.0 else 0.0
-    dynamic_pressure_pa = 0.5 * density_kg_m3 * speed_ms**2
-    return speed_ms, mach, dynamic_pressure_pa, density_kg_m3
+    atm = isa_atmosphere(altitude_m)
+    mach = speed_ms / atm.speed_of_sound if atm.speed_of_sound > 0.0 else 0.0
+    dynamic_pressure_pa = 0.5 * atm.density * speed_ms**2
+    return speed_ms, mach, dynamic_pressure_pa, atm.density
 
 
 def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list[float]:
@@ -469,7 +426,7 @@ def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list
 
     if t_s <= params.burn_time_s:
         isp_s = specific_impulse_s(h, params)
-        thrust_N = params.mdot_kg_s * G0_MS2 * isp_s
+        thrust_N = params.mdot_kg_s * const.G0 * isp_s
     else:
         thrust_N = 0.0
 
@@ -478,7 +435,7 @@ def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list
     thrust_h_N = thrust_N * math.sin(params.launch_angle_rad)
 
     ax_ms2 = (thrust_x_N - drag_N * ux) / mass_kg
-    ah_ms2 = (thrust_h_N - drag_N * uh) / mass_kg - G0_MS2
+    ah_ms2 = (thrust_h_N - drag_N * uh) / mass_kg - const.G0
 
     return [vx, vh, ax_ms2, ah_ms2]
 
