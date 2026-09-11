@@ -1370,7 +1370,7 @@ def main() -> None:
         propulsion={
             "stage2_ramjet": RamjetEngine(
                 design_mach=MACH_DESIGN,
-                combustor_temp_K=2000.0,
+                combustor_temp=2000.0,
                 nozzle_area_ratio=1.317,
             )
         },
