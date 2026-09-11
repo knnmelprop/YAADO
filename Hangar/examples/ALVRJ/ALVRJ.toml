@@ -3,93 +3,93 @@ description = "ALVRJ (Advanced Low-Volume Ramjet) reference configuration"
 
 [mass_properties]
 type = "mass"
-cg_from_nose_m = 2.1
+cg_from_nose = 2.1
 cg_source = "ALVRJ flight test station 82.5 in reference balance"
-total_mass_kg = 1020.0
+total_mass = 1020.0
 
 [propulsion.sustainer]
 type = "ramjet_engine"
 design_mach = 2.6
 fuel_type = "kerosene"
-combustor_temp_K = 2150.0
+combustor_temp = 2150.0
 nozzle_area_ratio = 2.25
-nozzle_throat_diameter_m = 0.25
-nozzle_exit_diameter_m = 0.375
+nozzle_throat_diameter = 0.25
+nozzle_exit_diameter = 0.375
 
 [propulsion.integral_booster]
 type = "solid_motor"
-isp_vacuum_s = 260.0
-isp_sl_s = 235.0
-propellant_mass_kg = 272.0
-burn_time_s = 5.0
-thrust_mean_N = 125000.0
-thrust_peak_N = 145000.0
-propellant_density_kg_m3 = 1750.0
-casing_length_m = 2.1
-casing_diameter_m = 0.381
+isp_vacuum = 260.0
+isp_sl = 235.0
+propellant_mass = 272.0
+burn_time = 5.0
+thrust_mean = 125000.0
+thrust_peak = 145000.0
+propellant_density = 1750.0
+casing_length = 2.1
+casing_diameter = 0.381
 
 [aero_surfaces.aft_control_fins]
 type = "fins"
 count = 4
-span_m = 0.28
-sweep_deg = 60.0
-chord_root_m = 0.65
-chord_tip_m = 0.15
+span = 0.28
+sweep = 60.0
+chord_root = 0.65
+chord_tip = 0.15
 [[aero_surfaces.aft_control_fins.control_surfaces]]
 name = "aft_elevon_actuator"
 function = "elevator"
 span_fraction_start = 0.15
 span_fraction_end = 0.85
 chord_fraction = 0.25
-max_deflection_deg = 25.0
+max_deflection = 25.0
 
 [aero_surfaces.intake_strakes]
 type = "wing"
 aspect_ratio = 1.8
-sweep_deg = 60.0
+sweep = 60.0
 taper_ratio = 0.25
-span_m = 0.94
-dihedral_deg = 0.0
+span = 0.94
+dihedral = 0.0
 airfoil_root = "NACA0004"
 airfoil_tip = "NACA0004"
 control_surfaces = []
 
 [bodies.fuselage]
 type = "axisymmetric_body"
-length_m = 4.57
-diameter_m = 0.381
+length = 4.57
+diameter = 0.381
 nose_type = "ogive"
-nose_length_m = 0.95
-nose_diameter_m = 0.381
-total_length_m = 4.57
-max_diameter_m = 0.381
+nose_length = 0.95
+nose_diameter = 0.381
+total_length = 4.57
+max_diameter = 0.381
 
 [propulsion.sustainer.mass]
 type = "mass"
-cg_from_nose_m = 3.4
+cg_from_nose = 3.4
 cg_source = "Ramjet combustor liner and injector assembly"
-total_mass_kg = 115.0
+total_mass = 115.0
 
 [propulsion.integral_booster.mass]
 type = "mass"
-cg_from_nose_m = 3.2
+cg_from_nose = 3.2
 cg_source = "ALVRJ booster grain mass properties"
-total_mass_kg = 330.0
+total_mass = 330.0
 
 [aero_surfaces.aft_control_fins.mass]
 type = "mass"
-cg_from_nose_m = 4.15
+cg_from_nose = 4.15
 cg_source = "Aft tail actuator package balance"
-total_mass_kg = 28.0
+total_mass = 28.0
 
 [aero_surfaces.intake_strakes.mass]
 type = "mass"
-cg_from_nose_m = 2.4
+cg_from_nose = 2.4
 cg_source = "Intake strake structural balance"
-total_mass_kg = 22.0
+total_mass = 22.0
 
 [bodies.fuselage.mass]
 type = "mass"
-cg_from_nose_m = 2.1
+cg_from_nose = 2.1
 cg_source = "ALVRJ flight test station 82.5 in reference balance"
-total_mass_kg = 1020.0
+total_mass = 1020.0

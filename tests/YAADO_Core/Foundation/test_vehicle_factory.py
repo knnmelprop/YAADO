@@ -78,16 +78,16 @@ def make_generic_vehicle_config() -> BaseVehicleConfig:
     """Build a minimal, generically valid vehicle config with one wing and one engine."""
     wing = Wings(
         aspect_ratio=8.0,
-        sweep_deg=5.0,
+        sweep=5.0,
         taper_ratio=0.5,
-        span_m=10.0,
-        dihedral_deg=3.0,
+        span=10.0,
+        dihedral=3.0,
         airfoil_root="NACA2412",
     )
     engine = TurbojetEngine(
         name="generic-turbojet",
-        thrust_N=5000.0,
-        sfc_kg_per_Ns=2.0e-5,
+        thrust=5000.0,
+        sfc=2.0e-5,
         mach_range=(0.0, 0.9),
     )
     return BaseVehicleConfig(
