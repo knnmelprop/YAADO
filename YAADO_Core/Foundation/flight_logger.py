@@ -274,8 +274,6 @@ class FlightLogger:
 
         if self.enabled:
             target_path = self.figures_dir / filename
-            if not target_path.suffix:
-                target_path = target_path.with_suffix(".png")
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(target_path, dpi=dpi, transparent=transparent, bbox_inches="tight")
@@ -374,8 +372,6 @@ class FlightLogger:
             )
 
         target_path = self.output_dir / filename
-        if not target_path.suffix:
-            target_path = target_path.with_suffix(".json")
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -428,8 +424,6 @@ class FlightLogger:
         from YAADO_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
 
         target_path = self.output_dir / filename
-        if not target_path.suffix:
-            target_path = target_path.with_suffix(".json")
 
         if not target_path.is_file():
             raise FileNotFoundError(f"Results checkpoint not found at: {target_path}")
