@@ -71,13 +71,13 @@ When developing, it is crucial to know where things belong. The repository is di
 
 ```text
 ├── YAADO_Core/              # Foundation — extend via inheritance, DO NOT rewrite
-│   ├── Foundation/          # Base abstractions (BaseComponent, BaseAnalysis, FidelityLevels)
+│   ├── Foundation/          # Base abstractions (BaseVehicleConfig, BaseAnalysis, FidelityLevels)
 │   ├── FlightDeck/          # OpenMDAO Problems and mission evaluation logic
 │   ├── ComponentStore/      # Pydantic v2 schemas (strict type validation)
-│   ├── modules/             # Swappable physics solvers (wind_tunnel, powerplant, etc.)
-│   └── tests/               # Pytest unit suite perfectly mirroring the modules
+│   └── modules/             # Swappable physics solvers (wind_tunnel, powerplant, etc.)
 │
+├── tests/                   # Pytest unit suite mirroring repository structure
 ├── Hangar/                  # User workspace: Declarative vehicle TOML configs
 ├── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
-├── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
+└── external/                # Git submodules (SUAVE, pyCycle, SU2, OpenVSP)
 ```
