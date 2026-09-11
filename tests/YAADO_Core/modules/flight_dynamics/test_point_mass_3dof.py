@@ -13,8 +13,6 @@ from YAADO_Core.ComponentStore import (
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
-    H0_M,
-    LAUNCH_ANGLE_DEG,
     PointMass3DOFBoostAnalysis,
     resolve_booster_params_from_vehicle,
 )
@@ -77,7 +75,9 @@ def test_resolve_booster_params_from_vehicle_reads_components(
     assert params.burnout_mass_kg == pytest.approx(12.0)
     assert params.burn_time_s == pytest.approx(4.0)
     assert params.mdot_kg_s == pytest.approx(2.0)
-    assert params.launch_angle_deg == pytest.approx(LAUNCH_ANGLE_DEG)
+    assert params.launch_angle_deg == pytest.approx(
+        PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG
+    )
     assert params.a_ref_m2 == pytest.approx(math.pi / 4.0 * 0.15**2)
 
 
@@ -88,6 +88,26 @@ def test_resolve_booster_params_launch_angle_override(vehicle: BaseVehicleConfig
     )
     assert params.launch_angle_deg == pytest.approx(45.0)
     assert params.launch_angle_rad == pytest.approx(math.radians(45.0))
+
+
+def test_resolve_booster_params_drag_overrides(vehicle: BaseVehicleConfig) -> None:
+    """operating_state overrides empirical drag and Isp parameters."""
+    params = resolve_booster_params_from_vehicle(
+        vehicle,
+        operating_state={
+            "cd_body_subsonic": 0.15,
+            "cd_body_transonic": 0.40,
+            "cd_body_supersonic": 0.30,
+            "cd_wave_per_fin": 0.02,
+            "isp_alt_ref_m": 25000.0,
+        },
+    )
+    assert params.cd_body_subsonic == pytest.approx(0.15)
+    assert params.cd_body_transonic == pytest.approx(0.40)
+    assert params.cd_body_supersonic == pytest.approx(0.30)
+    # Fins count is 4, so 4 * 0.02 = 0.08
+    assert params.cd_fins == pytest.approx(0.08)
+    assert params.isp_alt_ref_m == pytest.approx(25000.0)
 
 
 def test_resolve_booster_params_requires_mass_properties() -> None:
@@ -101,7 +121,13 @@ def test_resolve_booster_params_requires_mass_properties() -> None:
 def test_point_mass_3dof_setup_execute_new_contract(vehicle: BaseVehicleConfig) -> None:
     """setup(vehicle, operating_state) + execute() follow the BaseAnalysis contract."""
     analysis = PointMass3DOFBoostAnalysis()
-    analysis.setup(vehicle, operating_state={"launch_angle_deg": 83.0, "altitude_m": H0_M})
+    analysis.setup(
+        vehicle,
+        operating_state={
+            "launch_angle_deg": 83.0,
+            "altitude_m": PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
+        },
+    )
     results = analysis.execute()
 
     assert isinstance(results, AnalysisResults)
