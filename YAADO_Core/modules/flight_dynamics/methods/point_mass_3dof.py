@@ -3,39 +3,8 @@
 This module integrates a point-mass, vertical-plane (3-DOF: range, altitude,
 and their rates) equation of motion for the solid-propellant booster stage
 of a solid-propellant booster stage, from ignition to nominal burnout
-(``burn_time_s`` from the vehicle config) or ground impact, whichever comes
+(``burn_time`` from the vehicle config) or ground impact, whichever comes
 first.
-
-Theory / model references:
-    - Equations of motion: point-mass flight mechanics, e.g. Anderson,
-      *Introduction to Flight*, ch. 9 (rocket/missile trajectory), or
-      Sutton & Biblarz, *Rocket Propulsion Elements*, ch. 4.
-    - ISA troposphere model: ICAO Doc 7488 (Manual of the ICAO Standard
-      Atmosphere), ``0 <= h < 11000 m`` layer, constant lapse rate.
-    - Impulse-consistent thrust ``F = mdot * Isp * g0``: Sutton & Biblarz,
-      *Rocket Propulsion Elements*, eq. 2-14.
-    - Drag build-up (subsonic/transonic/supersonic step CD, fin wave drag):
-      simplified DATCOM-style body + fin drag estimate, consistent with the
-      empirical (non-AVL) supersonic aero approach.
-
-Limitations of the current model:
-    This is a point-mass, 3-DOF model with a fixed launch angle (no pitch
-    program or thrust-vector control). A basic zero-lift gravity turn is
-    assumed: thrust acts along the body axis at the fixed launch angle;
-    aerodynamic lift is not modeled explicitly. For the near-vertical launch
-    angle used (83 deg, typical small sounding rocket rail launch), this
-    approximation is reasonable through the boost phase. A higher-fidelity
-    model would include angle-of-attack-dependent lift and a pitch autopilot.
-
-Run as a script to integrate the trajectory, print the burnout state, and
-write ``burnout_state.json`` + ``boost_phase.png`` next to this file. It
-also runs a launch-angle sensitivity sweep (:func:`run_launch_angle_sweep`,
-angles 5-30 deg) and writes ``launch_angle_sweep.csv`` +
-``launch_angle_sweep.png``; the recommended angle (smallest swept angle
-that avoids ground impact) is added to the JSON as
-``recommended_launch_angle_deg``::
-
-    python3 analyses/trajectory/booster_burnout.py
 """
 
 from __future__ import annotations
@@ -44,34 +13,29 @@ import csv
 import json
 import math
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from scipy.integrate import solve_ivp  # noqa: E402
-from scipy.integrate._ivp.ivp import OdeResult  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.integrate import solve_ivp
+from scipy.integrate._ivp.ivp import OdeResult
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from YAADO_Core.ComponentStore import AxisymmetricBody, Fins, SolidMotor  # noqa: E402
-from YAADO_Core.Foundation.analysis_base import (  # noqa: E402
+from YAADO_Core.ComponentStore import AxisymmetricBody, Fins, SolidMotor
+from YAADO_Core.Foundation.analysis_base import (
     AnalysisResults,
     BaseAnalysis,
     FidelityLevel,
 )
-from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
-
-
-# --------------------------------------------------------------------------
-# Named physical constants (SI units throughout; field/variable names carry
-# unit suffixes per CLAUDE.md rule 1).
-# --------------------------------------------------------------------------
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 G0_MS2: float = 9.80665
 """Standard gravity [m/s^2]."""
