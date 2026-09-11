@@ -320,16 +320,16 @@ def resolve_booster_params_from_vehicle(
     if fins is None:
         raise ValueError("vehicle has no Fins aero-surface component")
 
-    if vehicle.mass_properties is None or vehicle.mass_properties.total_mass_kg is None:
-        raise ValueError("vehicle.mass_properties.total_mass_kg is required")
+    if vehicle.mass_properties is None or vehicle.mass_properties.total_mass is None:
+        raise ValueError("vehicle.mass_properties.total_mass is required")
 
-    launch_mass_kg = vehicle.mass_properties.total_mass_kg
-    propellant_mass_kg = propulsion.propellant_mass_kg
+    launch_mass_kg = vehicle.mass_properties.total_mass
+    propellant_mass_kg = propulsion.propellant_mass
     burnout_mass_kg = launch_mass_kg - propellant_mass_kg
-    burn_time_s = propulsion.burn_time_s
+    burn_time_s = propulsion.burn_time
     mdot_kg_s = propellant_mass_kg / burn_time_s
 
-    d_ref_m = body.diameter_m
+    d_ref_m = body.diameter
     a_ref_m2 = math.pi / 4.0 * d_ref_m**2
     cd_fins = fins.count * CD_WAVE_PER_FIN
 
@@ -339,9 +339,9 @@ def resolve_booster_params_from_vehicle(
         burnout_mass_kg=burnout_mass_kg,
         burn_time_s=burn_time_s,
         mdot_kg_s=mdot_kg_s,
-        isp_sl_s=propulsion.isp_sl_s,
-        isp_vacuum_s=propulsion.isp_vacuum_s,
-        thrust_mean_yaml_N=propulsion.thrust_mean_N,
+        isp_sl_s=propulsion.isp_sl,
+        isp_vacuum_s=propulsion.isp_vacuum,
+        thrust_mean_yaml_N=propulsion.thrust_mean,
         a_ref_m2=a_ref_m2,
         cd_fins=cd_fins,
         launch_angle_deg=launch_angle_deg,

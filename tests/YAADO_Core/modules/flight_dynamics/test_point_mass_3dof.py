@@ -27,29 +27,29 @@ def _build_generic_solid_rocket() -> BaseVehicleConfig:
     slender body, cruciform fins) so all cross-field validators pass.
     """
     motor = SolidMotor(
-        isp_sl_s=180.0,
-        isp_vacuum_s=210.0,
-        propellant_mass_kg=8.0,
-        burn_time_s=4.0,
-        thrust_mean_N=180.0 * (8.0 / 4.0) * 9.80665,
-        thrust_peak_N=180.0 * (8.0 / 4.0) * 9.80665 * 1.2,
-        propellant_density_kg_m3=1750.0,
+        isp_sl=180.0,
+        isp_vacuum=210.0,
+        propellant_mass=8.0,
+        burn_time=4.0,
+        thrust_mean=180.0 * (8.0 / 4.0) * 9.80665,
+        thrust_peak=180.0 * (8.0 / 4.0) * 9.80665 * 1.2,
+        propellant_density=1750.0,
     )
     body = AxisymmetricBody(
-        length_m=2.0,
-        diameter_m=0.15,
-        nose_length_m=0.4,
-        nose_diameter_m=0.15,
-        total_length_m=2.0,
+        length=2.0,
+        diameter=0.15,
+        nose_length=0.4,
+        nose_diameter=0.15,
+        total_length=2.0,
     )
     fins = Fins(
         count=4,
-        span_m=0.08,
-        sweep_deg=30.0,
-        chord_root_m=0.15,
-        chord_tip_m=0.05,
+        span=0.08,
+        sweep=30.0,
+        chord_root=0.15,
+        chord_tip=0.05,
     )
-    mass = MassProperties(cg_from_nose_m=1.2, total_mass_kg=20.0)
+    mass = MassProperties(cg_from_nose=1.2, total_mass=20.0)
 
     return BaseVehicleConfig(
         name="generic_test_sounding_rocket",
@@ -91,7 +91,7 @@ def test_resolve_booster_params_launch_angle_override(vehicle: BaseVehicleConfig
 
 
 def test_resolve_booster_params_requires_mass_properties() -> None:
-    """A vehicle missing mass_properties.total_mass_kg raises ValueError."""
+    """A vehicle missing mass_properties raises ValueError."""
     vehicle = _build_generic_solid_rocket()
     vehicle.mass_properties = None
     with pytest.raises(ValueError):

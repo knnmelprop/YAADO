@@ -301,42 +301,42 @@ def geometry_from_vehicle(vehicle: BaseVehicleConfig) -> RocketGeometry:
         )
     fins = fin_sets[0]
 
-    if body.nose_length_m is None:
-        raise ValueError("AxisymmetricBody.nose_length_m is required by the Barrowman method but is unset")
-    if body.nose_diameter_m is None:
-        raise ValueError("AxisymmetricBody.nose_diameter_m is required by the Barrowman method but is unset")
-    if fins.chord_root_m is None:
-        raise ValueError("Fins.chord_root_m is required by the Barrowman method but is unset")
-    if fins.chord_tip_m is None:
-        raise ValueError("Fins.chord_tip_m is required by the Barrowman method but is unset")
+    if body.nose_length is None:
+        raise ValueError("AxisymmetricBody.nose_length is required by the Barrowman method but is unset")
+    if body.nose_diameter is None:
+        raise ValueError("AxisymmetricBody.nose_diameter is required by the Barrowman method but is unset")
+    if fins.chord_root is None:
+        raise ValueError("Fins.chord_root is required by the Barrowman method but is unset")
+    if fins.chord_tip is None:
+        raise ValueError("Fins.chord_tip is required by the Barrowman method but is unset")
 
-    total_length_m = body.total_length_m if body.total_length_m is not None else body.length_m
+    total_length_m = body.total_length if body.total_length is not None else body.length
 
     mass = vehicle.mass_properties if vehicle.mass_properties is not None else body.mass
     if mass is None:
         raise ValueError(
             "Barrowman method requires a CG: set vehicle.mass_properties "
-            "or the body's own mass.cg_from_nose_m"
+            "or the body's own mass.cg_from_nose"
         )
 
-    if total_length_m / body.diameter_m < 5.0:
+    if total_length_m / body.diameter < 5.0:
         raise ValueError(
             "fineness ratio L/D < 5: slender-body empirical aero invalid. "
             "Please use a CFD solver for blunt bodies."
         )
 
     return RocketGeometry(
-        d_ref_m=body.diameter_m,
-        nose_length_m=body.nose_length_m,
-        nose_base_diameter_m=body.nose_diameter_m,
+        d_ref_m=body.diameter,
+        nose_length_m=body.nose_length,
+        nose_base_diameter_m=body.nose_diameter,
         total_length_m=total_length_m,
         transition_length_m=TRANSITION_LENGTH_M,
         fin_count=fins.count,
-        fin_span_m=fins.span_m,
-        fin_root_chord_m=fins.chord_root_m,
-        fin_tip_chord_m=fins.chord_tip_m,
-        fin_sweep_deg=fins.sweep_deg,
-        cg_from_nose_m=mass.cg_from_nose_m,
+        fin_span_m=fins.span,
+        fin_root_chord_m=fins.chord_root,
+        fin_tip_chord_m=fins.chord_tip,
+        fin_sweep_deg=fins.sweep,
+        cg_from_nose_m=mass.cg_from_nose,
     )
 
 
