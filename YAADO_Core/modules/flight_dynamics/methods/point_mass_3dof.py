@@ -39,89 +39,6 @@ from YAADO_Core.Foundation.analysis_base import (
 from YAADO_Core.Foundation.atmosphere import isa_atmosphere
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
-# -- Aerodynamic drag model (step CD vs. Mach; see module docstring) -------
-
-CD_BODY_SUBSONIC: float = 0.20
-"""Body drag coefficient for Mach < 0.8."""
-
-CD_BODY_TRANSONIC: float = 0.35
-"""Body drag coefficient for 0.8 <= Mach < 1.5 (transonic drag rise)."""
-
-CD_BODY_SUPERSONIC: float = 0.25
-"""Body drag coefficient for Mach >= 1.5."""
-
-MACH_TRANSONIC_LO: float = 0.8
-"""Lower Mach bound of the transonic CD step."""
-
-MACH_SUPERSONIC_LO: float = 1.5
-"""Lower Mach bound of the supersonic CD step."""
-
-CD_WAVE_PER_FIN: float = 0.012
-"""Per-fin wave-drag CD estimate, summed over all fins for CD_fins."""
-
-# Note on smoothing: the CD(Mach) law above is left as the literal step
-# function requested (no smoothing applied). RK45 with a tight rtol handles
-# the two finite jumps by locally shrinking its step size; some local
-# convergence-order reduction is expected exactly at Mach 0.8 and 1.5
-# crossings but does not affect the adaptive error control's global
-# tolerance elsewhere in the trajectory.
-
-ISP_ALT_REF_M: float = 30000.0
-"""Reference altitude [m] for linear sea-level -> vacuum Isp interpolation,
-``Isp(h) = isp_sl + (isp_vac - isp_sl) * clip(h / ISP_ALT_REF_M, 0, 1)``.
-This is a documented approximation (typical altitude by which a small
-solid motor's expansion is close to vacuum-optimized); since this boost
-phase stays within ~100 m of h0, the correction is negligible (<0.1 s of
-Isp) and the task's own suggestion of "just use isp_sl" is recovered to
-within that tolerance."""
-
-LAUNCH_ANGLE_DEG: float = 83.0
-"""Fixed body-axis / thrust angle above horizontal at launch [deg].
-
-Typical small sounding rocket rail-launch angle (near-vertical). Representative
-values range 80-85 deg; 83 deg chosen as a mid-range estimate for this
-low-order trajectory model. A real flight would include pitch/thrust-vector
-control; this fixed angle is a simplified approximation."""
-
-H0_M: float = 100.0
-"""Initial altitude [m]."""
-
-V0_MS: float = 0.0
-"""Initial speed (both range and altitude rate) [m/s]."""
-
-X0_M: float = 0.0
-"""Initial downrange position [m]."""
-
-VELOCITY_EPS_MS: float = 1e-6
-"""Guard velocity below which the drag/thrust direction unit vector is
-taken as undefined (zero) to avoid division by zero."""
-
-N_DENSE_SAMPLES: int = 4001
-"""Number of dense-output samples used for plotting and q_max search."""
-
-RTOL: float = 1e-8
-"""solve_ivp relative tolerance."""
-
-ATOL: float = 1e-10
-"""solve_ivp absolute tolerance."""
-
-THIS_DIR = Path(__file__).resolve().parent
-VEHICLE_CONFIG_PATH = THIS_DIR.parents[3] / "Hangar" / "generic_vehicle" / "vehicle_config.yaml"
-OUTPUT_JSON_PATH = THIS_DIR.parents[3] / "FlightLogs" / "burnout_state.json"
-OUTPUT_PNG_PATH = THIS_DIR.parents[3] / "FlightLogs" / "boost_phase.png"
-SWEEP_CSV_PATH = THIS_DIR.parents[3] / "FlightLogs" / "launch_angle_sweep.csv"
-SWEEP_PNG_PATH = THIS_DIR.parents[3] / "FlightLogs" / "launch_angle_sweep.png"
-
-LAUNCH_ANGLE_SWEEP_DEG: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
-"""Launch angles [deg] swept by :func:`run_launch_angle_sweep`.
-
-Note: these sweep angles are all below the module's own operating default
-of ``LAUNCH_ANGLE_DEG = 83.0`` (a near-vertical rail-launch angle). The
-sweep is retained for the requested low-angle sensitivity study (e.g. to
-characterize the shallow-launch-angle non-viability documented in
-``docs/AGENT_CONTEXT.md`` Sec. 7 caveat 2); it does not change the default
-used by :func:`main`'s nominal run, which stays at 83 deg."""
-
 
 @dataclass(frozen=True)
 class BoosterParams:
@@ -140,6 +57,12 @@ class BoosterParams:
         cd_fins: Constant fin-drag contribution to CD (count * per-fin CD).
         launch_angle_deg: Fixed thrust/body angle above horizontal [deg].
         launch_angle_rad: Fixed thrust/body angle above horizontal [rad].
+        cd_body_subsonic: Body drag coefficient for Mach < mach_transonic_lo.
+        cd_body_transonic: Body drag coefficient for transonic regime.
+        cd_body_supersonic: Body drag coefficient for Mach >= mach_supersonic_lo.
+        mach_transonic_lo: Lower Mach bound of the transonic CD step.
+        mach_supersonic_lo: Lower Mach bound of the supersonic CD step.
+        isp_alt_ref_m: Reference altitude for linear sea-level -> vacuum Isp.
     """
 
     launch_mass_kg: float
@@ -154,6 +77,12 @@ class BoosterParams:
     cd_fins: float
     launch_angle_deg: float
     launch_angle_rad: float
+    cd_body_subsonic: float = 0.20
+    cd_body_transonic: float = 0.35
+    cd_body_supersonic: float = 0.25
+    mach_transonic_lo: float = 0.8
+    mach_supersonic_lo: float = 1.5
+    isp_alt_ref_m: float = 30000.0
 
     @property
     def thrust_sl_N(self) -> float:
@@ -231,8 +160,8 @@ def resolve_booster_params_from_vehicle(
             components.
         operating_state: Optional operating conditions in SI units.
             Recognized key: ``launch_angle_deg`` (fixed thrust/body angle
-            above horizontal [deg]), defaulting to the module's nominal
-            near-vertical rail-launch angle (``LAUNCH_ANGLE_DEG = 83.0``)
+            above horizontal [deg]), defaulting to
+            :attr:`PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG` (83.0 deg)
             when not provided.
 
     Returns:
@@ -245,7 +174,54 @@ def resolve_booster_params_from_vehicle(
             or no ``mass_properties.total_mass_kg``.
     """
     operating_state = operating_state or {}
-    launch_angle_deg = float(operating_state.get("launch_angle_deg", LAUNCH_ANGLE_DEG))
+    launch_angle_deg = float(
+        operating_state.get(
+            "launch_angle_deg",
+            PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG,
+        )
+    )
+    cd_body_subsonic = float(
+        operating_state.get(
+            "cd_body_subsonic",
+            PointMass3DOFBoostAnalysis.CD_BODY_SUBSONIC,
+        )
+    )
+    cd_body_transonic = float(
+        operating_state.get(
+            "cd_body_transonic",
+            PointMass3DOFBoostAnalysis.CD_BODY_TRANSONIC,
+        )
+    )
+    cd_body_supersonic = float(
+        operating_state.get(
+            "cd_body_supersonic",
+            PointMass3DOFBoostAnalysis.CD_BODY_SUPERSONIC,
+        )
+    )
+    mach_transonic_lo = float(
+        operating_state.get(
+            "mach_transonic_lo",
+            PointMass3DOFBoostAnalysis.MACH_TRANSONIC_LO,
+        )
+    )
+    mach_supersonic_lo = float(
+        operating_state.get(
+            "mach_supersonic_lo",
+            PointMass3DOFBoostAnalysis.MACH_SUPERSONIC_LO,
+        )
+    )
+    cd_wave_per_fin = float(
+        operating_state.get(
+            "cd_wave_per_fin",
+            PointMass3DOFBoostAnalysis.CD_WAVE_PER_FIN,
+        )
+    )
+    isp_alt_ref_m = float(
+        operating_state.get(
+            "isp_alt_ref_m",
+            PointMass3DOFBoostAnalysis.ISP_ALT_REF_M,
+        )
+    )
 
     propulsion = _first_solid_motor(vehicle)
     if propulsion is None:
@@ -270,7 +246,7 @@ def resolve_booster_params_from_vehicle(
 
     d_ref_m = body.diameter
     a_ref_m2 = math.pi / 4.0 * d_ref_m**2
-    cd_fins = fins.count * CD_WAVE_PER_FIN
+    cd_fins = fins.count * cd_wave_per_fin
 
     return BoosterParams(
         launch_mass_kg=launch_mass_kg,
@@ -285,27 +261,32 @@ def resolve_booster_params_from_vehicle(
         cd_fins=cd_fins,
         launch_angle_deg=launch_angle_deg,
         launch_angle_rad=math.radians(launch_angle_deg),
+        cd_body_subsonic=cd_body_subsonic,
+        cd_body_transonic=cd_body_transonic,
+        cd_body_supersonic=cd_body_supersonic,
+        mach_transonic_lo=mach_transonic_lo,
+        mach_supersonic_lo=mach_supersonic_lo,
+        isp_alt_ref_m=isp_alt_ref_m,
     )
 
 
 def load_booster_params(
-    config_path: Path = VEHICLE_CONFIG_PATH,
-    launch_angle_deg: float = LAUNCH_ANGLE_DEG,
+    config_path: Path | str,
+    launch_angle_deg: float | None = None,
 ) -> BoosterParams:
     """Load stage-1 booster parameters from the rocket vehicle config file.
 
-    Thin YAML-loading wrapper around :func:`resolve_booster_params_from_vehicle`
+    Thin file-loading wrapper around :func:`resolve_booster_params_from_vehicle`
     for standalone script/CLI use (:func:`main`, :func:`run_launch_angle_sweep`).
     Analyses embedded in an MDO workflow should call
     :meth:`PointMass3DOFBoostAnalysis.setup` with an already-validated
     ``vehicle`` object instead of reading from disk.
 
     Args:
-        config_path: Path to ``vehicle_config.yaml`` for the rocket.
+        config_path: Path to vehicle config file.
         launch_angle_deg: Fixed thrust/body angle above horizontal [deg].
-            Defaults to the module's nominal near-vertical rail-launch angle
-            (``LAUNCH_ANGLE_DEG = 83.0``); overridden by
-            :func:`run_launch_angle_sweep` to explore shallower angles.
+            Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG` (83.0 deg);
+            overridden by :func:`run_launch_angle_sweep` to explore shallower angles.
 
     Returns:
         Resolved :class:`BoosterParams` with the impulse-consistent thrust
@@ -315,11 +296,12 @@ def load_booster_params(
         ValueError: If the loaded config is missing required components
             (see :func:`resolve_booster_params_from_vehicle`).
     """
-    vehicle = BaseVehicleConfig.from_toml(config_path)
+    if launch_angle_deg is None:
+        launch_angle_deg = PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG
+    vehicle = BaseVehicleConfig.from_toml(Path(config_path))
     return resolve_booster_params_from_vehicle(
         vehicle, operating_state={"launch_angle_deg": launch_angle_deg}
     )
-
 
 
 def specific_impulse_s(altitude_m: float, params: BoosterParams) -> float:
@@ -327,13 +309,13 @@ def specific_impulse_s(altitude_m: float, params: BoosterParams) -> float:
 
     Args:
         altitude_m: Geometric altitude [m] (clamped to ``>= 0``).
-        params: Booster parameters (``isp_sl_s``, ``isp_vacuum_s``).
+        params: Booster parameters (``isp_sl_s``, ``isp_vacuum_s``, ``isp_alt_ref_m``).
 
     Returns:
         Specific impulse [s] at the given altitude.
     """
     h = max(altitude_m, 0.0)
-    frac = min(h / ISP_ALT_REF_M, 1.0)
+    frac = min(h / params.isp_alt_ref_m, 1.0)
     return params.isp_sl_s + (params.isp_vacuum_s - params.isp_sl_s) * frac
 
 
@@ -342,17 +324,17 @@ def drag_coefficient(mach: float, params: BoosterParams) -> float:
 
     Args:
         mach: Free-stream Mach number.
-        params: Booster parameters (for ``cd_fins``).
+        params: Booster parameters (for ``cd_fins`` and body CD thresholds).
 
     Returns:
         ``CD_total = CD_body(mach) + CD_fins``.
     """
-    if mach < MACH_TRANSONIC_LO:
-        cd_body = CD_BODY_SUBSONIC
-    elif mach < MACH_SUPERSONIC_LO:
-        cd_body = CD_BODY_TRANSONIC
+    if mach < params.mach_transonic_lo:
+        cd_body = params.cd_body_subsonic
+    elif mach < params.mach_supersonic_lo:
+        cd_body = params.cd_body_transonic
     else:
-        cd_body = CD_BODY_SUPERSONIC
+        cd_body = params.cd_body_supersonic
     return cd_body + params.cd_fins
 
 
@@ -419,7 +401,7 @@ def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list
     cd_total = drag_coefficient(mach, params)
     drag_N = 0.5 * density_kg_m3 * speed_ms**2 * cd_total * params.a_ref_m2
 
-    if speed_ms > VELOCITY_EPS_MS:
+    if speed_ms > PointMass3DOFBoostAnalysis.VELOCITY_EPS_MS:
         ux, uh = vx / speed_ms, vh / speed_ms
     else:
         ux, uh = 0.0, 0.0
@@ -445,14 +427,17 @@ def _ground_impact_event(t_s: float, state: np.ndarray, params: BoosterParams) -
     return state[1]
 
 
-def integrate_boost_phase(params: BoosterParams, h0_m: float = H0_M) -> OdeResult:
+def integrate_boost_phase(
+    params: BoosterParams,
+    h0_m: float | None = None,
+) -> OdeResult:
     """Integrate the boost-phase trajectory from ignition to burnout/impact.
 
     Args:
         params: Booster parameters from :func:`load_booster_params` or
             :func:`resolve_booster_params_from_vehicle`.
-        h0_m: Initial altitude [m] at ignition. Defaults to the module's
-            nominal rail-launch altitude (:data:`H0_M`); this is a
+        h0_m: Initial altitude [m] at ignition. Defaults to
+            :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`; this is a
             launch-site condition with no field on
             :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`,
             so callers building it from ``operating_state`` (e.g.
@@ -461,21 +446,29 @@ def integrate_boost_phase(params: BoosterParams, h0_m: float = H0_M) -> OdeResul
     Returns:
         The ``scipy.integrate.solve_ivp`` result, with dense output enabled.
     """
+    if h0_m is None:
+        h0_m = PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M
+
     # solve_ivp appends `args` to every callable passed via `events` as
     # well as `fun`, so `_ground_impact_event` must accept `params` as a
     # positional arg directly (a closure lambda would double up args).
     _ground_impact_event.terminal = True
     _ground_impact_event.direction = -1.0
 
-    y0 = [X0_M, h0_m, V0_MS, V0_MS]
+    y0 = [
+        PointMass3DOFBoostAnalysis.DEFAULT_X0_M,
+        h0_m,
+        PointMass3DOFBoostAnalysis.DEFAULT_V0_MS,
+        PointMass3DOFBoostAnalysis.DEFAULT_V0_MS,
+    ]
     sol = solve_ivp(
         fun=boost_dynamics,
         t_span=(0.0, params.burn_time_s),
         y0=y0,
         method="RK45",
         args=(params,),
-        rtol=RTOL,
-        atol=ATOL,
+        rtol=PointMass3DOFBoostAnalysis.RTOL,
+        atol=PointMass3DOFBoostAnalysis.ATOL,
         dense_output=True,
         events=_ground_impact_event,
     )
@@ -484,7 +477,11 @@ def integrate_boost_phase(params: BoosterParams, h0_m: float = H0_M) -> OdeResul
     return sol
 
 
-def postprocess(sol: OdeResult, params: BoosterParams, h0_m: float = H0_M) -> dict[str, Any]:
+def postprocess(
+    sol: OdeResult,
+    params: BoosterParams,
+    h0_m: float | None = None,
+) -> dict[str, Any]:
     """Derive burnout state, q_max, and dense sample arrays from the solution.
 
     Args:
@@ -492,16 +489,20 @@ def postprocess(sol: OdeResult, params: BoosterParams, h0_m: float = H0_M) -> di
         params: Booster parameters.
         h0_m: Initial altitude [m] used for the integration (see
             :func:`integrate_boost_phase`), reported back in the metadata.
+            Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`.
 
     Returns:
         Dict with scalar results, a ``metadata`` sub-dict, and a
         ``_samples`` sub-dict of dense arrays for plotting (not written to
         the JSON report as-is; see :func:`main`).
     """
+    if h0_m is None:
+        h0_m = PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M
+
     t_end_s = float(sol.t[-1])
     ground_impact = bool(len(sol.t_events[0]) > 0)
 
-    t_fine = np.linspace(0.0, t_end_s, N_DENSE_SAMPLES)
+    t_fine = np.linspace(0.0, t_end_s, PointMass3DOFBoostAnalysis.N_DENSE_SAMPLES)
     y_fine = sol.sol(t_fine)
     x_fine, h_fine, vx_fine, vh_fine = y_fine
 
@@ -557,8 +558,8 @@ def postprocess(sol: OdeResult, params: BoosterParams, h0_m: float = H0_M) -> di
             "isp_vacuum_s": params.isp_vacuum_s,
             "isp_interpolation": (
                 "linear in altitude from isp_sl_s at h=0 to isp_vacuum_s at "
-                f"h={ISP_ALT_REF_M:.0f} m, clamped beyond; negligible effect "
-                "here since altitude stays near h0=100 m"
+                f"h={params.isp_alt_ref_m:.0f} m, clamped beyond; negligible effect "
+                f"here since altitude stays near h0={h0_m:.0f} m"
             ),
             "mdot_kg_s": params.mdot_kg_s,
             "launch_mass_kg": params.launch_mass_kg,
@@ -569,18 +570,17 @@ def postprocess(sol: OdeResult, params: BoosterParams, h0_m: float = H0_M) -> di
             "reference_area_m2": params.a_ref_m2,
             "cd_fins": params.cd_fins,
             "atmosphere_model": (
-                "ISA troposphere (ICAO Doc 7488 manual formula), "
-                "T=288.15-0.0065*h [K], p=101325*(T/288.15)^5.2559 [Pa], "
-                "rho=p/(287.05*T) [kg/m^3], altitude clamped to >= 0"
+                "ISA troposphere (ICAO Doc 7488 manual formula via ambiance), "
+                "valid from -5000 m to 80000 m"
             ),
             "cd_model": (
-                "CD_body: 0.20 (M<0.8) / 0.35 (0.8<=M<1.5, transonic) / "
-                "0.25 (M>=1.5); step function, not smoothed. "
-                "CD_fins = fin_count * 0.012 (per-fin wave drag estimate), "
-                "constant. CD_total = CD_body + CD_fins."
+                f"CD_body: {params.cd_body_subsonic:.2f} (M<{params.mach_transonic_lo:.1f}) / "
+                f"{params.cd_body_transonic:.2f} ({params.mach_transonic_lo:.1f}<=M<{params.mach_supersonic_lo:.1f}, transonic) / "
+                f"{params.cd_body_supersonic:.2f} (M>={params.mach_supersonic_lo:.1f}); step function, not smoothed. "
+                f"CD_fins = {params.cd_fins:.4f} (constant). CD_total = CD_body + CD_fins."
             ),
             "integrator": (
-                f"scipy.integrate.solve_ivp, RK45, rtol={RTOL}, atol={ATOL}, "
+                f"scipy.integrate.solve_ivp, RK45, rtol={PointMass3DOFBoostAnalysis.RTOL}, atol={PointMass3DOFBoostAnalysis.ATOL}, "
                 "dense_output=True, terminal ground-impact event (h=0, "
                 "decreasing)"
             ),
@@ -601,10 +601,10 @@ def postprocess(sol: OdeResult, params: BoosterParams, h0_m: float = H0_M) -> di
 class PointMass3DOFBoostAnalysis(BaseAnalysis):
     """3-DOF point-mass boost-phase trajectory analysis.
 
-    Wraps the module-level ISA atmosphere, drag build-up and boost-phase
-    ODE integration (see module docstring) as a :class:`BaseAnalysis`.
-    Point-mass analytical integration with empirical drag/Isp
-    correlations -> ``FidelityLevel.LEVEL_0``.
+    Wraps the ISA atmosphere, drag build-up and boost-phase
+    ODE integration as a :class:`BaseAnalysis`. Point-mass analytical
+    integration with empirical drag/Isp correlations ->
+    ``FidelityLevel.LEVEL_0``.
 
     Example:
         >>> analysis = PointMass3DOFBoostAnalysis()
@@ -615,15 +615,37 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
 
     fidelity = FidelityLevel.LEVEL_0
 
+    # Default launch conditions
+    DEFAULT_LAUNCH_ANGLE_DEG: float = 83.0
+    DEFAULT_ALTITUDE_M: float = 100.0
+    DEFAULT_X0_M: float = 0.0
+    DEFAULT_V0_MS: float = 0.0
+
+    # Empirical drag parameters (can be calibrated per vehicle via operating_state)
+    CD_BODY_SUBSONIC: float = 0.20
+    CD_BODY_TRANSONIC: float = 0.35
+    CD_BODY_SUPERSONIC: float = 0.25
+    MACH_TRANSONIC_LO: float = 0.8
+    MACH_SUPERSONIC_LO: float = 1.5
+    CD_WAVE_PER_FIN: float = 0.012
+
+    # Propulsion & numerical solver settings
+    ISP_ALT_REF_M: float = 30000.0
+    RTOL: float = 1e-8
+    ATOL: float = 1e-10
+    N_DENSE_SAMPLES: int = 4001
+    VELOCITY_EPS_MS: float = 1e-6
+    DEFAULT_SWEEP_ANGLES_DEG: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
+
     def __init__(self, name: str = "point_mass_3dof_boost") -> None:
         super().__init__(name)
         self._params: BoosterParams | None = None
-        self._h0_m: float = H0_M
+        self._h0_m: float = self.DEFAULT_ALTITUDE_M
 
     def setup(
         self,
         vehicle: BaseVehicleConfig,
-        operating_state: dict | None = None,
+        operating_state: dict[str, Any] | None = None,
     ) -> None:
         """Bind the analysis to a vehicle config and operating conditions.
 
@@ -632,18 +654,20 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         launch angle and initial altitude are launch-site conditions with
         no field on :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`,
         so they are read from ``operating_state`` instead (see
-        :func:`resolve_booster_params_from_vehicle`).
+        :func:`resolve_booster_params_from_vehicle`). Drag and Isp parameters
+        can also be calibrated via ``operating_state``.
 
         Args:
             vehicle: Validated, vehicle-agnostic configuration providing
                 the propulsion, body, aero_surfaces (fins) and
                 mass_properties components used by the boost-phase model.
             operating_state: Optional operating conditions in SI units.
-                Recognized keys: ``launch_angle_deg`` (fixed thrust/body
-                angle above horizontal [deg], defaults to
-                :data:`LAUNCH_ANGLE_DEG`) and ``altitude_m`` (initial
-                altitude at ignition [m], defaults to :data:`H0_M`).
-                ``None`` falls back to both module defaults.
+                Recognized keys: ``launch_angle_deg`` (defaults to
+                :attr:`DEFAULT_LAUNCH_ANGLE_DEG`), ``altitude_m`` (defaults
+                to :attr:`DEFAULT_ALTITUDE_M`), and drag/Isp overrides
+                (``cd_body_subsonic``, ``cd_body_transonic``, ``cd_body_supersonic``,
+                ``mach_transonic_lo``, ``mach_supersonic_lo``, ``cd_wave_per_fin``,
+                ``isp_alt_ref_m``). ``None`` falls back to all defaults.
 
         Raises:
             ValueError: If ``vehicle`` is missing a required component
@@ -651,7 +675,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         """
         operating_state = operating_state or {}
         self._params = resolve_booster_params_from_vehicle(vehicle, operating_state)
-        self._h0_m = float(operating_state.get("altitude_m", H0_M))
+        self._h0_m = float(operating_state.get("altitude_m", self.DEFAULT_ALTITUDE_M))
         self._is_setup = True
 
     def execute(self) -> AnalysisResults:
@@ -731,12 +755,17 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         return True
 
 
-def plot_boost_phase(samples: dict[str, Any], output_path: Path = OUTPUT_PNG_PATH) -> None:
-    """Plot V(t), h(t), Mach(t), q(t) in a 2x2 grid and save to PNG.
+def plot_boost_phase(
+    samples: dict[str, Any], output_path: Path | str | None = None
+) -> plt.Figure:
+    """Plot V(t), h(t), Mach(t), q(t) in a 2x2 grid and optionally save to PNG.
 
     Args:
         samples: The ``_samples`` sub-dict returned by :func:`postprocess`.
-        output_path: Destination PNG path.
+        output_path: Optional destination PNG path. If None, figure is not saved.
+
+    Returns:
+        The matplotlib Figure instance.
     """
     t_s = samples["t_s"]
     fig, axes = plt.subplots(2, 2, figsize=(10, 7))
@@ -781,24 +810,27 @@ def plot_boost_phase(samples: dict[str, Any], output_path: Path = OUTPUT_PNG_PAT
 
     fig.suptitle("Stage-1 booster boost-phase trajectory (3-DOF point mass)")
     fig.tight_layout()
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
+    if output_path is not None:
+        fig.savefig(output_path, dpi=150)
+        plt.close(fig)
+    return fig
 
 
 def run_launch_angle_sweep(
-    angles_deg: Sequence[float] = LAUNCH_ANGLE_SWEEP_DEG,
-    config_path: Path = VEHICLE_CONFIG_PATH,
+    vehicle_or_path: BaseVehicleConfig | Path | str,
+    angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
 ) -> list[dict[str, Any]]:
     """Sweep the fixed launch angle and report burnout/impact metrics per angle.
 
     For each angle, the boost phase is re-integrated from ignition with
-    :func:`load_booster_params` overriding ``launch_angle_deg``, then the
-    resulting trajectory is post-processed exactly as in :func:`main`.
+    overridden ``launch_angle_deg``, then the resulting trajectory is
+    post-processed.
 
     Args:
+        vehicle_or_path: Validated BaseVehicleConfig instance or Path/str to config file.
         angles_deg: Launch angles [deg] to sweep. Defaults to
-            :data:`LAUNCH_ANGLE_SWEEP_DEG` (``5, 10, 15, 20, 25, 30``).
-        config_path: Path to ``vehicle_config.yaml`` for the ramjet rocket.
+            :attr:`PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG`
+            (``5, 10, 15, 20, 25, 30``).
 
     Returns:
         A list of per-angle result dicts, one per swept angle, each with
@@ -808,7 +840,14 @@ def run_launch_angle_sweep(
     """
     sweep_results: list[dict[str, Any]] = []
     for angle_deg in angles_deg:
-        params = load_booster_params(config_path=config_path, launch_angle_deg=angle_deg)
+        if isinstance(vehicle_or_path, BaseVehicleConfig):
+            params = resolve_booster_params_from_vehicle(
+                vehicle_or_path, operating_state={"launch_angle_deg": float(angle_deg)}
+            )
+        else:
+            params = load_booster_params(
+                config_path=Path(vehicle_or_path), launch_angle_deg=float(angle_deg)
+            )
         sol = integrate_boost_phase(params)
         result = postprocess(sol, params)
         sweep_results.append(
@@ -844,7 +883,7 @@ def recommended_launch_angle_deg(sweep_results: list[dict[str, Any]]) -> float |
 
 
 def write_sweep_csv(
-    sweep_results: list[dict[str, Any]], output_path: Path = SWEEP_CSV_PATH
+    sweep_results: list[dict[str, Any]], output_path: Path | str
 ) -> None:
     """Write the launch-angle sweep results to a CSV file.
 
@@ -860,7 +899,7 @@ def write_sweep_csv(
         "max_q_Pa",
         "ground_impact_flag",
     ]
-    with output_path.open("w", newline="", encoding="utf-8") as f:
+    with Path(output_path).open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for entry in sweep_results:
@@ -868,13 +907,16 @@ def write_sweep_csv(
 
 
 def plot_launch_angle_sweep(
-    sweep_results: list[dict[str, Any]], output_path: Path = SWEEP_PNG_PATH
-) -> None:
+    sweep_results: list[dict[str, Any]], output_path: Path | str | None = None
+) -> plt.Figure:
     """Plot burnout Mach and burnout altitude vs. launch angle (2 subplots).
 
     Args:
         sweep_results: Output of :func:`run_launch_angle_sweep`.
-        output_path: Destination PNG path.
+        output_path: Optional destination PNG path. If None, figure is not saved.
+
+    Returns:
+        The matplotlib Figure instance.
     """
     angles_deg = [entry["launch_angle_deg"] for entry in sweep_results]
     mach_vals = [entry["burnout_mach"] for entry in sweep_results]
@@ -897,37 +939,62 @@ def plot_launch_angle_sweep(
 
     fig.suptitle("Stage-1 booster: launch-angle sensitivity sweep")
     fig.tight_layout()
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
+    if output_path is not None:
+        fig.savefig(output_path, dpi=150)
+        plt.close(fig)
+    return fig
 
 
-def main() -> dict[str, Any]:
+def main(
+    config_path: Path | str | None = None,
+    output_dir: Path | str | None = None,
+) -> dict[str, Any]:
     """Run the boost-phase simulation, print, and write JSON + PNG outputs.
+
+    Args:
+        config_path: Path to vehicle TOML config file. If None, reads from sys.argv[1].
+        output_dir: Optional output directory where plots and reports are saved.
+            Defaults to current working directory.
 
     Returns:
         The JSON-serializable result dict (without the internal
         ``_samples`` key).
     """
-    params = load_booster_params()
+    if config_path is None:
+        if len(sys.argv) > 1:
+            config_path = Path(sys.argv[1])
+        else:
+            raise ValueError(
+                "A vehicle config path must be provided: main(config_path) or python point_mass_3dof.py <path_to_config>"
+            )
+
+    config_path = Path(config_path)
+    out_dir = Path(output_dir) if output_dir else Path.cwd()
+    output_json_path = out_dir / "boost_phase.json"
+    output_png_path = out_dir / "boost_phase.png"
+    sweep_csv_path = out_dir / "launch_angle_sweep.csv"
+    sweep_png_path = out_dir / "launch_angle_sweep.png"
+
+    params = load_booster_params(config_path)
     sol = integrate_boost_phase(params)
     result = postprocess(sol, params)
     samples = result.pop("_samples")
 
-    plot_boost_phase(samples)
+    plot_boost_phase(samples, output_path=output_png_path)
 
-    sweep_results = run_launch_angle_sweep()
-    write_sweep_csv(sweep_results)
-    plot_launch_angle_sweep(sweep_results)
+    sweep_results = run_launch_angle_sweep(config_path)
+    write_sweep_csv(sweep_results, output_path=sweep_csv_path)
+    plot_launch_angle_sweep(sweep_results, output_path=sweep_png_path)
     result["recommended_launch_angle_deg"] = recommended_launch_angle_deg(sweep_results)
 
-    OUTPUT_JSON_PATH.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    output_json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     print("Boost-phase trajectory results (stage-1 booster):")
     print(json.dumps(result, indent=2))
-    print(f"\nWrote {OUTPUT_JSON_PATH}")
-    print(f"Wrote {OUTPUT_PNG_PATH}")
-    print(f"Wrote {SWEEP_CSV_PATH}")
-    print(f"Wrote {SWEEP_PNG_PATH}")
+    print(f"\nWrote {output_json_path}")
+    print(f"Wrote {output_png_path}")
+    print(f"Wrote {sweep_csv_path}")
+    print(f"Wrote {sweep_png_path}")
     print(f"Recommended launch angle: {result['recommended_launch_angle_deg']} deg")
 
     if result["metadata"]["ground_impact_before_burnout"]:
