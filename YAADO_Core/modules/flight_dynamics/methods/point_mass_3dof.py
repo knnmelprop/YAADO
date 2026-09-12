@@ -10,9 +10,9 @@ first.
 from __future__ import annotations
 
 import csv
+import io
 import json
 import math
-import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +40,7 @@ from YAADO_Core.Foundation.analysis_base import (
     FidelityLevel,
 )
 from YAADO_Core.Foundation.atmosphere import isa_atmosphere
+from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 
@@ -771,8 +772,18 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
     VELOCITY_EPS_MS: float = 1e-6
     DEFAULT_SWEEP_ANGLES_DEG: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
 
-    def __init__(self, name: str = "point_mass_3dof_boost") -> None:
+    def __init__(
+        self,
+        logger: FlightLogger,
+        name: str = "point_mass_3dof_boost",
+    ) -> None:
         super().__init__(name)
+        if not isinstance(logger, FlightLogger):
+            raise TypeError(
+                f"PointMass3DOFBoostAnalysis requires a FlightLogger instance, "
+                f"got {type(logger).__name__}"
+            )
+        self.logger = logger
         self._params: BoosterParams | None = None
         self._h0_m: float = self.DEFAULT_ALTITUDE_M
 
@@ -780,6 +791,8 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         self,
         vehicle: BaseVehicleConfig,
         operating_state: dict[str, Any] | None = None,
+        *,
+        logger: FlightLogger | None = None,
     ) -> None:
         """Bind the analysis to a vehicle config and operating conditions.
 
@@ -802,15 +815,48 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 (``cd_body_subsonic``, ``cd_body_transonic``, ``cd_body_supersonic``,
                 ``mach_transonic_lo``, ``mach_supersonic_lo``, ``cd_wave_per_fin``,
                 ``isp_alt_ref_m``). ``None`` falls back to all defaults.
+            logger: Optional FlightLogger override. If provided, updates
+                ``self.logger``.
 
         Raises:
             ValueError: If ``vehicle`` is missing a required component
                 (see :func:`resolve_booster_params_from_vehicle`).
+            TypeError: If ``logger`` or ``operating_state['logger']`` is not a FlightLogger.
         """
+        if logger is not None:
+            if not isinstance(logger, FlightLogger):
+                raise TypeError(
+                    f"logger must be a FlightLogger instance, got {type(logger).__name__}"
+                )
+            self.logger = logger
+
         operating_state = operating_state or {}
+        if "logger" in operating_state:
+            op_logger = operating_state["logger"]
+            if not isinstance(op_logger, FlightLogger):
+                raise TypeError(
+                    f"operating_state['logger'] must be a FlightLogger instance, got {type(op_logger).__name__}"
+                )
+            self.logger = op_logger
+
         self._params = resolve_booster_params_from_vehicle(vehicle, operating_state)
         self._h0_m = float(operating_state.get("altitude_m", self.DEFAULT_ALTITUDE_M))
         self._is_setup = True
+
+        self.logger.info(
+            "Configured PointMass3DOFBoostAnalysis for vehicle '%s' (launch_angle=%.1f deg, h0=%.1f m)",
+            vehicle.name,
+            self._params.launch_angle_deg,
+            self._h0_m,
+        )
+        self.logger.debug(
+            "Booster parameters: m_launch=%.1f kg, m_prop=%.1f kg, m_burnout=%.1f kg, t_burn=%.1f s, Isp_sl=%.1f s",
+            self._params.launch_mass_kg,
+            self._params.propellant_mass_kg,
+            self._params.burnout_mass_kg,
+            self._params.burn_time_s,
+            self._params.isp_sl_s,
+        )
 
     def execute(self) -> AnalysisResults:
         """Integrate the boost-phase trajectory and return results.
@@ -833,6 +879,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 "PointMass3DOFBoostAnalysis.execute() called before setup()"
             )
 
+        self.logger.info("Starting boost trajectory integration (ODE solve_ivp RK45)...")
         sol = integrate_boost_phase(self._params, h0_m=self._h0_m)
         result = postprocess(sol, self._params, h0_m=self._h0_m)
 
@@ -871,6 +918,24 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 "PointMass3DOFBoostAnalysis results failed analytical "
                 "sanity check; see validate_results()"
             )
+
+        if result["metadata"]["ground_impact_before_burnout"]:
+            self.logger.warning(
+                "Trajectory impacted ground at t=%.3f s before nominal %.1f s burnout!",
+                result["burnout_time"],
+                self._params.burn_time_s,
+            )
+        else:
+            self.logger.info(
+                "Burnout reached at t=%.3f s: velocity=%.1f m/s (Mach %.2f), altitude=%.1f m, q_max=%.0f Pa",
+                result["burnout_time"],
+                result["burnout_velocity"],
+                result["burnout_mach"],
+                result["burnout_altitude"],
+                result["q_max"],
+            )
+
+        self.logger.save_results(results)
         return results
 
     def validate_results(self, results: AnalysisResults) -> bool:
@@ -964,6 +1029,7 @@ def plot_boost_phase(
 def run_launch_angle_sweep(
     vehicle_or_path: BaseVehicleConfig | Path | str,
     angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
+    operating_state: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Sweep the fixed launch angle and report burnout/impact metrics per angle.
 
@@ -976,6 +1042,8 @@ def run_launch_angle_sweep(
         angles_deg: Launch angles [deg] to sweep. Defaults to
             :attr:`PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG`
             (``5, 10, 15, 20, 25, 30``).
+        operating_state: Optional operating conditions or component selectors
+            (e.g., ``fins_name``, ``motor_name``, ``altitude_m``).
 
     Returns:
         A list of per-angle result dicts, one per swept angle, each with
@@ -984,17 +1052,24 @@ def run_launch_angle_sweep(
         ``True`` if altitude reached ``<= 0 m`` before nominal burnout).
     """
     sweep_results: list[dict[str, Any]] = []
+    base_op_state = dict(operating_state) if operating_state else {}
+    h0_m = float(base_op_state.get("altitude_m", PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M))
     for angle_deg in angles_deg:
+        op_state = {**base_op_state, "launch_angle_deg": float(angle_deg)}
         if isinstance(vehicle_or_path, BaseVehicleConfig):
             params = resolve_booster_params_from_vehicle(
-                vehicle_or_path, operating_state={"launch_angle_deg": float(angle_deg)}
+                vehicle_or_path, operating_state=op_state
             )
         else:
             params = load_booster_params(
-                config_path=Path(vehicle_or_path), launch_angle_deg=float(angle_deg)
+                config_path=Path(vehicle_or_path),
+                launch_angle_deg=float(angle_deg),
+                motor_name=op_state.get("motor_name"),
+                body_name=op_state.get("body_name"),
+                fins_name=op_state.get("fins_name") or op_state.get("aero_name"),
             )
-        sol = integrate_boost_phase(params)
-        result = postprocess(sol, params)
+        sol = integrate_boost_phase(params, h0_m=h0_m)
+        result = postprocess(sol, params, h0_m=h0_m)
         sweep_results.append(
             {
                 "launch_angle_deg": float(angle_deg),
@@ -1028,13 +1103,14 @@ def recommended_launch_angle_deg(sweep_results: list[dict[str, Any]]) -> float |
 
 
 def write_sweep_csv(
-    sweep_results: list[dict[str, Any]], output_path: Path | str
+    sweep_results: list[dict[str, Any]],
+    output_path_or_buffer: Path | str | io.TextIOBase,
 ) -> None:
-    """Write the launch-angle sweep results to a CSV file.
+    """Write the launch-angle sweep results to a CSV file or buffer.
 
     Args:
         sweep_results: Output of :func:`run_launch_angle_sweep`.
-        output_path: Destination CSV path.
+        output_path_or_buffer: Destination CSV path or file-like buffer.
     """
     fieldnames = [
         "launch_angle_deg",
@@ -1044,8 +1120,14 @@ def write_sweep_csv(
         "max_q",
         "ground_impact_flag",
     ]
-    with Path(output_path).open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+    if isinstance(output_path_or_buffer, (str, Path)):
+        with Path(output_path_or_buffer).open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for entry in sweep_results:
+                writer.writerow({key: entry[key] for key in fieldnames})
+    else:
+        writer = csv.DictWriter(output_path_or_buffer, fieldnames=fieldnames)
         writer.writeheader()
         for entry in sweep_results:
             writer.writerow({key: entry[key] for key in fieldnames})
@@ -1092,67 +1174,71 @@ def plot_launch_angle_sweep(
     return fig
 
 
-def main(
-    config_path: Path | str | None = None,
-    output_dir: Path | str | None = None,
-) -> dict[str, Any]:
-    """Run the boost-phase simulation, print, and write JSON + PNG outputs.
+def run_boost_study(
+    vehicle: BaseVehicleConfig | Path | str,
+    logger: FlightLogger,
+    operating_state: dict[str, Any] | None = None,
+    *,
+    sweep_angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
+) -> AnalysisResults:
+    """Run a complete boost-phase study with sensitivity sweep and visual artifacts.
+
+    Orchestrates the baseline 3-DOF boost-phase trajectory integration, generates
+    visual trajectory plots, runs a launch-angle sensitivity sweep, writes
+    the sweep CSV artifact, and serializes the results checkpoint via :class:`FlightLogger`.
 
     Args:
-        config_path: Path to vehicle TOML config file. If None, reads from sys.argv[1].
-        output_dir: Optional output directory where plots and reports are saved.
-            Defaults to current working directory.
+        vehicle: Validated :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
+            instance or Path/str to a vehicle TOML configuration file.
+        logger: Required :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger`
+            instance for telemetry, visual figure saving, and checkpointing.
+        operating_state: Optional dictionary of operating conditions in SI units
+            (e.g., ``launch_angle_deg``, ``altitude_m``, drag calibration overrides).
+        sweep_angles_deg: Sequence of launch angles [deg] to sweep for ground-impact
+            sensitivity. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG`.
 
     Returns:
-        The JSON-serializable result dict (without the internal
-        ``_samples`` key).
+        The baseline :class:`~YAADO_Core.Foundation.analysis_base.AnalysisResults` with
+        ``recommended_launch_angle_deg`` included in its ``metadata``.
     """
-    if config_path is None:
-        if len(sys.argv) > 1:
-            config_path = Path(sys.argv[1])
-        else:
-            raise ValueError(
-                "A vehicle config path must be provided: main(config_path) or python point_mass_3dof.py <path_to_config>"
-            )
+    if not isinstance(vehicle, BaseVehicleConfig):
+        vehicle = BaseVehicleConfig.from_toml(vehicle)
 
-    config_path = Path(config_path)
-    out_dir = Path(output_dir) if output_dir else Path.cwd()
-    output_json_path = out_dir / "boost_phase.json"
-    output_png_path = out_dir / "boost_phase.png"
-    sweep_csv_path = out_dir / "launch_angle_sweep.csv"
-    sweep_png_path = out_dir / "launch_angle_sweep.png"
+    # 1. Baseline analysis
+    analysis = PointMass3DOFBoostAnalysis(logger=logger)
+    analysis.setup(vehicle, operating_state)
+    results = analysis.execute()
 
-    params = load_booster_params(config_path)
-    sol = integrate_boost_phase(params)
-    result = postprocess(sol, params)
-    samples = result.pop("_samples")
+    # 2. Visual figure: boost trajectory
+    fig = plot_boost_phase(results.metadata["_samples"])
+    logger.save_figure(fig, "boost_phase.png")
 
-    plot_boost_phase(samples, output_path=output_png_path)
+    # 3. Parameter sweep: launch angle sensitivity
+    logger.info(
+        "Running launch-angle sensitivity sweep over %s deg...",
+        list(sweep_angles_deg),
+    )
+    sweep_results = run_launch_angle_sweep(
+        vehicle, angles_deg=sweep_angles_deg, operating_state=operating_state
+    )
+    sweep_fig = plot_launch_angle_sweep(sweep_results)
+    logger.save_figure(sweep_fig, "launch_angle_sweep.png")
 
-    sweep_results = run_launch_angle_sweep(config_path)
-    write_sweep_csv(sweep_results, output_path=sweep_csv_path)
-    plot_launch_angle_sweep(sweep_results, output_path=sweep_png_path)
-    result["recommended_launch_angle_deg"] = recommended_launch_angle_deg(sweep_results)
+    # 4. Auxiliary artifact: sweep CSV
+    csv_buf = io.StringIO()
+    write_sweep_csv(sweep_results, csv_buf)
+    logger.save_artifact("launch_angle_sweep.csv", csv_buf.getvalue())
 
-    output_json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    # 5. Determine recommended launch angle and update checkpoint
+    rec_angle = recommended_launch_angle_deg(sweep_results)
+    results.metadata["recommended_launch_angle_deg"] = rec_angle
+    logger.info("Recommended launch angle: %s deg", rec_angle)
 
-    print("Boost-phase trajectory results (stage-1 booster):")
-    print(json.dumps(result, indent=2))
-    print(f"\nWrote {output_json_path}")
-    print(f"Wrote {output_png_path}")
-    print(f"Wrote {sweep_csv_path}")
-    print(f"Wrote {sweep_png_path}")
-    print(f"Recommended launch angle: {result['recommended_launch_angle_deg']} deg")
-
-    if result["metadata"]["ground_impact_before_burnout"]:
-        print(
-            f"\nWARNING: trajectory hit ground at t={result['burnout_time']:.3f} s, "
-            f"before nominal {params.burn_time_s:.1f} s burnout. Check launch angle "
-            "and initial conditions."
+    if results.metadata["ground_impact_before_burnout"]:
+        logger.warning(
+            "Nominal trajectory hit ground before burnout. Check launch angle and initial conditions."
         )
 
-    return result
-
-
-if __name__ == "__main__":
-    main()
+    # Re-save results checkpoint with updated metadata
+    logger.save_results(results)
+    return results

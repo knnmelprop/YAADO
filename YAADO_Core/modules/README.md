@@ -7,6 +7,7 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 Rules for repair:
 * Remove AI-sloppy comments
 * For constants use centralized constants instead of defining them at the top of the file. Pretty much, follow a single source of truth principle.
+* Make sure the compoenents are not hardcoded.
 
 *(None yet)*
 
