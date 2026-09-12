@@ -2,8 +2,8 @@ Low-order 3-DOF boost-phase trajectory point-mass integrator.
 
 This module integrates a point-mass, vertical-plane (3-DOF: range, altitude,
 and their rates) equation of motion for the solid-propellant booster stage
-of a solid-propellant booster stage, from ignition to nominal burnout
-(``burn_time_s`` from the vehicle config) or ground impact, whichever comes
+of a rocket vehicle, from ignition to nominal burnout
+(``burn_time`` from the vehicle config) or ground impact, whichever comes
 first.
 
 Theory / model references:
@@ -26,6 +26,13 @@ Limitations of the current model:
     angle used (83 deg, typical small sounding rocket rail launch), this
     approximation is reasonable through the boost phase. A higher-fidelity
     model would include angle-of-attack-dependent lift and a pitch autopilot.
+
+Note on planned expansion:
+    Currently, this solver terminates strictly at motor burnout, returning
+    burnout state and ``range_at_burnout`` (it does not simulate unpowered
+    coasting to apogee or ground impact). Planned updates will extend the ODE
+    past burnout with T = 0 to calculate full-flight metrics (apogee altitude
+    and total flight range).
 
 Run as a script to integrate the trajectory, print the burnout state, and
 write ``burnout_state.json`` + ``boost_phase.png`` next to this file. It

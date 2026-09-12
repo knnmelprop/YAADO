@@ -132,9 +132,19 @@ def test_point_mass_3dof_setup_execute_new_contract(vehicle: BaseVehicleConfig) 
 
     assert isinstance(results, AnalysisResults)
     assert results.fidelity == FidelityLevel.LEVEL_0
-    assert results["burnout_time_s"] > 0.0
-    assert results["burnout_velocity_ms"] >= 0.0
-    assert results["q_max_pa"] >= 0.0
+    assert results.units == {
+        "burnout_time": "s",
+        "burnout_velocity": "m/s",
+        "burnout_mach": "-",
+        "burnout_altitude": "m",
+        "q_max": "Pa",
+        "range_at_burnout": "m",
+    }
+    assert results["burnout_time"] > 0.0
+    assert results["burnout_velocity"] >= 0.0
+    assert results["burnout_altitude"] >= 0.0
+    assert results["range_at_burnout"] >= 0.0
+    assert results["q_max"] >= 0.0
     assert math.isfinite(results["burnout_mach"])
 
 
@@ -145,7 +155,7 @@ def test_point_mass_3dof_setup_defaults_operating_state_to_none(
     analysis = PointMass3DOFBoostAnalysis()
     analysis.setup(vehicle, operating_state=None)
     results = analysis.execute()
-    assert results["burnout_time_s"] > 0.0
+    assert results["burnout_time"] > 0.0
 
 
 def test_point_mass_3dof_execute_before_setup_raises() -> None:
@@ -153,3 +163,141 @@ def test_point_mass_3dof_execute_before_setup_raises() -> None:
     analysis = PointMass3DOFBoostAnalysis()
     with pytest.raises(RuntimeError):
         analysis.execute()
+
+
+def test_resolve_booster_params_explicit_names(vehicle: BaseVehicleConfig) -> None:
+    """Explicit component names can be passed as kwargs or via operating_state."""
+    # Via kwargs
+    params_kw = resolve_booster_params_from_vehicle(
+        vehicle, motor_name="stage_1", body_name="body", fins_name="fins"
+    )
+    assert params_kw.propellant_mass_kg == pytest.approx(8.0)
+
+    # Via operating_state
+    params_st = resolve_booster_params_from_vehicle(
+        vehicle,
+        operating_state={
+            "motor_name": "stage_1",
+            "body_name": "body",
+            "fins_name": "fins",
+        },
+    )
+    assert params_st.propellant_mass_kg == pytest.approx(8.0)
+
+
+def test_resolve_booster_params_multiple_motors_requires_name(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Multiple booster motors raise ValueError unless motor_name is explicitly specified."""
+    vehicle.propulsion["stage_2"] = SolidMotor(
+        isp_sl=200.0,
+        isp_vacuum=230.0,
+        propellant_mass=3.0,
+        burn_time=2.0,
+        thrust_mean=200.0 * 1.5 * 9.80665,
+        thrust_peak=200.0 * 1.5 * 9.80665 * 1.2,
+        propellant_density=1750.0,
+    )
+
+    with pytest.raises(ValueError, match="Multiple booster components found"):
+        resolve_booster_params_from_vehicle(vehicle)
+
+    params = resolve_booster_params_from_vehicle(vehicle, motor_name="stage_2")
+    assert params.propellant_mass_kg == pytest.approx(3.0)
+    assert params.burn_time_s == pytest.approx(2.0)
+
+
+def test_resolve_booster_params_multiple_fins_requires_name(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Multiple aero surfaces raise ValueError unless fins_name is specified."""
+    vehicle.aero_surfaces["canards"] = Fins(
+        count=4, span=0.04, sweep=20.0, chord_root=0.08, chord_tip=0.03
+    )
+
+    with pytest.raises(ValueError, match="Multiple aero surfaces found"):
+        resolve_booster_params_from_vehicle(vehicle)
+
+    params = resolve_booster_params_from_vehicle(vehicle, fins_name="canards")
+    # count=4 with default CD_WAVE_PER_FIN (0.012) -> 0.048
+    assert params.cd_fins == pytest.approx(
+        4 * PointMass3DOFBoostAnalysis.CD_WAVE_PER_FIN
+    )
+
+
+def test_resolve_booster_params_nonexistent_name_raises(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Requesting a non-existent component name raises ValueError."""
+    with pytest.raises(ValueError, match="Specified motor 'missing_stage' not found"):
+        resolve_booster_params_from_vehicle(vehicle, motor_name="missing_stage")
+
+    with pytest.raises(ValueError, match="Specified fin set 'missing_fins' not found"):
+        resolve_booster_params_from_vehicle(vehicle, fins_name="missing_fins")
+
+    with pytest.raises(ValueError, match="Specified body 'missing_body' not found"):
+        resolve_booster_params_from_vehicle(vehicle, body_name="missing_body")
+
+
+def test_resolve_booster_params_wrong_type_raises(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Targeting a component outside the registered component tuples raises TypeError."""
+    vehicle.propulsion["invalid_motor"] = object()
+    with pytest.raises(TypeError, match="expected a registered propulsion component"):
+        resolve_booster_params_from_vehicle(vehicle, motor_name="invalid_motor")
+
+    vehicle.bodies["invalid_body"] = object()
+    with pytest.raises(TypeError, match="expected a registered body component"):
+        resolve_booster_params_from_vehicle(vehicle, body_name="invalid_body")
+
+    vehicle.aero_surfaces["invalid_surface"] = object()
+    with pytest.raises(TypeError, match="expected a registered aero surface component"):
+        resolve_booster_params_from_vehicle(vehicle, fins_name="invalid_surface")
+
+
+def test_resolve_booster_params_finless_vehicle(vehicle: BaseVehicleConfig) -> None:
+    """Finless vehicles resolve with cd_fins = 0.0 without error."""
+    vehicle.aero_surfaces.clear()
+    params = resolve_booster_params_from_vehicle(vehicle)
+    assert params.cd_fins == pytest.approx(0.0)
+
+
+def test_resolve_booster_params_multi_propulsion_auto_selects_booster(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Auto-discovery resolves the booster even when non-booster propulsion (e.g. Ramjet) is present."""
+    from YAADO_Core.ComponentStore import RamjetEngine
+
+    vehicle.propulsion["sustainer"] = RamjetEngine(
+        design_mach=2.6,
+        fuel_type="kerosene",
+        combustor_temp=2150.0,
+        nozzle_area_ratio=2.25,
+    )
+    # Auto-discovery should ignore the ramjet because it has no burn_time/propellant_mass
+    params = resolve_booster_params_from_vehicle(vehicle)
+    assert params.propellant_mass_kg == pytest.approx(8.0)
+
+    # Explicitly requesting the non-booster raises ValueError
+    with pytest.raises(ValueError, match="does not provide 'burn_time' and 'propellant_mass'"):
+        resolve_booster_params_from_vehicle(vehicle, motor_name="sustainer")
+
+
+def test_point_mass_3dof_setup_with_named_components(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """PointMass3DOFBoostAnalysis executes successfully when component names are passed via operating_state."""
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(
+        vehicle,
+        operating_state={
+            "motor_name": "stage_1",
+            "body_name": "body",
+            "fins_name": "fins",
+        },
+    )
+    results = analysis.execute()
+    assert results["burnout_time"] > 0.0
+    assert results["burnout_velocity"] > 0.0
+
