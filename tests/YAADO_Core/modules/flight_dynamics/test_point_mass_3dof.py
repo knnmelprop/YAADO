@@ -1,6 +1,7 @@
 """Unit tests for YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof."""
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -11,13 +12,18 @@ from YAADO_Core.ComponentStore import (
     SolidMotor,
 )
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
+from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
-    H0_M,
-    LAUNCH_ANGLE_DEG,
     PointMass3DOFBoostAnalysis,
     resolve_booster_params_from_vehicle,
 )
+
+
+@pytest.fixture
+def disabled_logger() -> FlightLogger:
+    """A disabled FlightLogger instance for fast, zero-I/O unit testing."""
+    return FlightLogger("test_sounding_rocket", "point_mass_3dof_boost", enabled=False)
 
 
 def _build_generic_solid_rocket() -> BaseVehicleConfig:
@@ -27,29 +33,29 @@ def _build_generic_solid_rocket() -> BaseVehicleConfig:
     slender body, cruciform fins) so all cross-field validators pass.
     """
     motor = SolidMotor(
-        isp_sl_s=180.0,
-        isp_vacuum_s=210.0,
-        propellant_mass_kg=8.0,
-        burn_time_s=4.0,
-        thrust_mean_N=180.0 * (8.0 / 4.0) * 9.80665,
-        thrust_peak_N=180.0 * (8.0 / 4.0) * 9.80665 * 1.2,
-        propellant_density_kg_m3=1750.0,
+        isp_sl=180.0,
+        isp_vacuum=210.0,
+        propellant_mass=8.0,
+        burn_time=4.0,
+        thrust_mean=180.0 * (8.0 / 4.0) * 9.80665,
+        thrust_peak=180.0 * (8.0 / 4.0) * 9.80665 * 1.2,
+        propellant_density=1750.0,
     )
     body = AxisymmetricBody(
-        length_m=2.0,
-        diameter_m=0.15,
-        nose_length_m=0.4,
-        nose_diameter_m=0.15,
-        total_length_m=2.0,
+        length=2.0,
+        diameter=0.15,
+        nose_length=0.4,
+        nose_diameter=0.15,
+        total_length=2.0,
     )
     fins = Fins(
         count=4,
-        span_m=0.08,
-        sweep_deg=30.0,
-        chord_root_m=0.15,
-        chord_tip_m=0.05,
+        span=0.08,
+        sweep=30.0,
+        chord_root=0.15,
+        chord_tip=0.05,
     )
-    mass = MassProperties(cg_from_nose_m=1.2, total_mass_kg=20.0)
+    mass = MassProperties(cg_from_nose=1.2, total_mass=20.0)
 
     return BaseVehicleConfig(
         name="generic_test_sounding_rocket",
@@ -77,7 +83,9 @@ def test_resolve_booster_params_from_vehicle_reads_components(
     assert params.burnout_mass_kg == pytest.approx(12.0)
     assert params.burn_time_s == pytest.approx(4.0)
     assert params.mdot_kg_s == pytest.approx(2.0)
-    assert params.launch_angle_deg == pytest.approx(LAUNCH_ANGLE_DEG)
+    assert params.launch_angle_deg == pytest.approx(
+        PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG
+    )
     assert params.a_ref_m2 == pytest.approx(math.pi / 4.0 * 0.15**2)
 
 
@@ -90,40 +98,339 @@ def test_resolve_booster_params_launch_angle_override(vehicle: BaseVehicleConfig
     assert params.launch_angle_rad == pytest.approx(math.radians(45.0))
 
 
+def test_resolve_booster_params_drag_overrides(vehicle: BaseVehicleConfig) -> None:
+    """operating_state overrides empirical drag and Isp parameters."""
+    params = resolve_booster_params_from_vehicle(
+        vehicle,
+        operating_state={
+            "cd_body_subsonic": 0.15,
+            "cd_body_transonic": 0.40,
+            "cd_body_supersonic": 0.30,
+            "cd_wave_per_fin": 0.02,
+            "isp_alt_ref_m": 25000.0,
+        },
+    )
+    assert params.cd_body_subsonic == pytest.approx(0.15)
+    assert params.cd_body_transonic == pytest.approx(0.40)
+    assert params.cd_body_supersonic == pytest.approx(0.30)
+    # Fins count is 4, so 4 * 0.02 = 0.08
+    assert params.cd_fins == pytest.approx(0.08)
+    assert params.isp_alt_ref_m == pytest.approx(25000.0)
+
+
 def test_resolve_booster_params_requires_mass_properties() -> None:
-    """A vehicle missing mass_properties.total_mass_kg raises ValueError."""
+    """A vehicle missing mass_properties raises ValueError."""
     vehicle = _build_generic_solid_rocket()
     vehicle.mass_properties = None
     with pytest.raises(ValueError):
         resolve_booster_params_from_vehicle(vehicle)
 
 
-def test_point_mass_3dof_setup_execute_new_contract(vehicle: BaseVehicleConfig) -> None:
+def test_point_mass_3dof_setup_execute_new_contract(
+    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+) -> None:
     """setup(vehicle, operating_state) + execute() follow the BaseAnalysis contract."""
-    analysis = PointMass3DOFBoostAnalysis()
-    analysis.setup(vehicle, operating_state={"launch_angle_deg": 83.0, "altitude_m": H0_M})
+    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    analysis.setup(
+        vehicle,
+        operating_state={
+            "launch_angle_deg": 83.0,
+            "altitude_m": PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
+        },
+    )
     results = analysis.execute()
 
     assert isinstance(results, AnalysisResults)
     assert results.fidelity == FidelityLevel.LEVEL_0
-    assert results["burnout_time_s"] > 0.0
-    assert results["burnout_velocity_ms"] >= 0.0
-    assert results["q_max_pa"] >= 0.0
+    assert results.units == {
+        "burnout_time": "s",
+        "burnout_velocity": "m/s",
+        "burnout_mach": "-",
+        "burnout_altitude": "m",
+        "q_max": "Pa",
+        "range_at_burnout": "m",
+    }
+    assert results["burnout_time"] > 0.0
+    assert results["burnout_velocity"] >= 0.0
+    assert results["burnout_altitude"] >= 0.0
+    assert results["range_at_burnout"] >= 0.0
+    assert results["q_max"] >= 0.0
     assert math.isfinite(results["burnout_mach"])
 
 
 def test_point_mass_3dof_setup_defaults_operating_state_to_none(
-    vehicle: BaseVehicleConfig,
+    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
 ) -> None:
     """setup() accepts operating_state=None and falls back to module defaults."""
-    analysis = PointMass3DOFBoostAnalysis()
+    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
     analysis.setup(vehicle, operating_state=None)
     results = analysis.execute()
-    assert results["burnout_time_s"] > 0.0
+    assert results["burnout_time"] > 0.0
 
 
-def test_point_mass_3dof_execute_before_setup_raises() -> None:
+def test_point_mass_3dof_execute_before_setup_raises(
+    disabled_logger: FlightLogger,
+) -> None:
     """execute() before setup() raises RuntimeError per the BaseAnalysis contract."""
-    analysis = PointMass3DOFBoostAnalysis()
+    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
     with pytest.raises(RuntimeError):
         analysis.execute()
+
+
+def test_resolve_booster_params_explicit_names(vehicle: BaseVehicleConfig) -> None:
+    """Explicit component names can be passed as kwargs or via operating_state."""
+    # Via kwargs
+    params_kw = resolve_booster_params_from_vehicle(
+        vehicle, motor_name="stage_1", body_name="body", fins_name="fins"
+    )
+    assert params_kw.propellant_mass_kg == pytest.approx(8.0)
+
+    # Via operating_state
+    params_st = resolve_booster_params_from_vehicle(
+        vehicle,
+        operating_state={
+            "motor_name": "stage_1",
+            "body_name": "body",
+            "fins_name": "fins",
+        },
+    )
+    assert params_st.propellant_mass_kg == pytest.approx(8.0)
+
+
+def test_resolve_booster_params_multiple_motors_requires_name(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Multiple booster motors raise ValueError unless motor_name is explicitly specified."""
+    vehicle.propulsion["stage_2"] = SolidMotor(
+        isp_sl=200.0,
+        isp_vacuum=230.0,
+        propellant_mass=3.0,
+        burn_time=2.0,
+        thrust_mean=200.0 * 1.5 * 9.80665,
+        thrust_peak=200.0 * 1.5 * 9.80665 * 1.2,
+        propellant_density=1750.0,
+    )
+
+    with pytest.raises(ValueError, match="Multiple booster components found"):
+        resolve_booster_params_from_vehicle(vehicle)
+
+    params = resolve_booster_params_from_vehicle(vehicle, motor_name="stage_2")
+    assert params.propellant_mass_kg == pytest.approx(3.0)
+    assert params.burn_time_s == pytest.approx(2.0)
+
+
+def test_resolve_booster_params_multiple_fins_requires_name(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Multiple aero surfaces raise ValueError unless fins_name is specified."""
+    vehicle.aero_surfaces["canards"] = Fins(
+        count=4, span=0.04, sweep=20.0, chord_root=0.08, chord_tip=0.03
+    )
+
+    with pytest.raises(ValueError, match="Multiple aero surfaces found"):
+        resolve_booster_params_from_vehicle(vehicle)
+
+    params = resolve_booster_params_from_vehicle(vehicle, fins_name="canards")
+    # count=4 with default CD_WAVE_PER_FIN (0.012) -> 0.048
+    assert params.cd_fins == pytest.approx(
+        4 * PointMass3DOFBoostAnalysis.CD_WAVE_PER_FIN
+    )
+
+
+def test_resolve_booster_params_nonexistent_name_raises(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Requesting a non-existent component name raises ValueError."""
+    with pytest.raises(ValueError, match="Specified motor 'missing_stage' not found"):
+        resolve_booster_params_from_vehicle(vehicle, motor_name="missing_stage")
+
+    with pytest.raises(ValueError, match="Specified fin set 'missing_fins' not found"):
+        resolve_booster_params_from_vehicle(vehicle, fins_name="missing_fins")
+
+    with pytest.raises(ValueError, match="Specified body 'missing_body' not found"):
+        resolve_booster_params_from_vehicle(vehicle, body_name="missing_body")
+
+
+def test_resolve_booster_params_wrong_type_raises(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Targeting a component outside the registered component tuples raises TypeError."""
+    vehicle.propulsion["invalid_motor"] = object()
+    with pytest.raises(TypeError, match="expected a registered propulsion component"):
+        resolve_booster_params_from_vehicle(vehicle, motor_name="invalid_motor")
+
+    vehicle.bodies["invalid_body"] = object()
+    with pytest.raises(TypeError, match="expected a registered body component"):
+        resolve_booster_params_from_vehicle(vehicle, body_name="invalid_body")
+
+    vehicle.aero_surfaces["invalid_surface"] = object()
+    with pytest.raises(TypeError, match="expected a registered aero surface component"):
+        resolve_booster_params_from_vehicle(vehicle, fins_name="invalid_surface")
+
+
+def test_resolve_booster_params_finless_vehicle(vehicle: BaseVehicleConfig) -> None:
+    """Finless vehicles resolve with cd_fins = 0.0 without error."""
+    vehicle.aero_surfaces.clear()
+    params = resolve_booster_params_from_vehicle(vehicle)
+    assert params.cd_fins == pytest.approx(0.0)
+
+
+def test_resolve_booster_params_multi_propulsion_auto_selects_booster(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Auto-discovery resolves the booster even when non-booster propulsion (e.g. Ramjet) is present."""
+    from YAADO_Core.ComponentStore import RamjetEngine
+
+    vehicle.propulsion["sustainer"] = RamjetEngine(
+        design_mach=2.6,
+        fuel_type="kerosene",
+        combustor_temp=2150.0,
+        nozzle_area_ratio=2.25,
+    )
+    # Auto-discovery should ignore the ramjet because it has no burn_time/propellant_mass
+    params = resolve_booster_params_from_vehicle(vehicle)
+    assert params.propellant_mass_kg == pytest.approx(8.0)
+
+    # Explicitly requesting the non-booster raises ValueError
+    with pytest.raises(ValueError, match="does not provide 'burn_time' and 'propellant_mass'"):
+        resolve_booster_params_from_vehicle(vehicle, motor_name="sustainer")
+
+
+def test_point_mass_3dof_setup_with_named_components(
+    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+) -> None:
+    """PointMass3DOFBoostAnalysis executes successfully when component names are passed via operating_state."""
+    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    analysis.setup(
+        vehicle,
+        operating_state={
+            "motor_name": "stage_1",
+            "body_name": "body",
+            "fins_name": "fins",
+        },
+    )
+    results = analysis.execute()
+    assert results["burnout_time"] > 0.0
+    assert results["burnout_velocity"] > 0.0
+
+
+def test_point_mass_3dof_requires_logger() -> None:
+    """PointMass3DOFBoostAnalysis strictly requires a FlightLogger instance."""
+    with pytest.raises(TypeError):
+        PointMass3DOFBoostAnalysis()  # type: ignore[call-arg]
+
+    with pytest.raises(TypeError, match="FlightLogger"):
+        PointMass3DOFBoostAnalysis(logger=object())  # type: ignore[arg-type]
+
+
+def test_point_mass_3dof_executes_with_enabled_logger(
+    tmp_path: Path, vehicle: BaseVehicleConfig
+) -> None:
+    """Enabled FlightLogger produces execution.log, results.json, and summary.csv."""
+    logger = FlightLogger(
+        vehicle_name="test_rocket",
+        analysis_name="point_mass_3dof_boost",
+        enabled=True,
+    )
+    # Redirect output to tmp_path
+    logger.output_dir = tmp_path / "test_run"
+    logger.figures_dir = logger.output_dir / "figures"
+    logger.artifacts_dir = logger.output_dir / "artifacts"
+    logger.log_file_path = logger.output_dir / "execution.log"
+    logger._setup_directories()
+    logger._setup_logging()
+
+    analysis = PointMass3DOFBoostAnalysis(logger=logger)
+    analysis.setup(vehicle)
+    results = analysis.execute()
+
+    assert results["burnout_time"] > 0.0
+    assert logger.log_file_path.is_file()
+    log_content = logger.log_file_path.read_text(encoding="utf-8")
+    assert "Starting boost trajectory integration" in log_content
+    assert "Burnout reached" in log_content
+
+    results_json = logger.output_dir / "results.json"
+    assert results_json.is_file()
+
+    summary_csv = logger.output_dir / "summary.csv"
+    assert summary_csv.is_file()
+
+    logger.close()
+
+
+def test_point_mass_3dof_executes_with_disabled_logger(
+    tmp_path: Path, vehicle: BaseVehicleConfig
+) -> None:
+    """Disabled FlightLogger performs zero disk I/O."""
+    logger = FlightLogger(
+        vehicle_name="test_rocket",
+        analysis_name="point_mass_3dof_boost",
+        enabled=False,
+    )
+    logger.output_dir = tmp_path / "never_created"
+    logger.figures_dir = logger.output_dir / "figures"
+    logger.artifacts_dir = logger.output_dir / "artifacts"
+    logger.log_file_path = logger.output_dir / "execution.log"
+
+    analysis = PointMass3DOFBoostAnalysis(logger=logger)
+    analysis.setup(vehicle)
+    results = analysis.execute()
+
+    assert results["burnout_time"] > 0.0
+    assert not logger.output_dir.exists()
+
+
+def test_run_boost_study_with_flight_logger(
+    tmp_path: Path, vehicle: BaseVehicleConfig
+) -> None:
+    """run_boost_study runs end-to-end generating figures, artifacts, and checkpoints."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        run_boost_study,
+    )
+
+    logger = FlightLogger(
+        vehicle_name="test_rocket",
+        analysis_name="point_mass_3dof_boost",
+        enabled=True,
+    )
+    run_dir = tmp_path / "study_run"
+    logger.output_dir = run_dir
+    logger.figures_dir = run_dir / "figures"
+    logger.artifacts_dir = run_dir / "artifacts"
+    logger.log_file_path = run_dir / "execution.log"
+    logger._setup_directories()
+    logger._setup_logging()
+
+    results = run_boost_study(vehicle, logger=logger)
+    assert isinstance(results, AnalysisResults)
+    assert results["burnout_time"] > 0.0
+    assert "recommended_launch_angle_deg" in results.metadata
+    assert (run_dir / "execution.log").is_file()
+    assert (run_dir / "results.json").is_file()
+    assert (run_dir / "summary.csv").is_file()
+    assert (run_dir / "figures" / "boost_phase.png").is_file()
+    assert (run_dir / "figures" / "launch_angle_sweep.png").is_file()
+    assert (run_dir / "artifacts" / "launch_angle_sweep.csv").is_file()
+
+    logger.close()
+
+
+def test_run_boost_study_accepts_toml_path(
+    tmp_path: Path, vehicle: BaseVehicleConfig
+) -> None:
+    """run_boost_study accepts a path to a TOML file."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        run_boost_study,
+    )
+
+    config_file = tmp_path / "test_vehicle.toml"
+    vehicle.to_toml(config_file)
+
+    disabled_logger = FlightLogger("test_rocket", "boost", enabled=False)
+    results = run_boost_study(config_file, logger=disabled_logger)
+    assert isinstance(results, AnalysisResults)
+    assert results["burnout_time"] > 0.0
+
+
+

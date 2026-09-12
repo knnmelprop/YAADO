@@ -111,3 +111,6 @@ history.csv
 # Your private configs
 Hangar/*
 !Hangar/examples/
+
+# Your private results
+FlightLogs/

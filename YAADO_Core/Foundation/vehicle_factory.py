@@ -127,15 +127,15 @@ class VehicleFactory:
             network = networks.Ramjet()
             network.tag = tag
             network.design_mach = component.design_mach
-            network.combustor_temp_K = component.combustor_temp_K
+            network.combustor_temp_K = component.combustor_temp
             network.nozzle_area_ratio = component.nozzle_area_ratio
             return network
 
         if isinstance(component, TurbojetEngine):
             network = networks.Turbojet_Super()
             network.tag = tag
-            network.thrust_N = component.thrust_N
-            network.sfc_kg_per_Ns = component.sfc_kg_per_Ns
+            network.thrust_N = component.thrust
+            network.sfc_kg_per_Ns = component.sfc
             network.mach_range = component.mach_range
             return network
 
@@ -165,17 +165,17 @@ class VehicleFactory:
             wing = Wing()
             wing.tag = tag
             wing.aspect_ratio = component.aspect_ratio
-            wing.sweeps.quarter_chord = math.radians(component.sweep_deg)
+            wing.sweeps.quarter_chord = math.radians(component.sweep)
             wing.taper = component.taper_ratio
-            wing.spans.projected = component.span_m
-            wing.dihedral = math.radians(component.dihedral_deg)
+            wing.spans.projected = component.span
+            wing.dihedral = math.radians(component.dihedral)
             return wing
 
         if isinstance(component, Fins):
             wing = Wing()
             wing.tag = tag
-            wing.spans.projected = component.span_m
-            wing.sweeps.leading_edge = math.radians(component.sweep_deg)
+            wing.spans.projected = component.span
+            wing.sweeps.leading_edge = math.radians(component.sweep)
             wing.vertical = True
             return wing
 

@@ -9,13 +9,13 @@ YAADO is a **general, vehicle-agnostic preliminary design and MDO framework** in
 * **Do NOT hardcode solvers to specific vehicles.** 
 * **Do NOT import from `Hangar/` inside `YAADO_Core/`.** 
 
-While the repository currently contains reference configurations in `Hangar/` (like the generic_uav and generic_rocket), the core framework (`YAADO_Core/`) must remain entirely generic and capable of analyzing any vehicle defined by the Pydantic schemas.
+While the repository currently contains reference configurations in `Hangar/examples/` (like the AGM-84 Harpoon and ALVRJ), the core framework (`YAADO_Core/`) must remain entirely generic and capable of analyzing any vehicle defined by the Pydantic schemas.
 
 ## Architecture
 
 ```text
 ├── YAADO_Core/              # Core Framework
-│   ├── Foundation/          # BaseComponent, BaseAnalysis, FidelityLevel (L0–L3)
+│   ├── Foundation/          # BaseVehicleConfig, BaseAnalysis, FidelityLevel (L0–L3)
 │   ├── FlightDeck/          # Mission & Optimization Orchestrator
 │   ├── ComponentStore/      # Pydantic v2 schemas (strict type validation)
 │   ├── modules/             # Swappable physics solvers
@@ -34,17 +34,17 @@ While the repository currently contains reference configurations in `Hangar/` (l
 
 ## Project Rules (Mandatory)
 
-1. **Always use SI units.** Field names must have a unit suffix (`thrust_N`, `span_m`, `isp_s`). Use `openmdao.utils.units` or Pint where possible.
+1. **Always use SI units.** All internal variables, solvers, and Pydantic schema fields store canonical SI units as floats without unit suffixes in field names (`thrust`, `span`, `total_mass`). Component schemas declare canonical units via `UNITS: ClassVar[dict[str, str]]`, and `AnalysisResults` carries units in a dedicated `units: dict[str, str]` dictionary. Unit conversion for user input at the CLI boundary uses `openmdao.utils.units` (do not use Pint).
 2. **Type hints** are required on all public functions.
 3. **Google-style docstrings** (in English) for every public class and method.
 4. **No specific project logic in Core:** `YAADO_Core` must operate on base Pydantic models. Never import a specific project schema from `Hangar/` into a core solver.
 5. **Inheritance for Solvers, Composition for Data:** Extend solvers by inheriting from `BaseAnalysis`. However, vehicles and Pydantic schemas must be built using Composition (Lego bricks), not deep inheritance trees.
-6. After every change, run tests: `uv run pytest tests/ --tb=short`.
+6. After every change, run tests: `uv run pytest --tb=short`.
 
 ## Running Tests
 
 ```bash
-uv run pytest tests/ --tb=short
+uv run pytest --tb=short
 ```
 
 Dev dependencies are managed via `uv`. Submodules in `external/` are required for full execution, but core tests mock or gracefully handle missing binaries where possible.

@@ -35,8 +35,8 @@ def test_hangar_example_loads_successfully(toml_path: Path) -> None:
     total_components = len(config.bodies) + len(config.aero_surfaces) + len(config.propulsion)
     assert total_components > 0
     if config.mass_properties is not None:
-        assert config.mass_properties.total_mass_kg is not None
-        assert config.mass_properties.total_mass_kg > 0.0
+        assert config.mass_properties.total_mass is not None
+        assert config.mass_properties.total_mass > 0.0
 
 
 @pytest.mark.parametrize("toml_path", get_hangar_example_toml_paths(), ids=lambda p: p.name)

@@ -485,7 +485,7 @@ class RamjetCycleAnalysis(BaseAnalysis):
         ramjet = _first_ramjet_engine(vehicle)
 
         default_mach0 = ramjet.design_mach if ramjet is not None else MACH_DESIGN
-        default_tt4_K = ramjet.combustor_temp_K if ramjet is not None else TT4_DEFAULT_K
+        default_tt4_K = ramjet.combustor_temp if ramjet is not None else TT4_DEFAULT_K
         default_nozzle_area_ratio = (
             ramjet.nozzle_area_ratio if ramjet is not None else NOZZLE_AREA_RATIO_DESIGN
         )
@@ -891,7 +891,7 @@ def main() -> None:
         propulsion={
             "stage2_ramjet": RamjetEngine(
                 design_mach=MACH_DESIGN,
-                combustor_temp_K=TT4_DEFAULT_K,
+                combustor_temp=TT4_DEFAULT_K,
                 nozzle_area_ratio=NOZZLE_AREA_RATIO_DESIGN,
             )
         },
