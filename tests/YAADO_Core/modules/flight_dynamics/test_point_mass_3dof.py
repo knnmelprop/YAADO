@@ -433,4 +433,123 @@ def test_run_boost_study_accepts_toml_path(
     assert results["burnout_time"] > 0.0
 
 
+def test_point_mass_3dof_full_flight_simulation(
+    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+) -> None:
+    """stop_at_burnout=False simulates full trajectory past burnout to ground impact."""
+    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger, stop_at_burnout=False)
+    analysis.setup(vehicle)
+    results = analysis.execute()
+
+    assert isinstance(results, AnalysisResults)
+    # Burnout metrics are still present and positive
+    assert results["burnout_time"] == pytest.approx(4.0)
+    assert results["burnout_velocity"] > 0.0
+    assert results["burnout_altitude"] > 0.0
+    # Full flight metrics are computed
+    assert results["apogee_altitude"] > results["burnout_altitude"]
+    assert results["apogee_time"] > results["burnout_time"]
+    assert results["flight_time"] > results["apogee_time"]
+    assert results["flight_range"] > results["range_at_burnout"]
+    assert results["impact_velocity"] > 0.0
+    assert results.units["apogee_altitude"] == "m"
+    assert results.units["flight_time"] == "s"
+    assert results.units["flight_range"] == "m"
+    assert results.metadata["stop_at_burnout"] is False
+    assert results.metadata["integration_stopped_reason"] == "ground_impact"
+
+
+def test_point_mass_3dof_full_flight_via_operating_state(
+    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+) -> None:
+    """Operating state keys (stop_at_burnout=False or full_flight=True) activate full flight."""
+    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    analysis.setup(vehicle, operating_state={"stop_at_burnout": False})
+    results = analysis.execute()
+    assert results["flight_time"] > results["burnout_time"]
+    assert results["apogee_altitude"] > results["burnout_altitude"]
+
+
+def test_run_boost_study_full_flight(
+    tmp_path: Path, vehicle: BaseVehicleConfig
+) -> None:
+    """run_boost_study with stop_at_burnout=False generates full_flight.png and full metrics."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        run_boost_study,
+    )
+
+    logger = FlightLogger(
+        vehicle_name="test_rocket",
+        analysis_name="point_mass_3dof_boost",
+        enabled=True,
+    )
+    run_dir = tmp_path / "study_run_full"
+    logger.output_dir = run_dir
+    logger.figures_dir = run_dir / "figures"
+    logger.artifacts_dir = run_dir / "artifacts"
+    logger.log_file_path = run_dir / "execution.log"
+    logger._setup_directories()
+    logger._setup_logging()
+
+    results = run_boost_study(vehicle, logger=logger, stop_at_burnout=False)
+    assert isinstance(results, AnalysisResults)
+    assert results["flight_time"] > results["burnout_time"]
+    assert results["apogee_altitude"] > results["burnout_altitude"]
+
+    boost_png = run_dir / "figures" / "boost_phase.png"
+    full_png = run_dir / "figures" / "full_flight.png"
+    sweep_png = run_dir / "figures" / "launch_angle_sweep.png"
+    sweep_csv = run_dir / "artifacts" / "launch_angle_sweep.csv"
+
+    assert boost_png.is_file()
+    assert full_png.is_file()
+    assert sweep_png.is_file()
+    assert sweep_csv.is_file()
+
+    # Crucial check: boost_phase.png and full_flight.png must not be identical
+    assert boost_png.read_bytes() != full_png.read_bytes()
+
+    # Metadata should contain both _boost_samples (0-4s) and _samples (0-flight_time)
+    assert "_boost_samples" in results.metadata
+    assert "_samples" in results.metadata
+    assert results.metadata["_boost_samples"]["t_s"][-1] == pytest.approx(4.0)
+    assert results.metadata["_samples"]["t_s"][-1] > 4.0
+
+    logger.close()
+
+
+def test_plot_boost_phase_and_full_flight() -> None:
+    """plot_boost_phase slices full samples and plot_full_flight plots full trajectory."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        plot_boost_phase,
+        plot_full_flight,
+    )
+    import matplotlib.pyplot as plt
+
+    samples = {
+        "t_s": [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
+        "x_m": [0.0, 100.0, 300.0, 600.0, 800.0, 900.0],
+        "h_m": [0.0, 200.0, 600.0, 900.0, 800.0, 0.0],
+        "v_ms": [0.0, 100.0, 250.0, 200.0, 100.0, 80.0],
+        "mach": [0.0, 0.3, 0.8, 0.6, 0.3, 0.2],
+        "q_pa": [0.0, 5000.0, 25000.0, 15000.0, 4000.0, 2000.0],
+        "burn_time_s": 4.0,
+    }
+
+    fig_boost = plot_boost_phase(samples, burn_time_s=4.0)
+    assert fig_boost is not None
+    # X-limits on boost figure should end around 4.0 s
+    ax_speed = fig_boost.axes[0]
+    assert ax_speed.get_lines()[0].get_xdata()[-1] == pytest.approx(4.0)
+    plt.close(fig_boost)
+
+    fig_full = plot_full_flight(samples, burn_time_s=4.0)
+    assert fig_full is not None
+    ax_full_speed = fig_full.axes[0]
+    assert ax_full_speed.get_lines()[0].get_xdata()[-1] == pytest.approx(10.0)
+    plt.close(fig_full)
+
+
+
+
 
