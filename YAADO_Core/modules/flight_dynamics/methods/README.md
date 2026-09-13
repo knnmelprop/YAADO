@@ -30,7 +30,7 @@ Limitations of the current model:
 Simulation termination control:
     By default, the solver terminates at booster motor burnout (``stop_at_burnout=True``),
     reporting burnout state and ``range_at_burnout``. Setting ``stop_at_burnout=False``
-    (via ``operating_state={"stop_at_burnout": False}`` or kwarg) extends the ODE
+    (via ``stop_at_burnout=False`` kwarg) extends the ODE
     past burnout with T = 0 through unpowered coasting to determine full-flight metrics:
     ``apogee_altitude``, ``apogee_time``, total ``flight_time``, total ``flight_range``,
     and ``impact_velocity``.
@@ -41,3 +41,37 @@ Usage via YAADO module orchestration:
     sensitivity sweep, and persists structured checkpoints (``results.json``, ``summary.csv``),
     visual trajectory plots (``boost_phase.png``, ``full_flight.png``, ``launch_angle_sweep.png``),
     and sweep data artifacts (``launch_angle_sweep.csv``) directly inside the run logger directory.
+
+## Example Usage: ALVRJ Booster Phase Study
+
+Below is an end-to-end example demonstrating how to load the reference ALVRJ vehicle configuration and execute a 3-DOF boost-phase trajectory study with full telemetry and artifact generation:
+
+```python
+from pathlib import Path
+
+from YAADO_Core.Foundation.flight_logger import FlightLogger
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import run_boost_study
+
+# 1. Load validated vehicle configuration
+config_path = Path("Hangar/examples/ALVRJ/ALVRJ.toml")
+vehicle = BaseVehicleConfig.from_toml(config_path)
+
+# 2. Configure FlightLogger for run artifacts (logs, figures, checkpoints)
+logger = FlightLogger(vehicle_name=vehicle.name, analysis_name="3dof_boost_study")
+
+# 3. Run the complete boost study
+# Since ALVRJ features both strakes and aft fins, explicitly specify the fin set via operating_state
+operating_state = {
+    "fins_name": "aft_control_fins",
+    "launch_angle_deg": 83.0,
+    "altitude_m": 0.0,
+}
+results = run_boost_study(vehicle, logger=logger, operating_state=operating_state)
+
+# 4. Access standardized SI scalar results and metadata
+print(f"Burnout time:     {results['burnout_time']:.2f} s")
+print(f"Burnout velocity: {results['burnout_velocity']:.1f} m/s (Mach {results['burnout_mach']:.2f})")
+print(f"Burnout altitude: {results['burnout_altitude']:.1f} m")
+print(f"Max dyn pressure: {results['q_max']:.0f} Pa")
+```
