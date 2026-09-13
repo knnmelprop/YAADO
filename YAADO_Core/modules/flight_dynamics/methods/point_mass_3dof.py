@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 import numpy as np
-from ambiance import Atmosphere
 from scipy.integrate import solve_ivp
 from scipy.optimize import OptimizeResult
 
@@ -95,6 +94,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
     DEFAULT_STOP_AT_BURNOUT: bool = True
     DEFAULT_T_MAX_S: float = 300.0
     IGNITION_PAD_CLEAR_TIME_S: float = 0.5
+    IGNITION_PAD_CLEAR_ALTITUDE_MARGIN_M: float = 1.0
 
     def __init__(
         self,
@@ -804,7 +804,7 @@ def _ground_impact_event(t_s: float, state: np.ndarray, params: BoosterParams) -
         positional arg directly.
     """
     if t_s < PointMass3DOFBoostAnalysis.IGNITION_PAD_CLEAR_TIME_S:
-        return 1.0
+        return PointMass3DOFBoostAnalysis.IGNITION_PAD_CLEAR_ALTITUDE_MARGIN_M
     return state[1] - params.ground_altitude_m
 
 
@@ -889,10 +889,9 @@ def _evaluate_samples(
     x_eval, h_eval, vx_eval, vh_eval = y_eval
     speed_eval = np.hypot(vx_eval, vh_eval)
 
-    h_clamped = np.maximum(h_eval, -5000.0)
-    atm = Atmosphere(h_clamped)
-    sos = np.asarray(atm.speed_of_sound).flatten()
-    rho = np.asarray(atm.density).flatten()
+    atm = isa_atmosphere(h_eval)
+    sos = np.asarray(atm.speed_of_sound)
+    rho = np.asarray(atm.density)
 
     mach_eval = np.where(sos > 0.0, speed_eval / sos, 0.0)
     q_eval = 0.5 * rho * speed_eval**2
