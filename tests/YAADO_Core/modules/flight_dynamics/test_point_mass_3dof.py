@@ -20,12 +20,6 @@ from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
 )
 
 
-@pytest.fixture
-def disabled_logger() -> FlightLogger:
-    """A disabled FlightLogger instance for fast, zero-I/O unit testing."""
-    return FlightLogger("test_sounding_rocket", "point_mass_3dof_boost", enabled=False)
-
-
 def _build_generic_solid_rocket() -> BaseVehicleConfig:
     """Build a minimal, generic, schema-valid solid-rocket vehicle config.
 
@@ -90,24 +84,22 @@ def test_resolve_booster_params_from_vehicle_reads_components(
 
 
 def test_resolve_booster_params_launch_angle_override(vehicle: BaseVehicleConfig) -> None:
-    """operating_state overrides the default launch angle."""
+    """Explicit kwargs override the default launch angle."""
     params = resolve_booster_params_from_vehicle(
-        vehicle, operating_state={"launch_angle_deg": 45.0}
+        vehicle, launch_angle_deg=45.0
     )
     assert params.launch_angle_deg == pytest.approx(45.0)
 
 
 def test_resolve_booster_params_drag_overrides(vehicle: BaseVehicleConfig) -> None:
-    """operating_state overrides empirical drag and Isp parameters."""
+    """Explicit kwargs override empirical drag and Isp parameters."""
     params = resolve_booster_params_from_vehicle(
         vehicle,
-        operating_state={
-            "cd_body_subsonic": 0.15,
-            "cd_body_transonic": 0.40,
-            "cd_body_supersonic": 0.30,
-            "cd_wave_per_fin": 0.02,
-            "isp_alt_ref_m": 25000.0,
-        },
+        cd_body_subsonic=0.15,
+        cd_body_transonic=0.40,
+        cd_body_supersonic=0.30,
+        cd_wave_per_fin=0.02,
+        isp_alt_ref_m=25000.0,
     )
     assert params.cd_body_subsonic == pytest.approx(0.15)
     assert params.cd_body_transonic == pytest.approx(0.40)
@@ -126,16 +118,15 @@ def test_resolve_booster_params_requires_mass_properties() -> None:
 
 
 def test_point_mass_3dof_setup_execute_new_contract(
-    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+    vehicle: BaseVehicleConfig,
 ) -> None:
-    """setup(vehicle, operating_state) + execute() follow the BaseAnalysis contract."""
-    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    """setup(vehicle, ...) + execute() follow the BaseAnalysis contract."""
+    analysis = PointMass3DOFBoostAnalysis()
     analysis.setup(
         vehicle,
-        operating_state={
-            "launch_angle_deg": 83.0,
-            "altitude_m": PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
-        },
+        launch_angle_deg=83.0,
+        altitude_m=PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
+        enable_logging=False,
     )
     results = analysis.execute()
 
@@ -157,43 +148,29 @@ def test_point_mass_3dof_setup_execute_new_contract(
     assert math.isfinite(results["burnout_mach"])
 
 
-def test_point_mass_3dof_setup_defaults_operating_state_to_none(
-    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+def test_point_mass_3dof_setup_defaults(
+    vehicle: BaseVehicleConfig,
 ) -> None:
-    """setup() accepts operating_state=None and falls back to module defaults."""
-    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
-    analysis.setup(vehicle, operating_state=None)
+    """setup() falls back to module defaults when called without kwargs."""
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, enable_logging=False)
     results = analysis.execute()
     assert results["burnout_time"] > 0.0
 
 
-def test_point_mass_3dof_execute_before_setup_raises(
-    disabled_logger: FlightLogger,
-) -> None:
+def test_point_mass_3dof_execute_before_setup_raises() -> None:
     """execute() before setup() raises RuntimeError per the BaseAnalysis contract."""
-    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    analysis = PointMass3DOFBoostAnalysis()
     with pytest.raises(RuntimeError):
         analysis.execute()
 
 
 def test_resolve_booster_params_explicit_names(vehicle: BaseVehicleConfig) -> None:
-    """Explicit component names can be passed as kwargs or via operating_state."""
-    # Via kwargs
+    """Explicit component names can be passed as kwargs."""
     params_kw = resolve_booster_params_from_vehicle(
         vehicle, motor_name="stage_1", body_name="body", fins_name="fins"
     )
     assert params_kw.propellant_mass_kg == pytest.approx(8.0)
-
-    # Via operating_state
-    params_st = resolve_booster_params_from_vehicle(
-        vehicle,
-        operating_state={
-            "motor_name": "stage_1",
-            "body_name": "body",
-            "fins_name": "fins",
-        },
-    )
-    assert params_st.propellant_mass_kg == pytest.approx(8.0)
 
 
 def test_resolve_booster_params_multiple_motors_requires_name(
@@ -296,30 +273,33 @@ def test_resolve_booster_params_multi_propulsion_auto_selects_booster(
 
 
 def test_point_mass_3dof_setup_with_named_components(
-    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+    vehicle: BaseVehicleConfig,
 ) -> None:
-    """PointMass3DOFBoostAnalysis executes successfully when component names are passed via operating_state."""
-    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    """PointMass3DOFBoostAnalysis executes successfully when component names are passed via kwargs."""
+    analysis = PointMass3DOFBoostAnalysis()
     analysis.setup(
         vehicle,
-        operating_state={
-            "motor_name": "stage_1",
-            "body_name": "body",
-            "fins_name": "fins",
-        },
+        motor_name="stage_1",
+        body_name="body",
+        fins_name="fins",
+        enable_logging=False,
     )
     results = analysis.execute()
     assert results["burnout_time"] > 0.0
     assert results["burnout_velocity"] > 0.0
 
 
-def test_point_mass_3dof_requires_logger() -> None:
-    """PointMass3DOFBoostAnalysis strictly requires a FlightLogger instance."""
-    with pytest.raises(TypeError):
-        PointMass3DOFBoostAnalysis()  # type: ignore[call-arg]
+def test_point_mass_3dof_setup_auto_initializes_logger(vehicle: BaseVehicleConfig) -> None:
+    """setup() automatically initializes self.logger from vehicle and analysis names."""
+    analysis = PointMass3DOFBoostAnalysis()
+    with pytest.raises(RuntimeError, match="has not been setup yet"):
+        _ = analysis.logger
 
-    with pytest.raises(TypeError, match="FlightLogger"):
-        PointMass3DOFBoostAnalysis(logger=object())  # type: ignore[arg-type]
+    analysis.setup(vehicle, enable_logging=False)
+    assert isinstance(analysis.logger, FlightLogger)
+    assert analysis.logger.vehicle_name == vehicle.name
+    assert analysis.logger.analysis_name == analysis.name
+    assert analysis.logger.enabled is False
 
 
 def test_point_mass_3dof_executes_with_enabled_logger(
@@ -327,34 +307,30 @@ def test_point_mass_3dof_executes_with_enabled_logger(
 ) -> None:
     """Enabled FlightLogger logs execution; saving results is explicit or via study."""
     monkeypatch.chdir(tmp_path)
-    logger = FlightLogger(
-        vehicle_name="test_rocket",
-        analysis_name="point_mass_3dof_boost",
-        enabled=True,
-    )
-
-    analysis = PointMass3DOFBoostAnalysis(logger=logger)
-    analysis.setup(vehicle)
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, enable_logging=True)
+    assert analysis.logger is not None
+    assert analysis.logger.enabled is True
     results = analysis.execute()
 
     assert results["burnout_time"] > 0.0
-    assert logger.log_file_path.is_file()
-    log_content = logger.log_file_path.read_text(encoding="utf-8")
+    assert analysis.logger.log_file_path.is_file()
+    log_content = analysis.logger.log_file_path.read_text(encoding="utf-8")
     assert "Starting boost trajectory integration" in log_content
     assert "Burnout reached" in log_content
 
     # execute() does not automatically save results to avoid redundant disk I/O in studies
-    results_json = logger.output_dir / "results.json"
-    summary_csv = logger.output_dir / "summary.csv"
+    results_json = analysis.logger.output_dir / "results.json"
+    summary_csv = analysis.logger.output_dir / "summary.csv"
     assert not results_json.exists()
     assert not summary_csv.exists()
 
     # Explicit save_results produces the checkpoint
-    logger.save_results(results)
+    analysis.logger.save_results(results)
     assert results_json.is_file()
     assert summary_csv.is_file()
 
-    logger.close()
+    analysis.logger.close()
 
 
 def test_point_mass_3dof_executes_with_disabled_logger(
@@ -362,18 +338,13 @@ def test_point_mass_3dof_executes_with_disabled_logger(
 ) -> None:
     """Disabled FlightLogger performs zero disk I/O."""
     monkeypatch.chdir(tmp_path)
-    logger = FlightLogger(
-        vehicle_name="test_rocket",
-        analysis_name="point_mass_3dof_boost",
-        enabled=False,
-    )
-
-    analysis = PointMass3DOFBoostAnalysis(logger=logger)
-    analysis.setup(vehicle)
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, enable_logging=False)
     results = analysis.execute()
 
     assert results["burnout_time"] > 0.0
-    assert not logger.output_dir.exists()
+    assert analysis.logger is not None
+    assert not analysis.logger.output_dir.exists()
 
 
 def test_run_boost_study_with_flight_logger(
@@ -385,24 +356,16 @@ def test_run_boost_study_with_flight_logger(
     )
 
     monkeypatch.chdir(tmp_path)
-    logger = FlightLogger(
-        vehicle_name="test_rocket",
-        analysis_name="point_mass_3dof_boost",
-        enabled=True,
-    )
-    run_dir = logger.output_dir
-
-    results = run_boost_study(vehicle, logger=logger)
+    results = run_boost_study(vehicle, enable_logging=True)
     assert isinstance(results, AnalysisResults)
     assert results["burnout_time"] > 0.0
+    run_dir = next((tmp_path / "FlightLogs" / vehicle.name).glob("point_mass_3dof_boost_*"))
     assert (run_dir / "execution.log").is_file()
     assert (run_dir / "results.json").is_file()
     assert (run_dir / "summary.csv").is_file()
     assert (run_dir / "figures" / "boost_phase.png").is_file()
     assert (run_dir / "figures" / "launch_angle_sweep.png").is_file()
     assert (run_dir / "artifacts" / "launch_angle_sweep.csv").is_file()
-
-    logger.close()
 
 
 def test_run_boost_study_rejects_path_input(
@@ -416,17 +379,16 @@ def test_run_boost_study_rejects_path_input(
     config_file = tmp_path / "test_vehicle.toml"
     vehicle.to_toml(config_file)
 
-    disabled_logger = FlightLogger("test_rocket", "boost", enabled=False)
     with pytest.raises(TypeError, match="BaseVehicleConfig"):
-        run_boost_study(config_file, logger=disabled_logger)  # type: ignore[arg-type]
+        run_boost_study(config_file, enable_logging=False)  # type: ignore[arg-type]
 
 
 def test_point_mass_3dof_full_flight_simulation(
-    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+    vehicle: BaseVehicleConfig,
 ) -> None:
     """stop_at_burnout=False simulates full trajectory past burnout to ground impact."""
-    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger, stop_at_burnout=False)
-    analysis.setup(vehicle)
+    analysis = PointMass3DOFBoostAnalysis(stop_at_burnout=False)
+    analysis.setup(vehicle, enable_logging=False)
     results = analysis.execute()
 
     assert isinstance(results, AnalysisResults)
@@ -448,11 +410,11 @@ def test_point_mass_3dof_full_flight_simulation(
 
 
 def test_point_mass_3dof_full_flight_via_setup_override(
-    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+    vehicle: BaseVehicleConfig,
 ) -> None:
     """Explicit stop_at_burnout=False on setup() activates full flight."""
-    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
-    analysis.setup(vehicle, stop_at_burnout=False)
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, stop_at_burnout=False, enable_logging=False)
     results = analysis.execute()
     assert results["flight_time"] > results["burnout_time"]
     assert results["apogee_altitude"] > results["burnout_altitude"]
@@ -467,18 +429,12 @@ def test_run_boost_study_full_flight(
     )
 
     monkeypatch.chdir(tmp_path)
-    logger = FlightLogger(
-        vehicle_name="test_rocket",
-        analysis_name="point_mass_3dof_boost",
-        enabled=True,
-    )
-    run_dir = logger.output_dir
-
-    results = run_boost_study(vehicle, logger=logger, stop_at_burnout=False)
+    results = run_boost_study(vehicle, stop_at_burnout=False, enable_logging=True)
     assert isinstance(results, AnalysisResults)
     assert results["flight_time"] > results["burnout_time"]
     assert results["apogee_altitude"] > results["burnout_altitude"]
 
+    run_dir = next((tmp_path / "FlightLogs" / vehicle.name).glob("point_mass_3dof_boost_*"))
     boost_png = run_dir / "figures" / "boost_phase.png"
     full_png = run_dir / "figures" / "full_flight.png"
     sweep_png = run_dir / "figures" / "launch_angle_sweep.png"
@@ -497,8 +453,6 @@ def test_run_boost_study_full_flight(
     assert "_samples" in results.metadata
     assert results.metadata["_boost_samples"]["t_s"][-1] == pytest.approx(4.0)
     assert results.metadata["_samples"]["t_s"][-1] > 4.0
-
-    logger.close()
 
 
 def test_plot_boost_phase_and_full_flight() -> None:
@@ -544,7 +498,7 @@ def test_resolve_booster_params_preserves_ground_altitude(
     )
 
     params_custom = resolve_booster_params_from_vehicle(
-        vehicle, operating_state={"ground_altitude_m": 250.0}
+        vehicle, ground_altitude_m=250.0
     )
     assert params_custom.ground_altitude_m == 250.0
 
@@ -559,7 +513,7 @@ def test_booster_params_derived_properties_and_initial_altitude(
 ) -> None:
     """BoosterParams computes burnout_mass_kg and mdot_kg_s dynamically, and carries initial_altitude_m."""
     params = resolve_booster_params_from_vehicle(
-        vehicle, operating_state={"altitude_m": 1200.0}
+        vehicle, altitude_m=1200.0
     )
     assert params.initial_altitude_m == pytest.approx(1200.0)
     assert params.burnout_mass_kg == pytest.approx(params.launch_mass_kg - params.propellant_mass_kg)
@@ -584,17 +538,16 @@ def test_sweep_results_standardized_q_max(
 
 
 def test_validate_results_supports_below_sea_level(
-    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+    vehicle: BaseVehicleConfig,
 ) -> None:
     """validate_results accepts flight where ground altitude is below sea level."""
-    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    analysis = PointMass3DOFBoostAnalysis()
     analysis.setup(
         vehicle,
-        operating_state={
-            "altitude_m": -350.0,
-            "ground_altitude_m": -400.0,
-            "launch_angle_deg": 85.0,
-        },
+        altitude_m=-350.0,
+        ground_altitude_m=-400.0,
+        launch_angle_deg=85.0,
+        enable_logging=False,
     )
     results = analysis.execute()
     assert results["burnout_altitude"] > -400.0
@@ -665,6 +618,30 @@ def test_plots_clip_y_axis_to_zero_and_ground() -> None:
     assert fig_sweep_full.axes[1].get_ylim()[0] == pytest.approx(0.0)  # burnout altitude
     assert fig_sweep_full.axes[2].get_ylim()[0] == pytest.approx(0.0)  # apogee altitude
     plt.close(fig_sweep_full)
+
+
+def test_run_boost_study_with_explicit_kwargs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vehicle: BaseVehicleConfig
+) -> None:
+    """run_boost_study runs end-to-end with explicit kwargs (no operating_state dict)."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        run_boost_study,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    results = run_boost_study(
+        vehicle,
+        launch_angle_deg=80.0,
+        altitude_m=100.0,
+        stop_at_burnout=False,
+        enable_logging=False,
+    )
+    assert isinstance(results, AnalysisResults)
+    assert results["burnout_time"] > 0.0
+    assert results.metadata["initial_altitude"] == pytest.approx(100.0)
+    assert results.metadata["launch_angle"] == pytest.approx(80.0)
+    assert "apogee_altitude" in results
+
 
 
 

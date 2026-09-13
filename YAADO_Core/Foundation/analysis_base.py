@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
+from YAADO_Core.Foundation.flight_logger import FlightLogger
+
 if TYPE_CHECKING:
     from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
@@ -99,31 +101,64 @@ class BaseAnalysis(ABC):
 
     Args:
         name: Unique analysis name (used in :class:`AnalysisResults`).
+        logger: Optional FlightLogger instance for diagnostic logging,
+            telemetry, and visual artifacts.
     """
 
     #: Fidelity level of the method; override in subclasses.
     fidelity: FidelityLevel = FidelityLevel.LEVEL_0
 
-    def __init__(self, name: str) -> None:
+    def __init__(
+        self,
+        name: str,
+    ) -> None:
         self.name = name
+        self._logger: FlightLogger | None = None
         self._is_setup = False
+
+    @property
+    def logger(self) -> FlightLogger:
+        """The FlightLogger bound to this analysis during setup.
+
+        Returns:
+            The active FlightLogger instance.
+
+        Raises:
+            RuntimeError: If accessed before setup(vehicle) is called.
+        """
+        if self._logger is None:
+            raise RuntimeError(
+                f"Analysis '{self.name}' has not been setup yet. "
+                "Call setup(vehicle) before accessing the logger."
+            )
+        return self._logger
+
+    @logger.setter
+    def logger(self, value: FlightLogger) -> None:
+        if not isinstance(value, FlightLogger):
+            raise TypeError(
+                f"logger must be a FlightLogger instance, got {type(value).__name__}"
+            )
+        self._logger = value
 
     @abstractmethod
     def setup(
         self,
         vehicle: BaseVehicleConfig,
-        operating_state: dict | None = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
-        """Bind the analysis to a vehicle configuration and prepare inputs.
+        """Bind the analysis to a vehicle configuration and prepare solver inputs.
 
         Extracts the necessary geometry, component parameters, and operating 
         conditions to initialize the underlying solver for execution.
 
         Args:
             vehicle: The centralized vehicle configuration to analyze.
-            operating_state: Optional dictionary of operating conditions in SI units
-                (e.g., ``mach``, ``altitude_m``, ``alpha_deg``). If ``None``,
-                the analysis will use its documented defaults.
+            *args: Solver-specific positional arguments (for legacy compatibility).
+            **kwargs: Solver-specific execution settings, flight conditions,
+                or calibration parameters. Concrete subclasses define explicit,
+                typed keyword arguments with default values in SI units.
         """
 
     @abstractmethod

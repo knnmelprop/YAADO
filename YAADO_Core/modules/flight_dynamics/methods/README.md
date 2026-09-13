@@ -49,7 +49,6 @@ Below is an end-to-end example demonstrating how to load the reference ALVRJ veh
 ```python
 from pathlib import Path
 
-from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import run_boost_study
 
@@ -57,17 +56,14 @@ from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import run_boost
 config_path = Path("Hangar/examples/ALVRJ/ALVRJ.toml")
 vehicle = BaseVehicleConfig.from_toml(config_path)
 
-# 2. Configure FlightLogger for run artifacts (logs, figures, checkpoints)
-logger = FlightLogger(vehicle_name=vehicle.name, analysis_name="3dof_boost_study")
-
-# 3. Run the complete boost study
-# Since ALVRJ features both strakes and aft fins, explicitly specify the fin set via operating_state
-operating_state = {
-    "fins_name": "aft_control_fins",
-    "launch_angle_deg": 83.0,
-    "altitude_m": 0.0,
-}
-results = run_boost_study(vehicle, logger=logger, operating_state=operating_state)
+# 2. Run the complete boost study with explicit kwargs (FlightLogger is auto-initialized)
+# Since ALVRJ features both strakes and aft fins, explicitly specify the fin set via fins_name
+results = run_boost_study(
+    vehicle,
+    fins_name="aft_control_fins",
+    launch_angle_deg=83.0,
+    altitude_m=0.0,
+)
 
 # 4. Access standardized SI scalar results and metadata
 print(f"Burnout time:     {results['burnout_time']:.2f} s")
