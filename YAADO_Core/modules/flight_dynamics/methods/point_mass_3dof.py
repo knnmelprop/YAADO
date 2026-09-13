@@ -52,8 +52,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
     ``FidelityLevel.LEVEL_0``.
 
     Example:
-        logger = FlightLogger("rocket", "point_mass_3dof_boost")
-        analysis = PointMass3DOFBoostAnalysis(logger=logger)
+        analysis = PointMass3DOFBoostAnalysis()
         analysis.setup(vehicle)
         results = analysis.execute()
         burnout_mach = results["burnout_mach"]
@@ -68,7 +67,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
     DEFAULT_V0_MS: float = 0.0
     DEFAULT_GROUND_ALTITUDE_M: float = 0.0
 
-    # Empirical drag parameters (can be calibrated per vehicle via operating_state)
+    # Empirical drag parameters (can be calibrated per vehicle via kwargs)
     CD_BODY_SUBSONIC: float = 0.20
     CD_BODY_TRANSONIC: float = 0.35
     CD_BODY_SUPERSONIC: float = 0.25
@@ -99,72 +98,101 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
 
     def __init__(
         self,
-        logger: FlightLogger,
         name: str = "point_mass_3dof_boost",
         *,
         stop_at_burnout: bool = DEFAULT_STOP_AT_BURNOUT,
     ) -> None:
         super().__init__(name)
-        if not isinstance(logger, FlightLogger):
-            raise TypeError(
-                f"PointMass3DOFBoostAnalysis requires a FlightLogger instance, "
-                f"got {type(logger).__name__}"
-            )
-        self.logger = logger
         self._stop_at_burnout: bool = stop_at_burnout
         self._params: BoosterParams | None = None
 
     def setup(
         self,
         vehicle: BaseVehicleConfig,
-        operating_state: dict[str, Any] | None = None,
         *,
-        logger: FlightLogger | None = None,
+        launch_angle_deg: float = DEFAULT_LAUNCH_ANGLE_DEG,
+        altitude_m: float = DEFAULT_ALTITUDE_M,
+        ground_altitude_m: float = DEFAULT_GROUND_ALTITUDE_M,
+        fins_name: str | None = None,
+        motor_name: str | None = None,
+        body_name: str | None = None,
+        t_max_s: float = DEFAULT_T_MAX_S,
         stop_at_burnout: bool | None = None,
+        enable_logging: bool = True,
+        cd_body_subsonic: float = CD_BODY_SUBSONIC,
+        cd_body_transonic: float = CD_BODY_TRANSONIC,
+        cd_body_supersonic: float = CD_BODY_SUPERSONIC,
+        mach_transonic_lo: float = MACH_TRANSONIC_LO,
+        mach_supersonic_lo: float = MACH_SUPERSONIC_LO,
+        cd_wave_per_fin: float = CD_WAVE_PER_FIN,
+        isp_alt_ref_m: float = ISP_ALT_REF_M,
+        **kwargs: Any,
     ) -> None:
         """Bind the analysis to a vehicle config and operating conditions.
 
         Mass, propulsion (``SolidMotor``) and geometry (``AxisymmetricBody``
         body diameter, ``Fins`` count) are read from ``vehicle``. The fixed
-        launch angle and initial altitude are launch-site conditions with
-        no field on :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`,
-        so they are read from ``operating_state`` instead (see
-        :func:`resolve_booster_params_from_vehicle`). Drag and Isp parameters
-        can also be calibrated via ``operating_state``.
+        launch angle and initial altitude are launch-site conditions configured
+        directly via keyword arguments (see :func:`resolve_booster_params_from_vehicle`).
+        A :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger` is automatically
+        initialized from the vehicle name and analysis name.
 
         Args:
             vehicle: Validated, vehicle-agnostic configuration providing
                 the propulsion, body, aero_surfaces (fins) and
                 mass_properties components used by the boost-phase model.
-            operating_state: Optional operating conditions in SI units.
-                Recognized keys: ``launch_angle_deg`` (defaults to
-                :attr:`DEFAULT_LAUNCH_ANGLE_DEG`), ``altitude_m`` (defaults
-                to :attr:`DEFAULT_ALTITUDE_M`), and drag/Isp overrides.
-            logger: Optional FlightLogger override. If provided, updates
-                ``self.logger``.
+            launch_angle_deg: Launch elevation angle above horizontal [deg].
+                Defaults to :attr:`DEFAULT_LAUNCH_ANGLE_DEG`.
+            altitude_m: Initial launch altitude [m]. Defaults to :attr:`DEFAULT_ALTITUDE_M`.
+            ground_altitude_m: Ground impact plane altitude [m]. Defaults to :attr:`DEFAULT_GROUND_ALTITUDE_M`.
+            fins_name: Explicit name of fin set in ``vehicle.aero_surfaces``.
+            motor_name: Explicit name of motor in ``vehicle.propulsion``.
+            body_name: Explicit name of body in ``vehicle.bodies``.
+            t_max_s: Maximum flight duration [s]. Defaults to :attr:`DEFAULT_T_MAX_S`.
             stop_at_burnout: Optional explicit override for whether the simulation
                 terminates at booster depletion (True) or continues through
                 unpowered coast to ground impact/apogee (False).
+            enable_logging: Whether FlightLogger creates disk artifacts and logs.
+                Set to False for zero-disk-I/O in high-speed sweeps and tests.
+            cd_body_subsonic: Subsonic body drag coefficient.
+            cd_body_transonic: Transonic body drag coefficient.
+            cd_body_supersonic: Supersonic body drag coefficient.
+            mach_transonic_lo: Lower Mach boundary for transonic regime.
+            mach_supersonic_lo: Lower Mach boundary for supersonic regime.
+            cd_wave_per_fin: Wave drag coefficient contribution per fin.
+            isp_alt_ref_m: Reference altitude [m] for Isp vacuum interpolation.
+            **kwargs: Extra keyword arguments for BaseAnalysis contract compatibility.
 
         Raises:
             ValueError: If ``vehicle`` is missing a required component
                 (see :func:`resolve_booster_params_from_vehicle`).
-            TypeError: If ``logger`` is not a FlightLogger.
         """
-        if logger is not None:
-            if not isinstance(logger, FlightLogger):
-                raise TypeError(
-                    f"logger must be a FlightLogger instance, got {type(logger).__name__}"
-                )
-            self.logger = logger
-
-        operating_state = operating_state or {}
+        self.logger = FlightLogger(
+            vehicle_name=vehicle.name,
+            analysis_name=self.name,
+            enabled=bool(enable_logging),
+        )
 
         if stop_at_burnout is not None:
             self._stop_at_burnout = bool(stop_at_burnout)
 
         self._params = resolve_booster_params_from_vehicle(
-            vehicle, operating_state, stop_at_burnout=self._stop_at_burnout
+            vehicle,
+            launch_angle_deg=launch_angle_deg,
+            altitude_m=altitude_m,
+            ground_altitude_m=ground_altitude_m,
+            fins_name=fins_name,
+            motor_name=motor_name,
+            body_name=body_name,
+            stop_at_burnout=self._stop_at_burnout,
+            t_max_s=t_max_s,
+            cd_body_subsonic=cd_body_subsonic,
+            cd_body_transonic=cd_body_transonic,
+            cd_body_supersonic=cd_body_supersonic,
+            mach_transonic_lo=mach_transonic_lo,
+            mach_supersonic_lo=mach_supersonic_lo,
+            cd_wave_per_fin=cd_wave_per_fin,
+            isp_alt_ref_m=isp_alt_ref_m,
         )
         self._is_setup = True
 
@@ -453,7 +481,7 @@ def _resolve_booster_propulsion(
     if len(booster_candidates) > 1:
         raise ValueError(
             f"Multiple booster components found: {list(booster_candidates.keys())}. "
-            "Please specify 'motor_name' in operating_state."
+            "Please specify 'motor_name'."
         )
     return next(iter(booster_candidates.values()))
 
@@ -499,7 +527,7 @@ def _resolve_body(
     if len(bodies) > 1:
         raise ValueError(
             f"Multiple body components found: {list(bodies.keys())}. "
-            "Please specify 'body_name' in operating_state."
+            "Please specify 'body_name'."
         )
     return next(iter(bodies.values()))
 
@@ -545,21 +573,29 @@ def _resolve_aero_surface(
     if len(aero_surfaces) > 1:
         raise ValueError(
             f"Multiple aero surfaces found: {list(aero_surfaces.keys())}. "
-            "Please specify 'fins_name' in operating_state."
+            "Please specify 'fins_name'."
         )
     return next(iter(aero_surfaces.values()))
 
 
 def resolve_booster_params_from_vehicle(
     vehicle: BaseVehicleConfig,
-    operating_state: dict[str, Any] | None = None,
     *,
+    launch_angle_deg: float = PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG,
+    altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
+    ground_altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M,
     motor_name: str | None = None,
     body_name: str | None = None,
     fins_name: str | None = None,
     stop_at_burnout: bool = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT,
     t_max_s: float = PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S,
-    ground_altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M,
+    cd_body_subsonic: float = PointMass3DOFBoostAnalysis.CD_BODY_SUBSONIC,
+    cd_body_transonic: float = PointMass3DOFBoostAnalysis.CD_BODY_TRANSONIC,
+    cd_body_supersonic: float = PointMass3DOFBoostAnalysis.CD_BODY_SUPERSONIC,
+    mach_transonic_lo: float = PointMass3DOFBoostAnalysis.MACH_TRANSONIC_LO,
+    mach_supersonic_lo: float = PointMass3DOFBoostAnalysis.MACH_SUPERSONIC_LO,
+    cd_wave_per_fin: float = PointMass3DOFBoostAnalysis.CD_WAVE_PER_FIN,
+    isp_alt_ref_m: float = PointMass3DOFBoostAnalysis.ISP_ALT_REF_M,
 ) -> BoosterParams:
     """Resolve stage-1 booster parameters from a validated vehicle config.
 
@@ -568,29 +604,29 @@ def resolve_booster_params_from_vehicle(
     :data:`~YAADO_Core.ComponentStore.BODY_COMPONENTS`,
     :data:`~YAADO_Core.ComponentStore.AERO_COMPONENTS`, and
     :class:`~YAADO_Core.ComponentStore.mass.MassProperties`). Launch-site
-    and operating conditions are read from ``operating_state``.
+    and operating conditions are passed via explicit keyword arguments.
 
     Args:
         vehicle: Validated, vehicle-agnostic configuration providing the
             propulsion, body, aero_surfaces (fins) and mass_properties
             components.
-        operating_state: Optional operating conditions in SI units.
-            Recognized keys: ``launch_angle_deg`` (fixed thrust/body angle
-            above horizontal [deg], defaults to
-            :attr:`PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG`),
-            ``altitude_m`` (defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`),
-            component names (``motor_name``, ``body_name``, ``fins_name``),
-            drag/Isp calibration overrides, ``t_max_s``, and ``ground_altitude_m``.
-        motor_name: Optional explicit name of the solid motor in ``vehicle.propulsion``
-            (overrides ``operating_state.get("motor_name")`` if both given).
-        body_name: Optional explicit name of the body in ``vehicle.bodies``
-            (overrides ``operating_state.get("body_name")`` if both given).
-        fins_name: Optional explicit name of the fin set in ``vehicle.aero_surfaces``
-            (overrides ``operating_state.get("fins_name")`` if both given).
+        launch_angle_deg: Launch elevation angle above horizontal [deg].
+            Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG`.
+        altitude_m: Initial launch altitude [m]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`.
+        ground_altitude_m: Ground/impact plane altitude [m]. Defaults to 0.0.
+        motor_name: Optional explicit name of the solid motor in ``vehicle.propulsion``.
+        body_name: Optional explicit name of the body in ``vehicle.bodies``.
+        fins_name: Optional explicit name of the fin set in ``vehicle.aero_surfaces``.
         stop_at_burnout: If True, trajectory ends at motor depletion. If False,
             simulation runs full test through unpowered coast to impact/apogee.
         t_max_s: Maximum flight duration [s] for full flight simulation.
-        ground_altitude_m: Ground/impact plane altitude [m]. Defaults to 0.0.
+        cd_body_subsonic: Subsonic body drag coefficient.
+        cd_body_transonic: Transonic body drag coefficient.
+        cd_body_supersonic: Supersonic body drag coefficient.
+        mach_transonic_lo: Lower Mach boundary for transonic regime.
+        mach_supersonic_lo: Lower Mach boundary for supersonic regime.
+        cd_wave_per_fin: Wave drag coefficient contribution per fin.
+        isp_alt_ref_m: Reference altitude [m] for Isp vacuum interpolation.
 
     Returns:
         Resolved :class:`BoosterParams` with the impulse-consistent thrust
@@ -602,78 +638,10 @@ def resolve_booster_params_from_vehicle(
             components of a subsystem exist without specifying the component name.
         TypeError: If a specified component name refers to an unregistered component type.
     """
-    operating_state = operating_state or {}
-    motor_name = motor_name or operating_state.get("motor_name")
-    body_name = body_name or operating_state.get("body_name")
-    fins_name = fins_name or operating_state.get("fins_name")
-
-    if t_max_s == PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S and "t_max_s" in operating_state:
-        t_max_s = float(operating_state["t_max_s"])
-    else:
-        t_max_s = float(t_max_s)
-
-    if (
-        ground_altitude_m == PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M
-        and "ground_altitude_m" in operating_state
-    ):
-        ground_altitude_m = float(operating_state["ground_altitude_m"])
-    else:
-        ground_altitude_m = float(ground_altitude_m)
-
-    initial_altitude_m = float(
-        operating_state.get(
-            "altitude_m",
-            PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
-        )
-    )
-    launch_angle_deg = float(
-        operating_state.get(
-            "launch_angle_deg",
-            PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG,
-        )
-    )
-    cd_body_subsonic = float(
-        operating_state.get(
-            "cd_body_subsonic",
-            PointMass3DOFBoostAnalysis.CD_BODY_SUBSONIC,
-        )
-    )
-    cd_body_transonic = float(
-        operating_state.get(
-            "cd_body_transonic",
-            PointMass3DOFBoostAnalysis.CD_BODY_TRANSONIC,
-        )
-    )
-    cd_body_supersonic = float(
-        operating_state.get(
-            "cd_body_supersonic",
-            PointMass3DOFBoostAnalysis.CD_BODY_SUPERSONIC,
-        )
-    )
-    mach_transonic_lo = float(
-        operating_state.get(
-            "mach_transonic_lo",
-            PointMass3DOFBoostAnalysis.MACH_TRANSONIC_LO,
-        )
-    )
-    mach_supersonic_lo = float(
-        operating_state.get(
-            "mach_supersonic_lo",
-            PointMass3DOFBoostAnalysis.MACH_SUPERSONIC_LO,
-        )
-    )
-    cd_wave_per_fin = float(
-        operating_state.get(
-            "cd_wave_per_fin",
-            PointMass3DOFBoostAnalysis.CD_WAVE_PER_FIN,
-        )
-    )
-    isp_alt_ref_m = float(
-        operating_state.get(
-            "isp_alt_ref_m",
-            PointMass3DOFBoostAnalysis.ISP_ALT_REF_M,
-        )
-    )
+    initial_altitude_m = float(altitude_m)
+    launch_angle_deg = float(launch_angle_deg)
+    ground_altitude_m = float(ground_altitude_m)
+    t_max_s = float(t_max_s)
 
     propulsion = _resolve_booster_propulsion(vehicle, motor_name=motor_name)
     body = _resolve_body(vehicle, body_name=body_name)
@@ -1201,6 +1169,10 @@ def plot_boost_phase(
     ax.set_title("Dynamic pressure vs. time")
     ax.grid(True, alpha=0.3)
 
+    if len(t_s) > 0:
+        for ax in axes.flat:
+            ax.set_xlim(left=0.0)
+
     fig.suptitle("Stage-1 booster boost-phase trajectory (3-DOF point mass)")
     fig.tight_layout()
     return fig
@@ -1309,6 +1281,10 @@ def plot_full_flight(
     ax.legend()
     ax.grid(True, alpha=0.3)
 
+    if len(t_s) > 0:
+        for ax in axes.flat:
+            ax.set_xlim(left=0.0)
+
     fig.suptitle("Full-flight trajectory simulation (3-DOF point mass)")
     fig.tight_layout()
     return fig
@@ -1317,9 +1293,14 @@ def plot_full_flight(
 def run_launch_angle_sweep(
     vehicle: BaseVehicleConfig,
     angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
-    operating_state: dict[str, Any] | None = None,
     *,
+    altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
+    ground_altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M,
+    fins_name: str | None = None,
+    motor_name: str | None = None,
+    body_name: str | None = None,
     stop_at_burnout: bool = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT,
+    t_max_s: float = PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S,
 ) -> list[dict[str, Any]]:
     """Sweep the fixed launch angle and report burnout/impact metrics per angle.
 
@@ -1330,10 +1311,14 @@ def run_launch_angle_sweep(
         vehicle: Validated BaseVehicleConfig instance.
         angles_deg: Launch angles [deg] to sweep. Defaults to
             :attr:`PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG`.
-        operating_state: Optional operating conditions or component selectors
-            (e.g., ``fins_name``, ``motor_name``, ``altitude_m``).
+        altitude_m: Launch altitude [m]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`.
+        ground_altitude_m: Ground impact plane altitude [m]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M`.
+        fins_name: Explicit name of fin set in ``vehicle.aero_surfaces``.
+        motor_name: Explicit name of motor in ``vehicle.propulsion``.
+        body_name: Explicit name of body in ``vehicle.bodies``.
         stop_at_burnout: Whether simulation terminates at booster depletion.
             Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT`.
+        t_max_s: Maximum simulation time [s]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S`.
 
     Returns:
         A list of per-angle result dicts, one per swept angle, each with
@@ -1352,12 +1337,15 @@ def run_launch_angle_sweep(
         )
 
     sweep_results: list[dict[str, Any]] = []
-    base_op_state = dict(operating_state) if operating_state else {}
-
     base_params = resolve_booster_params_from_vehicle(
         vehicle,
-        operating_state=base_op_state,
+        altitude_m=altitude_m,
+        ground_altitude_m=ground_altitude_m,
+        fins_name=fins_name,
+        motor_name=motor_name,
+        body_name=body_name,
         stop_at_burnout=stop_at_burnout,
+        t_max_s=t_max_s,
     )
 
     for angle_deg in angles_deg:
@@ -1481,11 +1469,17 @@ def plot_launch_angle_sweep(
 
 def run_boost_study(
     vehicle: BaseVehicleConfig,
-    logger: FlightLogger,
-    operating_state: dict[str, Any] | None = None,
     *,
-    sweep_angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
+    launch_angle_deg: float = PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG,
+    altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M,
+    ground_altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M,
+    fins_name: str | None = None,
+    motor_name: str | None = None,
+    body_name: str | None = None,
     stop_at_burnout: bool = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT,
+    t_max_s: float = PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S,
+    enable_logging: bool = True,
+    sweep_angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
 ) -> AnalysisResults:
     """Run a complete trajectory study with sensitivity sweep and visual artifacts.
 
@@ -1495,16 +1489,21 @@ def run_boost_study(
 
     Args:
         vehicle: Validated :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig` instance.
-        logger: Required :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger`
-            instance for telemetry, visual figure saving, and checkpointing.
-        operating_state: Optional dictionary of operating conditions in SI units
-            (e.g., ``launch_angle_deg``, ``altitude_m``, drag calibration overrides,
-            ``t_max_s``).
-        sweep_angles_deg: Sequence of launch angles [deg] to sweep for ground-impact
-            sensitivity. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG`.
+        launch_angle_deg: Launch elevation angle above horizontal [deg].
+            Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG`.
+        altitude_m: Launch altitude [m]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`.
+        ground_altitude_m: Ground impact plane altitude [m]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M`.
+        fins_name: Explicit name of fin set in ``vehicle.aero_surfaces``.
+        motor_name: Explicit name of motor in ``vehicle.propulsion``.
+        body_name: Explicit name of body in ``vehicle.bodies``.
         stop_at_burnout: Boolean controlling whether the simulation ends
             when the booster is depleted (True, default) or continues through
             unpowered coast to ground impact/apogee (False).
+        t_max_s: Maximum simulation time [s]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S`.
+        enable_logging: Whether FlightLogger generates disk logs, figures, and checkpoints.
+            Defaults to True. Set to False for zero-disk-I/O in sweeps/tests.
+        sweep_angles_deg: Sequence of launch angles [deg] to sweep for ground-impact
+            sensitivity. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG`.
 
     Returns:
         The baseline :class:`~YAADO_Core.Foundation.analysis_base.AnalysisResults`.
@@ -1517,17 +1516,25 @@ def run_boost_study(
             f"vehicle must be a BaseVehicleConfig instance, got {type(vehicle).__name__}"
         )
 
-    op_state = dict(operating_state) if operating_state else {}
-
     # 1. Baseline analysis
-    analysis = PointMass3DOFBoostAnalysis(
-        logger=logger, stop_at_burnout=stop_at_burnout
+    analysis = PointMass3DOFBoostAnalysis(stop_at_burnout=stop_at_burnout)
+    analysis.setup(
+        vehicle,
+        launch_angle_deg=launch_angle_deg,
+        altitude_m=altitude_m,
+        ground_altitude_m=ground_altitude_m,
+        fins_name=fins_name,
+        motor_name=motor_name,
+        body_name=body_name,
+        stop_at_burnout=stop_at_burnout,
+        t_max_s=t_max_s,
+        enable_logging=enable_logging,
     )
-    analysis.setup(vehicle, op_state)
     results = analysis.execute()
+    logger = analysis.logger
 
     # 2. Visual figure(s)
-    ground_alt = float(results.metadata.get("ground_altitude", PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M))
+    ground_alt = float(results.metadata.get("ground_altitude", ground_altitude_m))
     boost_samples = results.metadata.get("_boost_samples", results.metadata["_samples"])
     fig_boost = plot_boost_phase(
         boost_samples,
@@ -1552,8 +1559,13 @@ def run_boost_study(
     sweep_results = run_launch_angle_sweep(
         vehicle,
         angles_deg=sweep_angles_deg,
-        operating_state=op_state,
+        altitude_m=altitude_m,
+        ground_altitude_m=ground_altitude_m,
+        fins_name=fins_name,
+        motor_name=motor_name,
+        body_name=body_name,
         stop_at_burnout=stop_at_burnout,
+        t_max_s=t_max_s,
     )
     sweep_fig = plot_launch_angle_sweep(sweep_results, ground_altitude_m=ground_alt)
     logger.save_figure(sweep_fig, "launch_angle_sweep.png")
