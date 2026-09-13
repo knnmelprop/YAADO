@@ -75,3 +75,21 @@ def test_isa_atmosphere_delta_t_isa() -> None:
     assert atm_hot.density < atm_nominal.density
     # Speed of sound is higher in warmer air
     assert atm_hot.speed_of_sound > atm_nominal.speed_of_sound
+
+
+def test_isa_atmosphere_array_input() -> None:
+    """isa_atmosphere evaluates vectorized NumPy arrays matching scalar outputs."""
+    import numpy as np
+
+    altitudes = np.array([0.0, 11000.0, 20000.0])
+    atm_array = isa_atmosphere(altitudes)
+
+    assert isinstance(atm_array.density, np.ndarray)
+    assert len(atm_array.density) == 3
+
+    atm_sl = isa_atmosphere(0.0)
+    atm_trop = isa_atmosphere(11000.0)
+    assert atm_array.density[0] == pytest.approx(atm_sl.density)
+    assert atm_array.temperature[1] == pytest.approx(atm_trop.temperature)
+    assert atm_array.speed_of_sound[0] == pytest.approx(atm_sl.speed_of_sound)
+

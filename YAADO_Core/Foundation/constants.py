@@ -85,3 +85,14 @@ SUTHERLAND_T: float = 110.4
 
 SUTHERLAND_MU0: float = 1.7894e-5
 """Reference dynamic viscosity of dry air at T0_ISA [Pa*s] (ICAO Doc 7488)."""
+
+# -----------------------------------------------------------------------------
+# ICAO Standard Atmosphere Altitude Limits
+# -----------------------------------------------------------------------------
+
+H_MIN_ISA: float = -5000.0
+"""Lower geometric altitude boundary for ICAO Standard Atmosphere [m] (ICAO Doc 7488)."""
+
+H_MAX_ISA: float = 80000.0
+"""Upper geometric altitude boundary for ICAO Standard Atmosphere [m] (ICAO Doc 7488)."""
+
