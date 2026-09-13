@@ -99,11 +99,9 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
     def __init__(
         self,
         name: str = "point_mass_3dof_boost",
-        *,
-        stop_at_burnout: bool = DEFAULT_STOP_AT_BURNOUT,
     ) -> None:
         super().__init__(name)
-        self._stop_at_burnout: bool = stop_at_burnout
+        self._stop_at_burnout: bool = self.DEFAULT_STOP_AT_BURNOUT
         self._params: BoosterParams | None = None
 
     def setup(
@@ -117,7 +115,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         motor_name: str | None = None,
         body_name: str | None = None,
         t_max_s: float = DEFAULT_T_MAX_S,
-        stop_at_burnout: bool | None = None,
+        stop_at_burnout: bool = DEFAULT_STOP_AT_BURNOUT,
         enable_logging: bool = True,
         cd_body_subsonic: float = CD_BODY_SUBSONIC,
         cd_body_transonic: float = CD_BODY_TRANSONIC,
@@ -173,8 +171,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
             enabled=bool(enable_logging),
         )
 
-        if stop_at_burnout is not None:
-            self._stop_at_burnout = bool(stop_at_burnout)
+        self._stop_at_burnout = bool(stop_at_burnout)
 
         self._params = resolve_booster_params_from_vehicle(
             vehicle,
@@ -271,17 +268,9 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 units["impact_velocity"] = "m/s"
 
         metadata = dict(result["metadata"])
-        samples = result["_samples"]
-        metadata["_samples"] = {
-            key: value.tolist() if isinstance(value, np.ndarray) else value
-            for key, value in samples.items()
-        }
+        metadata["_samples"] = result["_samples"]
         if "_boost_samples" in result:
-            boost_samples = result["_boost_samples"]
-            metadata["_boost_samples"] = {
-                key: value.tolist() if isinstance(value, np.ndarray) else value
-                for key, value in boost_samples.items()
-            }
+            metadata["_boost_samples"] = result["_boost_samples"]
 
         results = AnalysisResults(
             name=self.name,
@@ -340,17 +329,13 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         Returns:
             True if all checks pass.
         """
-        if not results.data:
+        if not results.data or self._params is None:
             return False
         for key in ("burnout_time", "burnout_velocity", "q_max"):
             value = results[key]
             if not math.isfinite(value) or value < 0.0:
                 return False
-        ground_alt = (
-            self._params.ground_altitude_m
-            if self._params is not None
-            else self.DEFAULT_GROUND_ALTITUDE_M
-        )
+        ground_alt = self._params.ground_altitude_m
         if (
             not math.isfinite(results["burnout_altitude"])
             or results["burnout_altitude"] < ground_alt - 1e-6
@@ -1047,16 +1032,13 @@ def postprocess(
             "thrust_used": thrust_used_N,
             "thrust_config_mean": params.thrust_mean_config_N,
             "thrust_note": (
-                f"Impulse-consistent thrust F = Isp_sl * mdot * g0 = {thrust_used_N:.0f} N. "
-                f"Config thrust_mean = {params.thrust_mean_config_N:.0f} N is now schema-validated "
-                "for consistency (peak >= mean, mean consistent with Isp*mdot*g0)."
+                f"Impulse-consistent thrust F = Isp_sl * mdot * g0 = {thrust_used_N:.0f} N."
             ),
             "isp_sl": params.isp_sl_s,
             "isp_vacuum": params.isp_vacuum_s,
             "isp_interpolation": (
                 "linear in altitude from isp_sl at h=0 to isp_vacuum at "
-                f"h={params.isp_alt_ref_m:.0f} m, clamped beyond; negligible effect "
-                f"here since altitude stays near h0={h0_m:.0f} m"
+                f"h={params.isp_alt_ref_m:.0f} m, clamped beyond"
             ),
             "mdot": params.mdot_kg_s,
             "launch_mass": params.launch_mass_kg,
@@ -1073,9 +1055,9 @@ def postprocess(
             ),
             "cd_model": (
                 f"CD_body: {params.cd_body_subsonic:.2f} (M<{params.mach_transonic_lo:.1f}) / "
-                f"{params.cd_body_transonic:.2f} ({params.mach_transonic_lo:.1f}<=M<{params.mach_supersonic_lo:.1f}, transonic) / "
-                f"{params.cd_body_supersonic:.2f} (M>={params.mach_supersonic_lo:.1f}); step function, not smoothed. "
-                f"CD_fins = {params.cd_fins:.4f} (constant). CD_total = CD_body + CD_fins."
+                f"{params.cd_body_transonic:.2f} ({params.mach_transonic_lo:.1f}<=M<{params.mach_supersonic_lo:.1f}) / "
+                f"{params.cd_body_supersonic:.2f} (M>={params.mach_supersonic_lo:.1f}). "
+                f"CD_fins = {params.cd_fins:.4f}. CD_total = CD_body + CD_fins."
             ),
             "integrator": (
                 f"scipy.integrate.solve_ivp, RK45, rtol={PointMass3DOFBoostAnalysis.RTOL}, atol={PointMass3DOFBoostAnalysis.ATOL}, "
@@ -1235,8 +1217,10 @@ def plot_full_flight(
     ax.set_ylim(bottom=min(ground_altitude_m, min_h))
     if burn_time_s is not None and len(t_s) > 0 and t_s[-1] >= burn_time_s - 1e-3:
         ax.axvline(burn_time_s, color="gray", linestyle=":", linewidth=1.2, label="Burnout")
-    ap_idx = samples.get("apogee_idx", int(np.argmax(h_m)) if len(h_m) > 0 else 0)
-    if len(h_m) > 0 and 0 <= ap_idx < len(h_m):
+    ap_idx = samples.get("apogee_idx")
+    if ap_idx is None and len(h_m) > 0:
+        ap_idx = int(np.argmax(h_m))
+    if len(h_m) > 0 and ap_idx is not None and 0 <= ap_idx < len(h_m):
         ax.scatter(
             [t_s[ap_idx]],
             [h_m[ap_idx]],
@@ -1264,8 +1248,10 @@ def plot_full_flight(
     ax = axes[1, 1]
     ax.plot(t_s, q_pa, color="tab:purple", label="Dynamic pressure")
     ax.set_ylim(bottom=0.0)
-    q_max_idx = samples.get("q_max_idx", int(np.argmax(q_pa)) if len(q_pa) > 0 else 0)
-    if len(q_pa) > 0 and 0 <= q_max_idx < len(q_pa):
+    q_max_idx = samples.get("q_max_idx")
+    if q_max_idx is None and len(q_pa) > 0:
+        q_max_idx = int(np.argmax(q_pa))
+    if len(q_pa) > 0 and q_max_idx is not None and 0 <= q_max_idx < len(q_pa):
         ax.scatter(
             [t_s[q_max_idx]],
             [q_pa[q_max_idx]],
@@ -1517,7 +1503,7 @@ def run_boost_study(
         )
 
     # 1. Baseline analysis
-    analysis = PointMass3DOFBoostAnalysis(stop_at_burnout=stop_at_burnout)
+    analysis = PointMass3DOFBoostAnalysis()
     analysis.setup(
         vehicle,
         launch_angle_deg=launch_angle_deg,
@@ -1534,18 +1520,18 @@ def run_boost_study(
     logger = analysis.logger
 
     # 2. Visual figure(s)
-    ground_alt = float(results.metadata.get("ground_altitude", ground_altitude_m))
-    boost_samples = results.metadata.get("_boost_samples", results.metadata["_samples"])
+    ground_alt = float(results.metadata["ground_altitude"])
+    boost_samples = results.metadata["_boost_samples"]
     fig_boost = plot_boost_phase(
         boost_samples,
-        burn_time_s=results.metadata.get("nominal_burn_time"),
+        burn_time_s=results.metadata["nominal_burn_time"],
         ground_altitude_m=ground_alt,
     )
     logger.save_figure(fig_boost, "boost_phase.png")
     if not stop_at_burnout:
         fig_full = plot_full_flight(
             results.metadata["_samples"],
-            burn_time_s=results.metadata.get("nominal_burn_time"),
+            burn_time_s=results.metadata["nominal_burn_time"],
             ground_altitude_m=ground_alt,
         )
         logger.save_figure(fig_full, "full_flight.png")

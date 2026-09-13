@@ -387,8 +387,8 @@ def test_point_mass_3dof_full_flight_simulation(
     vehicle: BaseVehicleConfig,
 ) -> None:
     """stop_at_burnout=False simulates full trajectory past burnout to ground impact."""
-    analysis = PointMass3DOFBoostAnalysis(stop_at_burnout=False)
-    analysis.setup(vehicle, enable_logging=False)
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, stop_at_burnout=False, enable_logging=False)
     results = analysis.execute()
 
     assert isinstance(results, AnalysisResults)
