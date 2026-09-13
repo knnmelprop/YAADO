@@ -95,7 +95,6 @@ def test_resolve_booster_params_launch_angle_override(vehicle: BaseVehicleConfig
         vehicle, operating_state={"launch_angle_deg": 45.0}
     )
     assert params.launch_angle_deg == pytest.approx(45.0)
-    assert params.launch_angle_rad == pytest.approx(math.radians(45.0))
 
 
 def test_resolve_booster_params_drag_overrides(vehicle: BaseVehicleConfig) -> None:
@@ -396,7 +395,6 @@ def test_run_boost_study_with_flight_logger(
     results = run_boost_study(vehicle, logger=logger)
     assert isinstance(results, AnalysisResults)
     assert results["burnout_time"] > 0.0
-    assert "recommended_launch_angle_deg" in results.metadata
     assert (run_dir / "execution.log").is_file()
     assert (run_dir / "results.json").is_file()
     assert (run_dir / "summary.csv").is_file()
@@ -449,12 +447,12 @@ def test_point_mass_3dof_full_flight_simulation(
     assert results.metadata["integration_stopped_reason"] == "ground_impact"
 
 
-def test_point_mass_3dof_full_flight_via_operating_state(
+def test_point_mass_3dof_full_flight_via_setup_override(
     vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
 ) -> None:
-    """Operating state keys (stop_at_burnout=False or full_flight=True) activate full flight."""
+    """Explicit stop_at_burnout=False on setup() activates full flight."""
     analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
-    analysis.setup(vehicle, operating_state={"stop_at_burnout": False})
+    analysis.setup(vehicle, stop_at_burnout=False)
     results = analysis.execute()
     assert results["flight_time"] > results["burnout_time"]
     assert results["apogee_altitude"] > results["burnout_altitude"]
@@ -554,6 +552,119 @@ def test_resolve_booster_params_preserves_ground_altitude(
         vehicle, ground_altitude_m=500.0
     )
     assert params_arg.ground_altitude_m == 500.0
+
+
+def test_booster_params_derived_properties_and_initial_altitude(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """BoosterParams computes burnout_mass_kg and mdot_kg_s dynamically, and carries initial_altitude_m."""
+    params = resolve_booster_params_from_vehicle(
+        vehicle, operating_state={"altitude_m": 1200.0}
+    )
+    assert params.initial_altitude_m == pytest.approx(1200.0)
+    assert params.burnout_mass_kg == pytest.approx(params.launch_mass_kg - params.propellant_mass_kg)
+    assert params.mdot_kg_s == pytest.approx(params.propellant_mass_kg / params.burn_time_s)
+    # Ensure launch_angle_rad is not a field
+    assert not hasattr(params, "launch_angle_rad")
+
+
+def test_sweep_results_standardized_q_max(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """run_launch_angle_sweep uses standardized q_max and does not emit max_q."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        run_launch_angle_sweep,
+    )
+
+    sweep = run_launch_angle_sweep(vehicle, angles_deg=[80.0, 85.0])
+    for entry in sweep:
+        assert "q_max" in entry
+        assert "max_q" not in entry
+        assert entry["q_max"] > 0.0
+
+
+def test_validate_results_supports_below_sea_level(
+    vehicle: BaseVehicleConfig, disabled_logger: FlightLogger
+) -> None:
+    """validate_results accepts flight where ground altitude is below sea level."""
+    analysis = PointMass3DOFBoostAnalysis(logger=disabled_logger)
+    analysis.setup(
+        vehicle,
+        operating_state={
+            "altitude_m": -350.0,
+            "ground_altitude_m": -400.0,
+            "launch_angle_deg": 85.0,
+        },
+    )
+    results = analysis.execute()
+    assert results["burnout_altitude"] > -400.0
+    assert analysis.validate_results(results) is True
+
+
+def test_plots_clip_y_axis_to_zero_and_ground() -> None:
+    """Plotting functions clip velocity, mach, and q to 0.0, and altitude to ground."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        plot_boost_phase,
+        plot_full_flight,
+        plot_launch_angle_sweep,
+    )
+    import matplotlib.pyplot as plt
+
+    samples = {
+        "t_s": [0.0, 2.0, 4.0],
+        "x_m": [0.0, 100.0, 300.0],
+        "h_m": [100.0, 200.0, 400.0],
+        "v_ms": [0.0, 150.0, 300.0],
+        "mach": [0.0, 0.45, 0.9],
+        "q_pa": [0.0, 12000.0, 35000.0],
+        "ground_altitude_m": 50.0,
+        "burn_time_s": 4.0,
+    }
+
+    fig_boost = plot_boost_phase(samples)
+    assert fig_boost.axes[0].get_ylim()[0] == pytest.approx(0.0)  # speed
+    assert fig_boost.axes[1].get_ylim()[0] == pytest.approx(50.0)  # altitude bottom at ground
+    assert fig_boost.axes[2].get_ylim()[0] == pytest.approx(0.0)  # mach
+    assert fig_boost.axes[3].get_ylim()[0] == pytest.approx(0.0)  # dynamic pressure
+    plt.close(fig_boost)
+
+    fig_full = plot_full_flight(samples)
+    assert fig_full.axes[0].get_ylim()[0] == pytest.approx(0.0)
+    assert fig_full.axes[1].get_ylim()[0] == pytest.approx(50.0)
+    assert fig_full.axes[2].get_ylim()[0] == pytest.approx(0.0)
+    assert fig_full.axes[3].get_ylim()[0] == pytest.approx(0.0)
+    plt.close(fig_full)
+
+    sweep_results = [
+        {"launch_angle_deg": 10.0, "burnout_mach": 1.2, "burnout_altitude": 200.0, "q_max": 20000.0},
+        {"launch_angle_deg": 20.0, "burnout_mach": 1.3, "burnout_altitude": 400.0, "q_max": 22000.0},
+    ]
+    fig_sweep = plot_launch_angle_sweep(sweep_results, ground_altitude_m=0.0)
+    assert len(fig_sweep.axes) == 2
+    assert fig_sweep.axes[1].get_ylim()[0] == pytest.approx(0.0)  # burnout altitude
+    plt.close(fig_sweep)
+
+    sweep_results_full = [
+        {
+            "launch_angle_deg": 10.0,
+            "burnout_mach": 1.2,
+            "burnout_altitude": 200.0,
+            "apogee_altitude": 5000.0,
+            "q_max": 20000.0,
+        },
+        {
+            "launch_angle_deg": 20.0,
+            "burnout_mach": 1.3,
+            "burnout_altitude": 400.0,
+            "apogee_altitude": 8000.0,
+            "q_max": 22000.0,
+        },
+    ]
+    fig_sweep_full = plot_launch_angle_sweep(sweep_results_full, ground_altitude_m=0.0)
+    assert len(fig_sweep_full.axes) == 3
+    assert fig_sweep_full.axes[1].get_ylim()[0] == pytest.approx(0.0)  # burnout altitude
+    assert fig_sweep_full.axes[2].get_ylim()[0] == pytest.approx(0.0)  # apogee altitude
+    plt.close(fig_sweep_full)
 
 
 
