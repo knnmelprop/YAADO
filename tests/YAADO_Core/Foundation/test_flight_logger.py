@@ -18,29 +18,13 @@ from YAADO_Core.Foundation.flight_logger import (
 
 
 @pytest.fixture
-def clean_test_flight_logger(tmp_path, monkeypatch):
+def clean_test_flight_logger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Fixture providing a FlightLogger rooted in a temporary directory."""
-    monkeypatch.setattr(
-        "YAADO_Core.Foundation.flight_logger.Path",
-        lambda *args: (
-            tmp_path / args[1] / args[2]
-            if len(args) == 3 and args[0] == "FlightLogs"
-            else Path(*args)
-        ),
-    )
-    # Alternatively, create a logger and point output_dir to tmp_path
+    monkeypatch.chdir(tmp_path)
     loggers_to_close: list[FlightLogger] = []
 
     def _factory(vehicle_name="test_rocket", analysis_name="test_aero", **kwargs):
         logger = FlightLogger(vehicle_name=vehicle_name, analysis_name=analysis_name, **kwargs)
-        # Override output_dir paths to use tmp_path
-        logger.output_dir = tmp_path / vehicle_name / logger.run_folder_name
-        logger.figures_dir = logger.output_dir / "figures"
-        logger.artifacts_dir = logger.output_dir / "artifacts"
-        logger.log_file_path = logger.output_dir / "execution.log"
-        if logger.enabled:
-            logger._setup_directories()
-            logger._setup_logging()
         loggers_to_close.append(logger)
         return logger
 
