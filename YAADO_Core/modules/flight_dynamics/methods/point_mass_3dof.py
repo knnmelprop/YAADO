@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -87,6 +86,9 @@ class BoosterParams:
     mach_transonic_lo: float = 0.8
     mach_supersonic_lo: float = 1.5
     isp_alt_ref_m: float = 30000.0
+    stop_at_burnout: bool = True
+    t_max_s: float = 300.0
+    ground_altitude_m: float = 0.0
 
     @property
     def thrust_sl_N(self) -> float:
@@ -252,6 +254,9 @@ def resolve_booster_params_from_vehicle(
     motor_name: str | None = None,
     body_name: str | None = None,
     fins_name: str | None = None,
+    stop_at_burnout: bool | None = None,
+    t_max_s: float | None = None,
+    ground_altitude_m: float | None = None,
 ) -> BoosterParams:
     """Resolve stage-1 booster parameters from a validated vehicle config.
 
@@ -271,13 +276,19 @@ def resolve_booster_params_from_vehicle(
             above horizontal [deg], defaults to
             :attr:`PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG`),
             component names (``motor_name``, ``body_name``, ``fins_name``, ``aero_name``),
-            and drag/Isp calibration overrides.
+            drag/Isp calibration overrides, and flight termination controls
+            (``stop_at_burnout``, ``end_at_burnout``, ``full_flight``, ``full_test``,
+            ``t_max_s``, ``ground_altitude_m``).
         motor_name: Optional explicit name of the solid motor in ``vehicle.propulsion``
             (overrides ``operating_state.get("motor_name")`` if both given).
         body_name: Optional explicit name of the body in ``vehicle.bodies``
             (overrides ``operating_state.get("body_name")`` if both given).
         fins_name: Optional explicit name of the fin set in ``vehicle.aero_surfaces``
             (overrides ``operating_state.get("fins_name")`` if both given).
+        stop_at_burnout: If True, trajectory ends at motor depletion. If False,
+            simulation runs full test through unpowered coast to impact/apogee.
+        t_max_s: Maximum flight duration [s] for full flight simulation.
+        ground_altitude_m: Ground/impact plane altitude [m]. Defaults to 0.0.
 
     Returns:
         Resolved :class:`BoosterParams` with the impulse-consistent thrust
@@ -297,6 +308,36 @@ def resolve_booster_params_from_vehicle(
         or operating_state.get("fins_name")
         or operating_state.get("aero_name")
     )
+
+    if stop_at_burnout is None:
+        if "stop_at_burnout" in operating_state:
+            stop_at_burnout = bool(operating_state["stop_at_burnout"])
+        elif "end_at_burnout" in operating_state:
+            stop_at_burnout = bool(operating_state["end_at_burnout"])
+        elif operating_state.get("full_flight") is True or operating_state.get("full_test") is True:
+            stop_at_burnout = False
+        else:
+            stop_at_burnout = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT
+    else:
+        stop_at_burnout = bool(stop_at_burnout)
+
+    if t_max_s is None:
+        t_max_s = float(
+            operating_state.get(
+                "t_max_s",
+                operating_state.get(
+                    "max_flight_time_s",
+                    PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S,
+                ),
+            )
+        )
+    else:
+        t_max_s = float(t_max_s)
+
+    if ground_altitude_m is None:
+        ground_altitude_m = float(operating_state.get("ground_altitude_m", 0.0))
+    else:
+        ground_altitude_m = float(ground_altitude_m)
 
     launch_angle_deg = float(
         operating_state.get(
@@ -391,51 +432,8 @@ def resolve_booster_params_from_vehicle(
         mach_transonic_lo=mach_transonic_lo,
         mach_supersonic_lo=mach_supersonic_lo,
         isp_alt_ref_m=isp_alt_ref_m,
-    )
-
-
-def load_booster_params(
-    config_path: Path | str,
-    launch_angle_deg: float | None = None,
-    *,
-    motor_name: str | None = None,
-    body_name: str | None = None,
-    fins_name: str | None = None,
-) -> BoosterParams:
-    """Load stage-1 booster parameters from the rocket vehicle config file.
-
-    Thin file-loading wrapper around :func:`resolve_booster_params_from_vehicle`
-    for standalone script/CLI use (:func:`main`, :func:`run_launch_angle_sweep`).
-    Analyses embedded in an MDO workflow should call
-    :meth:`PointMass3DOFBoostAnalysis.setup` with an already-validated
-    ``vehicle`` object instead of reading from disk.
-
-    Args:
-        config_path: Path to vehicle config file.
-        launch_angle_deg: Fixed thrust/body angle above horizontal [deg].
-            Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG` (83.0 deg);
-            overridden by :func:`run_launch_angle_sweep` to explore shallower angles.
-        motor_name: Optional explicit name of the solid motor in ``vehicle.propulsion``.
-        body_name: Optional explicit name of the body in ``vehicle.bodies``.
-        fins_name: Optional explicit name of the fin set in ``vehicle.aero_surfaces``.
-
-    Returns:
-        Resolved :class:`BoosterParams` with the impulse-consistent thrust
-        caveat already computed (see :attr:`BoosterParams.thrust_sl_N`).
-
-    Raises:
-        ValueError: If the loaded config is missing required components
-            (see :func:`resolve_booster_params_from_vehicle`).
-    """
-    if launch_angle_deg is None:
-        launch_angle_deg = PointMass3DOFBoostAnalysis.DEFAULT_LAUNCH_ANGLE_DEG
-    vehicle = BaseVehicleConfig.from_toml(Path(config_path))
-    return resolve_booster_params_from_vehicle(
-        vehicle,
-        operating_state={"launch_angle_deg": launch_angle_deg},
-        motor_name=motor_name,
-        body_name=body_name,
-        fins_name=fins_name,
+        stop_at_burnout=stop_at_burnout,
+        t_max_s=t_max_s,
     )
 
 
@@ -558,18 +556,23 @@ def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list
 
 
 def _ground_impact_event(t_s: float, state: np.ndarray, params: BoosterParams) -> float:
-    """Zero-crossing event: altitude reaching 0 m (terminal, decreasing)."""
-    return state[1]
+    """Zero-crossing event: altitude reaching ground level (terminal, decreasing)."""
+    if t_s < 0.05:
+        return 1.0
+    return state[1] - params.ground_altitude_m
 
 
 def integrate_boost_phase(
     params: BoosterParams,
     h0_m: float | None = None,
+    *,
+    stop_at_burnout: bool | None = None,
+    t_max_s: float | None = None,
 ) -> OdeResult:
-    """Integrate the boost-phase trajectory from ignition to burnout/impact.
+    """Integrate the boost or full trajectory from ignition to burnout/impact.
 
     Args:
-        params: Booster parameters from :func:`load_booster_params` or
+        params: Booster parameters resolved by
             :func:`resolve_booster_params_from_vehicle`.
         h0_m: Initial altitude [m] at ignition. Defaults to
             :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`; this is a
@@ -577,18 +580,31 @@ def integrate_boost_phase(
             :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`,
             so callers building it from ``operating_state`` (e.g.
             ``operating_state["altitude_m"]``) should pass it explicitly.
+        stop_at_burnout: If True, integration terminates at nominal booster
+            burnout or ground impact (whichever occurs first). If False,
+            simulation continues past booster depletion through unpowered
+            coast until apogee and ground impact (or ``t_max_s``). Defaults
+            to ``params.stop_at_burnout``.
+        t_max_s: Maximum simulation time [s] when ``stop_at_burnout=False``.
+            Defaults to ``params.t_max_s``.
 
     Returns:
         The ``scipy.integrate.solve_ivp`` result, with dense output enabled.
     """
     if h0_m is None:
         h0_m = PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M
+    if stop_at_burnout is None:
+        stop_at_burnout = params.stop_at_burnout
+    if t_max_s is None:
+        t_max_s = params.t_max_s
 
     # solve_ivp appends `args` to every callable passed via `events` as
     # well as `fun`, so `_ground_impact_event` must accept `params` as a
     # positional arg directly (a closure lambda would double up args).
     _ground_impact_event.terminal = True
     _ground_impact_event.direction = -1.0
+
+    t_end = params.burn_time_s if stop_at_burnout else max(params.burn_time_s, t_max_s)
 
     y0 = [
         PointMass3DOFBoostAnalysis.DEFAULT_X0_M,
@@ -598,7 +614,7 @@ def integrate_boost_phase(
     ]
     sol = solve_ivp(
         fun=boost_dynamics,
-        t_span=(0.0, params.burn_time_s),
+        t_span=(0.0, t_end),
         y0=y0,
         method="RK45",
         args=(params,),
@@ -612,12 +628,53 @@ def integrate_boost_phase(
     return sol
 
 
+def _evaluate_samples(
+    sol: OdeResult,
+    t_eval: np.ndarray,
+    burn_time_s: float,
+) -> dict[str, Any]:
+    """Sample the ODE solution densely and compute aerodynamic flow state.
+
+    Args:
+        sol: OdeResult object from scipy.integrate.solve_ivp with dense_output=True.
+        t_eval: Monotonically increasing time evaluation points [s].
+        burn_time_s: Motor burn time [s].
+
+    Returns:
+        Dictionary with keys: ``t_s``, ``x_m``, ``h_m``, ``v_ms``, ``mach``,
+        ``q_pa``, ``q_max_idx``, ``apogee_idx``, ``burn_time_s``.
+    """
+    y_eval = sol.sol(t_eval)
+    x_eval, h_eval, vx_eval, vh_eval = y_eval
+    speed_eval = np.hypot(vx_eval, vh_eval)
+    mach_eval = np.empty_like(t_eval)
+    q_eval = np.empty_like(t_eval)
+    for i in range(len(t_eval)):
+        _, mach_eval[i], q_eval[i], _ = flow_state((vx_eval[i], vh_eval[i]), h_eval[i])
+
+    q_max_idx = int(np.argmax(q_eval)) if len(q_eval) > 0 else 0
+    apogee_idx = int(np.argmax(h_eval)) if len(h_eval) > 0 else 0
+    return {
+        "t_s": t_eval,
+        "x_m": x_eval,
+        "h_m": h_eval,
+        "v_ms": speed_eval,
+        "mach": mach_eval,
+        "q_pa": q_eval,
+        "q_max_idx": q_max_idx,
+        "apogee_idx": apogee_idx,
+        "burn_time_s": burn_time_s,
+    }
+
+
 def postprocess(
     sol: OdeResult,
     params: BoosterParams,
     h0_m: float | None = None,
+    *,
+    stop_at_burnout: bool | None = None,
 ) -> dict[str, Any]:
-    """Derive burnout state, q_max, and dense sample arrays from the solution.
+    """Derive burnout state, full-flight metrics, and dense sample arrays from solution.
 
     Args:
         sol: Result from :func:`integrate_boost_phase` (dense output).
@@ -625,55 +682,98 @@ def postprocess(
         h0_m: Initial altitude [m] used for the integration (see
             :func:`integrate_boost_phase`), reported back in the metadata.
             Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M`.
+        stop_at_burnout: Whether the integration was configured to stop at burnout.
+            Defaults to ``params.stop_at_burnout``.
 
     Returns:
-        Dict with scalar results, a ``metadata`` sub-dict, and a
-        ``_samples`` sub-dict of dense arrays for plotting (not written to
-        the JSON report as-is; see :func:`main`).
+        Dict with scalar results, a ``metadata`` sub-dict, a ``_samples``
+        sub-dict of dense arrays across the full simulated trajectory, and
+        a ``_boost_samples`` sub-dict strictly for the boost phase.
     """
     if h0_m is None:
         h0_m = PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M
+    if stop_at_burnout is None:
+        stop_at_burnout = params.stop_at_burnout
 
     t_end_s = float(sol.t[-1])
     ground_impact = bool(len(sol.t_events[0]) > 0)
+    ground_impact_before_burnout = ground_impact and (t_end_s < params.burn_time_s - 1e-6)
 
-    t_fine = np.linspace(0.0, t_end_s, PointMass3DOFBoostAnalysis.N_DENSE_SAMPLES)
-    y_fine = sol.sol(t_fine)
-    x_fine, h_fine, vx_fine, vh_fine = y_fine
+    t_burnout_nominal = min(t_end_s, params.burn_time_s)
 
-    speed_fine = np.hypot(vx_fine, vh_fine)
-    mach_fine = np.empty_like(t_fine)
-    q_fine = np.empty_like(t_fine)
-    for i in range(len(t_fine)):
-        _, mach_fine[i], q_fine[i], _ = flow_state((vx_fine[i], vh_fine[i]), h_fine[i])
+    # Dense samples specifically for the boost phase (0 to t_burnout_nominal)
+    t_boost = np.linspace(0.0, t_burnout_nominal, PointMass3DOFBoostAnalysis.N_DENSE_SAMPLES)
+    boost_samples = _evaluate_samples(sol, t_boost, params.burn_time_s)
 
-    q_max_idx = int(np.argmax(q_fine))
-    q_max_pa = float(q_fine[q_max_idx])
+    # Dense samples for full flight (0 to t_end_s)
+    if not stop_at_burnout and (t_end_s > t_burnout_nominal + 1e-3):
+        t_fine = np.linspace(0.0, t_end_s, PointMass3DOFBoostAnalysis.N_DENSE_SAMPLES)
+        full_samples = _evaluate_samples(sol, t_fine, params.burn_time_s)
+    else:
+        full_samples = dict(boost_samples)
 
-    x_end, h_end, vx_end, vh_end = (
-        float(x_fine[-1]),
-        float(h_fine[-1]),
-        float(vx_fine[-1]),
-        float(vh_fine[-1]),
-    )
-    v_end = float(speed_fine[-1])
-    mach_end = float(mach_fine[-1])
+    q_max_idx = full_samples["q_max_idx"]
+    q_max_pa = float(full_samples["q_pa"][q_max_idx])
+
+    # State at motor burnout (t = t_burnout_nominal)
+    y_bo = sol.sol(t_burnout_nominal)
+    x_bo, h_bo, vx_bo, vh_bo = [float(v) for v in y_bo]
+    v_bo = math.hypot(vx_bo, vh_bo)
+    _, mach_bo, _, _ = flow_state((vx_bo, vh_bo), h_bo)
+
+    # Full trajectory / coast metrics
+    apogee_idx = full_samples["apogee_idx"]
+    apogee_altitude = float(full_samples["h_m"][apogee_idx])
+    apogee_time = float(full_samples["t_s"][apogee_idx])
+    apogee_range = float(full_samples["x_m"][apogee_idx])
+
+    final_x = float(full_samples["x_m"][-1])
+    final_h = float(full_samples["h_m"][-1])
+    final_v = float(full_samples["v_ms"][-1])
+    final_mach = float(full_samples["mach"][-1])
+
+    if ground_impact_before_burnout:
+        stopped_reason = "ground_impact" if stop_at_burnout else "ground_impact_before_burnout"
+    elif ground_impact:
+        stopped_reason = "ground_impact"
+    elif stop_at_burnout or abs(t_end_s - params.burn_time_s) < 1e-6:
+        stopped_reason = "burnout"
+    else:
+        stopped_reason = "max_time"
 
     thrust_used_N = params.thrust_sl_N
 
     result: dict[str, Any] = {
-        "burnout_time": t_end_s,
-        "burnout_velocity": v_end,
-        "burnout_mach": mach_end,
-        "burnout_altitude": h_end,
+        "burnout_time": t_burnout_nominal,
+        "burnout_velocity": v_bo,
+        "burnout_mach": mach_bo,
+        "burnout_altitude": h_bo,
         "q_max": q_max_pa,
-        "range_at_burnout": x_end,
+        "range_at_burnout": x_bo,
+        "apogee_altitude": apogee_altitude,
+        "apogee_time": apogee_time,
+        "apogee_range": apogee_range,
+        "flight_time": t_end_s,
+        "flight_range": final_x,
+        "impact_velocity": final_v if ground_impact else None,
         "metadata": {
-            "burnout_vx": vx_end,
-            "burnout_vh": vh_end,
+            "burnout_vx": vx_bo,
+            "burnout_vh": vh_bo,
             "nominal_burn_time": params.burn_time_s,
-            "integration_stopped_reason": "ground_impact" if ground_impact else "burnout",
-            "ground_impact_before_burnout": ground_impact,
+            "integration_stopped_reason": stopped_reason,
+            "ground_impact_before_burnout": ground_impact_before_burnout,
+            "ground_impact": ground_impact,
+            "stop_at_burnout": stop_at_burnout,
+            "apogee_altitude": apogee_altitude,
+            "apogee_time": apogee_time,
+            "apogee_range": apogee_range,
+            "flight_time": t_end_s,
+            "flight_range": final_x,
+            "final_altitude": final_h,
+            "final_velocity": final_v,
+            "final_mach": final_mach,
+            "impact_velocity": final_v if ground_impact else None,
+            "impact_mach": final_mach if ground_impact else None,
             "model_limitations": (
                 "Point-mass 3-DOF with fixed launch angle (no pitch program). "
                 "Zero-lift gravity-turn approximation: thrust along body axis "
@@ -716,19 +816,12 @@ def postprocess(
             ),
             "integrator": (
                 f"scipy.integrate.solve_ivp, RK45, rtol={PointMass3DOFBoostAnalysis.RTOL}, atol={PointMass3DOFBoostAnalysis.ATOL}, "
-                "dense_output=True, terminal ground-impact event (h=0, "
+                "dense_output=True, terminal ground-impact event (h=ground_altitude_m, "
                 "decreasing)"
             ),
         },
-        "_samples": {
-            "t_s": t_fine,
-            "x_m": x_fine,
-            "h_m": h_fine,
-            "v_ms": speed_fine,
-            "mach": mach_fine,
-            "q_pa": q_fine,
-            "q_max_idx": q_max_idx,
-        },
+        "_samples": full_samples,
+        "_boost_samples": boost_samples,
     }
     return result
 
@@ -772,10 +865,15 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
     VELOCITY_EPS_MS: float = 1e-6
     DEFAULT_SWEEP_ANGLES_DEG: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
 
+    DEFAULT_STOP_AT_BURNOUT: bool = True
+    DEFAULT_T_MAX_S: float = 300.0
+
     def __init__(
         self,
         logger: FlightLogger,
         name: str = "point_mass_3dof_boost",
+        *,
+        stop_at_burnout: bool = True,
     ) -> None:
         super().__init__(name)
         if not isinstance(logger, FlightLogger):
@@ -784,6 +882,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 f"got {type(logger).__name__}"
             )
         self.logger = logger
+        self._stop_at_burnout: bool = stop_at_burnout
         self._params: BoosterParams | None = None
         self._h0_m: float = self.DEFAULT_ALTITUDE_M
 
@@ -793,6 +892,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         operating_state: dict[str, Any] | None = None,
         *,
         logger: FlightLogger | None = None,
+        stop_at_burnout: bool | None = None,
     ) -> None:
         """Bind the analysis to a vehicle config and operating conditions.
 
@@ -811,12 +911,15 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
             operating_state: Optional operating conditions in SI units.
                 Recognized keys: ``launch_angle_deg`` (defaults to
                 :attr:`DEFAULT_LAUNCH_ANGLE_DEG`), ``altitude_m`` (defaults
-                to :attr:`DEFAULT_ALTITUDE_M`), and drag/Isp overrides
-                (``cd_body_subsonic``, ``cd_body_transonic``, ``cd_body_supersonic``,
-                ``mach_transonic_lo``, ``mach_supersonic_lo``, ``cd_wave_per_fin``,
-                ``isp_alt_ref_m``). ``None`` falls back to all defaults.
+                to :attr:`DEFAULT_ALTITUDE_M`), drag/Isp overrides, and
+                simulation termination controls (``stop_at_burnout``,
+                ``end_at_burnout``, ``full_flight``, ``full_test``, ``t_max_s``).
             logger: Optional FlightLogger override. If provided, updates
                 ``self.logger``.
+            stop_at_burnout: Optional explicit override for whether the simulation
+                terminates at booster depletion (True) or continues through
+                unpowered coast to ground impact/apogee (False). Overrides
+                any setting in ``operating_state``.
 
         Raises:
             ValueError: If ``vehicle`` is missing a required component
@@ -839,15 +942,27 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 )
             self.logger = op_logger
 
-        self._params = resolve_booster_params_from_vehicle(vehicle, operating_state)
+        if stop_at_burnout is not None:
+            self._stop_at_burnout = bool(stop_at_burnout)
+        elif "stop_at_burnout" in operating_state:
+            self._stop_at_burnout = bool(operating_state["stop_at_burnout"])
+        elif "end_at_burnout" in operating_state:
+            self._stop_at_burnout = bool(operating_state["end_at_burnout"])
+        elif operating_state.get("full_flight") is True or operating_state.get("full_test") is True:
+            self._stop_at_burnout = False
+
+        self._params = resolve_booster_params_from_vehicle(
+            vehicle, operating_state, stop_at_burnout=self._stop_at_burnout
+        )
         self._h0_m = float(operating_state.get("altitude_m", self.DEFAULT_ALTITUDE_M))
         self._is_setup = True
 
         self.logger.info(
-            "Configured PointMass3DOFBoostAnalysis for vehicle '%s' (launch_angle=%.1f deg, h0=%.1f m)",
+            "Configured PointMass3DOFBoostAnalysis for vehicle '%s' (launch_angle=%.1f deg, h0=%.1f m, stop_at_burnout=%s)",
             vehicle.name,
             self._params.launch_angle_deg,
             self._h0_m,
+            self._stop_at_burnout,
         )
         self.logger.debug(
             "Booster parameters: m_launch=%.1f kg, m_prop=%.1f kg, m_burnout=%.1f kg, t_burn=%.1f s, Isp_sl=%.1f s",
@@ -859,16 +974,17 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         )
 
     def execute(self) -> AnalysisResults:
-        """Integrate the boost-phase trajectory and return results.
+        """Integrate the trajectory and return results.
 
         Returns:
             AnalysisResults with ``burnout_time``, ``burnout_velocity``,
             ``burnout_mach``, ``burnout_altitude``, ``q_max`` and
-            ``range_at_burnout`` in SI units. ``units`` maps each key
-            to its SI unit string. ``metadata`` carries the full
-            postprocessing breakdown (model documentation, resolved
-            booster parameters, and dense trajectory samples under
-            ``_samples``).
+            ``range_at_burnout`` in SI units. If ``stop_at_burnout=False``,
+            additionally includes ``apogee_altitude``, ``apogee_time``,
+            ``flight_time``, ``flight_range``, and ``impact_velocity``.
+            ``units`` maps each key to its SI unit string. ``metadata``
+            carries the full postprocessing breakdown (model documentation,
+            resolved booster parameters, and dense trajectory samples).
 
         Raises:
             RuntimeError: If called before :meth:`setup`, or if results
@@ -879,9 +995,16 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 "PointMass3DOFBoostAnalysis.execute() called before setup()"
             )
 
-        self.logger.info("Starting boost trajectory integration (ODE solve_ivp RK45)...")
-        sol = integrate_boost_phase(self._params, h0_m=self._h0_m)
-        result = postprocess(sol, self._params, h0_m=self._h0_m)
+        self.logger.info(
+            "Starting boost trajectory integration (ODE solve_ivp RK45, stop_at_burnout=%s)...",
+            self._stop_at_burnout,
+        )
+        sol = integrate_boost_phase(
+            self._params, h0_m=self._h0_m, stop_at_burnout=self._stop_at_burnout
+        )
+        result = postprocess(
+            sol, self._params, h0_m=self._h0_m, stop_at_burnout=self._stop_at_burnout
+        )
 
         data = {
             "burnout_time": result["burnout_time"],
@@ -899,12 +1022,31 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
             "q_max": "Pa",
             "range_at_burnout": "m",
         }
+        if not self._stop_at_burnout:
+            data["apogee_altitude"] = result["apogee_altitude"]
+            units["apogee_altitude"] = "m"
+            data["apogee_time"] = result["apogee_time"]
+            units["apogee_time"] = "s"
+            data["flight_time"] = result["flight_time"]
+            units["flight_time"] = "s"
+            data["flight_range"] = result["flight_range"]
+            units["flight_range"] = "m"
+            if result["impact_velocity"] is not None:
+                data["impact_velocity"] = result["impact_velocity"]
+                units["impact_velocity"] = "m/s"
+
         metadata = dict(result["metadata"])
         samples = result["_samples"]
         metadata["_samples"] = {
             key: value.tolist() if isinstance(value, np.ndarray) else value
             for key, value in samples.items()
         }
+        if "_boost_samples" in result:
+            boost_samples = result["_boost_samples"]
+            metadata["_boost_samples"] = {
+                key: value.tolist() if isinstance(value, np.ndarray) else value
+                for key, value in boost_samples.items()
+            }
 
         results = AnalysisResults(
             name=self.name,
@@ -935,17 +1077,28 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 result["q_max"],
             )
 
+        if not self._stop_at_burnout:
+            self.logger.info(
+                "Full flight finished at t=%.3f s (%s): apogee=%.1f m (at t=%.1f s), flight_range=%.1f m%s",
+                result["flight_time"],
+                result["metadata"]["integration_stopped_reason"],
+                result["apogee_altitude"],
+                result["apogee_time"],
+                result["flight_range"],
+                f", impact_velocity={result['impact_velocity']:.1f} m/s" if result["impact_velocity"] is not None else "",
+            )
+
         self.logger.save_results(results)
         return results
 
     def validate_results(self, results: AnalysisResults) -> bool:
-        """Sanity-check the burnout state against physical bounds.
+        """Sanity-check the trajectory state against physical bounds.
 
         Checks that ``burnout_time``, ``burnout_velocity`` and
         ``q_max`` are non-negative and finite, and that
-        ``burnout_altitude`` is not below ground level (the terminal
-        ground-impact event should have stopped the integration at or
-        above ``h = 0``).
+        ``burnout_altitude`` is not below ground level. For full flight
+        simulations (``stop_at_burnout=False``), also checks
+        ``apogee_altitude``, ``flight_time`` and ``flight_range``.
 
         Args:
             results: Results produced by :meth:`execute`.
@@ -961,34 +1114,63 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
                 return False
         if results["burnout_altitude"] < -1e-6:
             return False
+        if not self._stop_at_burnout:
+            for key in ("apogee_altitude", "flight_time", "flight_range"):
+                if key in results.data:
+                    val = results[key]
+                    if not math.isfinite(val) or val < 0.0:
+                        return False
         return True
 
 
 def plot_boost_phase(
-    samples: dict[str, Any], output_path: Path | str | None = None
+    samples: dict[str, Any],
+    *,
+    burn_time_s: float | None = None,
 ) -> Figure:
-    """Plot V(t), h(t), Mach(t), q(t) in a 2x2 grid and optionally save to PNG.
+    """Plot V(t), h(t), Mach(t), q(t) for the boost phase in a 2x2 grid.
+
+    Depicts the powered boost trajectory from ignition to motor burnout.
+    All figure saving is handled by :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger`.
 
     Args:
-        samples: The ``_samples`` sub-dict returned by :func:`postprocess`.
-        output_path: Optional destination PNG path. If None, figure is not saved.
+        samples: The ``_boost_samples`` or ``_samples`` sub-dict returned by :func:`postprocess`.
+            If samples extend beyond burnout, they are sliced to the boost phase.
+        burn_time_s: Optional motor burn time [s]. Used to slice samples if they extend beyond burnout.
 
     Returns:
         The matplotlib Figure instance.
     """
     import matplotlib.pyplot as plt
-    t_s = samples["t_s"]
+
+    t_s = np.asarray(samples["t_s"])
+    v_ms = np.asarray(samples["v_ms"])
+    h_m = np.asarray(samples["h_m"])
+    mach = np.asarray(samples["mach"])
+    q_pa = np.asarray(samples["q_pa"])
+
+    if burn_time_s is None:
+        burn_time_s = samples.get("burn_time_s")
+
+    if burn_time_s is not None and len(t_s) > 0 and t_s[-1] > burn_time_s + 1e-3:
+        mask = t_s <= (burn_time_s + 1e-6)
+        t_s = t_s[mask]
+        v_ms = v_ms[mask]
+        h_m = h_m[mask]
+        mach = mach[mask]
+        q_pa = q_pa[mask]
+
     fig, axes = plt.subplots(2, 2, figsize=(10, 7))
 
     ax = axes[0, 0]
-    ax.plot(t_s, samples["v_ms"], color="tab:blue")
+    ax.plot(t_s, v_ms, color="tab:blue")
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Velocity [m/s]")
     ax.set_title("Speed vs. time")
     ax.grid(True, alpha=0.3)
 
     ax = axes[0, 1]
-    ax.plot(t_s, samples["h_m"], color="tab:green")
+    ax.plot(t_s, h_m, color="tab:green")
     ax.axhline(0.0, color="k", linewidth=0.8, linestyle="--")
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Altitude [m]")
@@ -996,33 +1178,117 @@ def plot_boost_phase(
     ax.grid(True, alpha=0.3)
 
     ax = axes[1, 0]
-    ax.plot(t_s, samples["mach"], color="tab:red")
+    ax.plot(t_s, mach, color="tab:red")
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Mach number [-]")
     ax.set_title("Mach vs. time")
     ax.grid(True, alpha=0.3)
 
     ax = axes[1, 1]
-    ax.plot(t_s, samples["q_pa"], color="tab:purple")
-    q_max_idx = samples["q_max_idx"]
-    ax.scatter(
-        [t_s[q_max_idx]],
-        [samples["q_pa"][q_max_idx]],
-        color="k",
-        zorder=5,
-        label="q_max",
-    )
+    ax.plot(t_s, q_pa, color="tab:purple")
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Dynamic pressure [Pa]")
+    ax.set_title("Dynamic pressure vs. time")
+    ax.grid(True, alpha=0.3)
+
+    fig.suptitle("Stage-1 booster boost-phase trajectory (3-DOF point mass)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_full_flight(
+    samples: dict[str, Any],
+    *,
+    burn_time_s: float | None = None,
+) -> Figure:
+    """Plot full-flight V(t), h(t), Mach(t), q(t) with burnout and apogee markers in a 2x2 grid.
+
+    Depicts the entire trajectory including powered boost and unpowered coasting
+    to apogee and ground impact.
+    All figure saving is handled by :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger`.
+
+    Args:
+        samples: The full trajectory ``_samples`` sub-dict returned by :func:`postprocess`.
+        burn_time_s: Optional motor burn time [s]. If provided, vertical dotted lines
+            are drawn at burnout across all subplots.
+
+    Returns:
+        The matplotlib Figure instance.
+    """
+    import matplotlib.pyplot as plt
+
+    t_s = np.asarray(samples["t_s"])
+    v_ms = np.asarray(samples["v_ms"])
+    h_m = np.asarray(samples["h_m"])
+    mach = np.asarray(samples["mach"])
+    q_pa = np.asarray(samples["q_pa"])
+
+    if burn_time_s is None:
+        burn_time_s = samples.get("burn_time_s")
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7))
+
+    ax = axes[0, 0]
+    ax.plot(t_s, v_ms, color="tab:blue", label="Speed")
+    if burn_time_s is not None and len(t_s) > 0 and t_s[-1] >= burn_time_s - 1e-3:
+        ax.axvline(burn_time_s, color="gray", linestyle=":", linewidth=1.2, label="Burnout")
+        ax.legend()
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Velocity [m/s]")
+    ax.set_title("Speed vs. time")
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[0, 1]
+    ax.plot(t_s, h_m, color="tab:green", label="Altitude")
+    ax.axhline(0.0, color="k", linewidth=0.8, linestyle="--")
+    if burn_time_s is not None and len(t_s) > 0 and t_s[-1] >= burn_time_s - 1e-3:
+        ax.axvline(burn_time_s, color="gray", linestyle=":", linewidth=1.2, label="Burnout")
+    ap_idx = samples.get("apogee_idx", int(np.argmax(h_m)) if len(h_m) > 0 else 0)
+    if len(h_m) > 0 and 0 <= ap_idx < len(h_m):
+        ax.scatter(
+            [t_s[ap_idx]],
+            [h_m[ap_idx]],
+            color="tab:olive",
+            zorder=5,
+            label=f"Apogee ({h_m[ap_idx]:.0f} m)",
+        )
+    ax.legend()
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Altitude [m]")
+    ax.set_title("Altitude vs. time")
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[1, 0]
+    ax.plot(t_s, mach, color="tab:red", label="Mach")
+    if burn_time_s is not None and len(t_s) > 0 and t_s[-1] >= burn_time_s - 1e-3:
+        ax.axvline(burn_time_s, color="gray", linestyle=":", linewidth=1.2, label="Burnout")
+        ax.legend()
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Mach number [-]")
+    ax.set_title("Mach vs. time")
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[1, 1]
+    ax.plot(t_s, q_pa, color="tab:purple", label="Dynamic pressure")
+    q_max_idx = samples.get("q_max_idx", int(np.argmax(q_pa)) if len(q_pa) > 0 else 0)
+    if len(q_pa) > 0 and 0 <= q_max_idx < len(q_pa):
+        ax.scatter(
+            [t_s[q_max_idx]],
+            [q_pa[q_max_idx]],
+            color="k",
+            zorder=5,
+            label="q_max",
+        )
+    if burn_time_s is not None and len(t_s) > 0 and t_s[-1] >= burn_time_s - 1e-3:
+        ax.axvline(burn_time_s, color="gray", linestyle=":", linewidth=1.2, label="Burnout")
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Dynamic pressure [Pa]")
     ax.set_title("Dynamic pressure vs. time")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    fig.suptitle("Stage-1 booster boost-phase trajectory (3-DOF point mass)")
+    fig.suptitle("Full-flight trajectory simulation (3-DOF point mass)")
     fig.tight_layout()
-    if output_path is not None:
-        fig.savefig(output_path, dpi=150)
-        plt.close(fig)
     return fig
 
 
@@ -1030,12 +1296,13 @@ def run_launch_angle_sweep(
     vehicle_or_path: BaseVehicleConfig | Path | str,
     angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
     operating_state: dict[str, Any] | None = None,
+    *,
+    stop_at_burnout: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Sweep the fixed launch angle and report burnout/impact metrics per angle.
 
-    For each angle, the boost phase is re-integrated from ignition with
-    overridden ``launch_angle_deg``, then the resulting trajectory is
-    post-processed.
+    For each angle, the trajectory is integrated from ignition with
+    overridden ``launch_angle_deg``, then post-processed.
 
     Args:
         vehicle_or_path: Validated BaseVehicleConfig instance or Path/str to config file.
@@ -1044,44 +1311,69 @@ def run_launch_angle_sweep(
             (``5, 10, 15, 20, 25, 30``).
         operating_state: Optional operating conditions or component selectors
             (e.g., ``fins_name``, ``motor_name``, ``altitude_m``).
+        stop_at_burnout: Whether simulation terminates at booster depletion.
+            Defaults to True unless specified in ``operating_state``.
 
     Returns:
         A list of per-angle result dicts, one per swept angle, each with
         keys ``launch_angle_deg``, ``burnout_mach``, ``burnout_altitude``,
         ``burnout_range``, ``max_q``, and ``ground_impact_flag`` (bool,
         ``True`` if altitude reached ``<= 0 m`` before nominal burnout).
+        If ``stop_at_burnout=False``, also includes ``apogee_altitude``,
+        ``flight_time``, and ``flight_range``.
     """
     sweep_results: list[dict[str, Any]] = []
     base_op_state = dict(operating_state) if operating_state else {}
+    if stop_at_burnout is None:
+        if "stop_at_burnout" in base_op_state:
+            sweep_stop_at_burnout = bool(base_op_state["stop_at_burnout"])
+        elif "end_at_burnout" in base_op_state:
+            sweep_stop_at_burnout = bool(base_op_state["end_at_burnout"])
+        elif base_op_state.get("full_flight") is True or base_op_state.get("full_test") is True:
+            sweep_stop_at_burnout = False
+        else:
+            sweep_stop_at_burnout = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT
+    else:
+        sweep_stop_at_burnout = bool(stop_at_burnout)
+
+    if not isinstance(vehicle_or_path, BaseVehicleConfig):
+        vehicle = BaseVehicleConfig.from_toml(Path(vehicle_or_path))
+    else:
+        vehicle = vehicle_or_path
+
     h0_m = float(base_op_state.get("altitude_m", PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M))
     for angle_deg in angles_deg:
-        op_state = {**base_op_state, "launch_angle_deg": float(angle_deg)}
-        if isinstance(vehicle_or_path, BaseVehicleConfig):
-            params = resolve_booster_params_from_vehicle(
-                vehicle_or_path, operating_state=op_state
-            )
-        else:
-            params = load_booster_params(
-                config_path=Path(vehicle_or_path),
-                launch_angle_deg=float(angle_deg),
-                motor_name=op_state.get("motor_name"),
-                body_name=op_state.get("body_name"),
-                fins_name=op_state.get("fins_name") or op_state.get("aero_name"),
-            )
-        sol = integrate_boost_phase(params, h0_m=h0_m)
-        result = postprocess(sol, params, h0_m=h0_m)
-        sweep_results.append(
-            {
-                "launch_angle_deg": float(angle_deg),
-                "burnout_mach": result["burnout_mach"],
-                "burnout_altitude": result["burnout_altitude"],
-                "burnout_range": result["range_at_burnout"],
-                "max_q": result["q_max"],
-                "ground_impact_flag": bool(
-                    result["metadata"]["ground_impact_before_burnout"]
-                ),
-            }
+        op_state = {
+            **base_op_state,
+            "launch_angle_deg": float(angle_deg),
+            "stop_at_burnout": sweep_stop_at_burnout,
+        }
+        params = resolve_booster_params_from_vehicle(
+            vehicle,
+            operating_state=op_state,
+            stop_at_burnout=sweep_stop_at_burnout,
         )
+        sol = integrate_boost_phase(
+            params, h0_m=h0_m, stop_at_burnout=sweep_stop_at_burnout
+        )
+        result = postprocess(
+            sol, params, h0_m=h0_m, stop_at_burnout=sweep_stop_at_burnout
+        )
+        entry = {
+            "launch_angle_deg": float(angle_deg),
+            "burnout_mach": result["burnout_mach"],
+            "burnout_altitude": result["burnout_altitude"],
+            "burnout_range": result["range_at_burnout"],
+            "max_q": result["q_max"],
+            "ground_impact_flag": bool(
+                result["metadata"]["ground_impact_before_burnout"]
+            ),
+        }
+        if not sweep_stop_at_burnout:
+            entry["apogee_altitude"] = result["apogee_altitude"]
+            entry["flight_time"] = result["flight_time"]
+            entry["flight_range"] = result["flight_range"]
+        sweep_results.append(entry)
     return sweep_results
 
 
@@ -1102,45 +1394,35 @@ def recommended_launch_angle_deg(sweep_results: list[dict[str, Any]]) -> float |
     return min(viable_deg) if viable_deg else None
 
 
-def write_sweep_csv(
-    sweep_results: list[dict[str, Any]],
-    output_path_or_buffer: Path | str | io.TextIOBase,
-) -> None:
-    """Write the launch-angle sweep results to a CSV file or buffer.
+def format_sweep_csv(sweep_results: list[dict[str, Any]]) -> str:
+    """Format the launch-angle sweep results as a CSV string.
 
     Args:
         sweep_results: Output of :func:`run_launch_angle_sweep`.
-        output_path_or_buffer: Destination CSV path or file-like buffer.
+
+    Returns:
+        String containing CSV-formatted sweep data.
     """
-    fieldnames = [
-        "launch_angle_deg",
-        "burnout_mach",
-        "burnout_altitude",
-        "burnout_range",
-        "max_q",
-        "ground_impact_flag",
-    ]
-    if isinstance(output_path_or_buffer, (str, Path)):
-        with Path(output_path_or_buffer).open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for entry in sweep_results:
-                writer.writerow({key: entry[key] for key in fieldnames})
-    else:
-        writer = csv.DictWriter(output_path_or_buffer, fieldnames=fieldnames)
-        writer.writeheader()
-        for entry in sweep_results:
-            writer.writerow({key: entry[key] for key in fieldnames})
+    if not sweep_results:
+        return ""
+    fieldnames = list(sweep_results[0].keys())
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    for entry in sweep_results:
+        writer.writerow({key: entry.get(key, "") for key in fieldnames})
+    return buf.getvalue()
 
 
 def plot_launch_angle_sweep(
-    sweep_results: list[dict[str, Any]], output_path: Path | str | None = None
+    sweep_results: list[dict[str, Any]],
 ) -> Figure:
-    """Plot burnout Mach and burnout altitude vs. launch angle (2 subplots).
+    """Plot burnout Mach and burnout/apogee altitude vs. launch angle (2 subplots).
+
+    All figure saving is handled by :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger`.
 
     Args:
         sweep_results: Output of :func:`run_launch_angle_sweep`.
-        output_path: Optional destination PNG path. If None, figure is not saved.
 
     Returns:
         The matplotlib Figure instance.
@@ -1159,18 +1441,26 @@ def plot_launch_angle_sweep(
     ax_mach.set_title("Burnout Mach vs. launch angle")
     ax_mach.grid(True, alpha=0.3)
 
-    ax_alt.plot(angles_deg, alt_vals, marker="o", color="tab:green")
+    ax_alt.plot(angles_deg, alt_vals, marker="o", color="tab:green", label="Burnout altitude")
+    if sweep_results and "apogee_altitude" in sweep_results[0]:
+        apogee_vals = [entry["apogee_altitude"] for entry in sweep_results]
+        ax_alt.plot(
+            angles_deg,
+            apogee_vals,
+            marker="^",
+            color="tab:olive",
+            linestyle="--",
+            label="Apogee altitude",
+        )
+        ax_alt.legend()
     ax_alt.axhline(0.0, color="k", linewidth=0.8, linestyle="--")
     ax_alt.set_xlabel("Launch angle [deg]")
-    ax_alt.set_ylabel("Burnout altitude [m]")
-    ax_alt.set_title("Burnout altitude vs. launch angle")
+    ax_alt.set_ylabel("Altitude [m]")
+    ax_alt.set_title("Altitude vs. launch angle")
     ax_alt.grid(True, alpha=0.3)
 
     fig.suptitle("Stage-1 booster: launch-angle sensitivity sweep")
     fig.tight_layout()
-    if output_path is not None:
-        fig.savefig(output_path, dpi=150)
-        plt.close(fig)
     return fig
 
 
@@ -1180,12 +1470,13 @@ def run_boost_study(
     operating_state: dict[str, Any] | None = None,
     *,
     sweep_angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
+    stop_at_burnout: bool | None = None,
 ) -> AnalysisResults:
-    """Run a complete boost-phase study with sensitivity sweep and visual artifacts.
+    """Run a complete trajectory study with sensitivity sweep and visual artifacts.
 
-    Orchestrates the baseline 3-DOF boost-phase trajectory integration, generates
-    visual trajectory plots, runs a launch-angle sensitivity sweep, writes
-    the sweep CSV artifact, and serializes the results checkpoint via :class:`FlightLogger`.
+    Orchestrates the 3-DOF trajectory integration, generates visual trajectory
+    plots, runs a launch-angle sensitivity sweep, writes the sweep CSV artifact,
+    and serializes the results checkpoint via :class:`FlightLogger`.
 
     Args:
         vehicle: Validated :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
@@ -1193,9 +1484,14 @@ def run_boost_study(
         logger: Required :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger`
             instance for telemetry, visual figure saving, and checkpointing.
         operating_state: Optional dictionary of operating conditions in SI units
-            (e.g., ``launch_angle_deg``, ``altitude_m``, drag calibration overrides).
+            (e.g., ``launch_angle_deg``, ``altitude_m``, drag calibration overrides,
+            ``stop_at_burnout``, ``t_max_s``).
         sweep_angles_deg: Sequence of launch angles [deg] to sweep for ground-impact
             sensitivity. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG`.
+        stop_at_burnout: Optional boolean controlling whether the simulation ends
+            when the booster is depleted (True, default) or continues through
+            unpowered coast to ground impact/apogee (False). Overrides any
+            setting in ``operating_state``.
 
     Returns:
         The baseline :class:`~YAADO_Core.Foundation.analysis_base.AnalysisResults` with
@@ -1204,30 +1500,58 @@ def run_boost_study(
     if not isinstance(vehicle, BaseVehicleConfig):
         vehicle = BaseVehicleConfig.from_toml(vehicle)
 
+    op_state = dict(operating_state) if operating_state else {}
+    if stop_at_burnout is not None:
+        resolved_stop_at_burnout = bool(stop_at_burnout)
+    elif "stop_at_burnout" in op_state:
+        resolved_stop_at_burnout = bool(op_state["stop_at_burnout"])
+    elif "end_at_burnout" in op_state:
+        resolved_stop_at_burnout = bool(op_state["end_at_burnout"])
+    elif op_state.get("full_flight") is True or op_state.get("full_test") is True:
+        resolved_stop_at_burnout = False
+    else:
+        resolved_stop_at_burnout = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT
+
+    op_state["stop_at_burnout"] = resolved_stop_at_burnout
+
     # 1. Baseline analysis
-    analysis = PointMass3DOFBoostAnalysis(logger=logger)
-    analysis.setup(vehicle, operating_state)
+    analysis = PointMass3DOFBoostAnalysis(
+        logger=logger, stop_at_burnout=resolved_stop_at_burnout
+    )
+    analysis.setup(vehicle, op_state, stop_at_burnout=resolved_stop_at_burnout)
     results = analysis.execute()
 
-    # 2. Visual figure: boost trajectory
-    fig = plot_boost_phase(results.metadata["_samples"])
-    logger.save_figure(fig, "boost_phase.png")
+    # 2. Visual figure(s)
+    boost_samples = results.metadata.get("_boost_samples", results.metadata["_samples"])
+    fig_boost = plot_boost_phase(
+        boost_samples,
+        burn_time_s=results.metadata.get("nominal_burn_time"),
+    )
+    logger.save_figure(fig_boost, "boost_phase.png")
+    if not resolved_stop_at_burnout:
+        fig_full = plot_full_flight(
+            results.metadata["_samples"],
+            burn_time_s=results.metadata.get("nominal_burn_time"),
+        )
+        logger.save_figure(fig_full, "full_flight.png")
 
     # 3. Parameter sweep: launch angle sensitivity
     logger.info(
-        "Running launch-angle sensitivity sweep over %s deg...",
+        "Running launch-angle sensitivity sweep over %s deg (stop_at_burnout=%s)...",
         list(sweep_angles_deg),
+        resolved_stop_at_burnout,
     )
     sweep_results = run_launch_angle_sweep(
-        vehicle, angles_deg=sweep_angles_deg, operating_state=operating_state
+        vehicle,
+        angles_deg=sweep_angles_deg,
+        operating_state=op_state,
+        stop_at_burnout=resolved_stop_at_burnout,
     )
     sweep_fig = plot_launch_angle_sweep(sweep_results)
     logger.save_figure(sweep_fig, "launch_angle_sweep.png")
 
     # 4. Auxiliary artifact: sweep CSV
-    csv_buf = io.StringIO()
-    write_sweep_csv(sweep_results, csv_buf)
-    logger.save_artifact("launch_angle_sweep.csv", csv_buf.getvalue())
+    logger.save_artifact("launch_angle_sweep.csv", format_sweep_csv(sweep_results))
 
     # 5. Determine recommended launch angle and update checkpoint
     rec_angle = recommended_launch_angle_deg(sweep_results)

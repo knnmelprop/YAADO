@@ -27,17 +27,17 @@ Limitations of the current model:
     approximation is reasonable through the boost phase. A higher-fidelity
     model would include angle-of-attack-dependent lift and a pitch autopilot.
 
-Note on planned expansion:
-    Currently, this solver terminates strictly at motor burnout, returning
-    burnout state and ``range_at_burnout`` (it does not simulate unpowered
-    coasting to apogee or ground impact). Planned updates will extend the ODE
-    past burnout with T = 0 to calculate full-flight metrics (apogee altitude
-    and total flight range).
+Simulation termination control:
+    By default, the solver terminates at booster motor burnout (``stop_at_burnout=True``),
+    reporting burnout state and ``range_at_burnout``. Setting ``stop_at_burnout=False``
+    (via ``operating_state={"stop_at_burnout": False}`` or kwarg) extends the ODE
+    past burnout with T = 0 through unpowered coasting to determine full-flight metrics:
+    ``apogee_altitude``, ``apogee_time``, total ``flight_time``, total ``flight_range``,
+    and ``impact_velocity``.
 
-Run as a script to integrate the trajectory, print the burnout state, and
-write ``burnout_state.json`` + ``boost_phase.png`` next to this file. It
-also runs a launch-angle sensitivity sweep (:func:`run_launch_angle_sweep`,
-angles 5-30 deg) and writes ``launch_angle_sweep.csv`` +
-``launch_angle_sweep.png``; the recommended angle (smallest swept angle
-that avoids ground impact) is added to the JSON as
-``recommended_launch_angle_deg``::
+Usage via YAADO module orchestration:
+    Invoke via :func:`run_boost_study` with a configured :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger`
+    instance. The function executes the trajectory integration, performs a launch-angle
+    sensitivity sweep, and persists structured checkpoints (``results.json``, ``summary.csv``),
+    visual trajectory plots (``boost_phase.png``, ``full_flight.png``, ``launch_angle_sweep.png``),
+    and sweep data artifacts (``launch_angle_sweep.csv``) directly inside the run logger directory.
