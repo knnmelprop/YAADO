@@ -324,21 +324,15 @@ def test_point_mass_3dof_requires_logger() -> None:
 
 
 def test_point_mass_3dof_executes_with_enabled_logger(
-    tmp_path: Path, vehicle: BaseVehicleConfig
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vehicle: BaseVehicleConfig
 ) -> None:
-    """Enabled FlightLogger produces execution.log, results.json, and summary.csv."""
+    """Enabled FlightLogger logs execution; saving results is explicit or via study."""
+    monkeypatch.chdir(tmp_path)
     logger = FlightLogger(
         vehicle_name="test_rocket",
         analysis_name="point_mass_3dof_boost",
         enabled=True,
     )
-    # Redirect output to tmp_path
-    logger.output_dir = tmp_path / "test_run"
-    logger.figures_dir = logger.output_dir / "figures"
-    logger.artifacts_dir = logger.output_dir / "artifacts"
-    logger.log_file_path = logger.output_dir / "execution.log"
-    logger._setup_directories()
-    logger._setup_logging()
 
     analysis = PointMass3DOFBoostAnalysis(logger=logger)
     analysis.setup(vehicle)
@@ -350,28 +344,30 @@ def test_point_mass_3dof_executes_with_enabled_logger(
     assert "Starting boost trajectory integration" in log_content
     assert "Burnout reached" in log_content
 
+    # execute() does not automatically save results to avoid redundant disk I/O in studies
     results_json = logger.output_dir / "results.json"
-    assert results_json.is_file()
-
     summary_csv = logger.output_dir / "summary.csv"
+    assert not results_json.exists()
+    assert not summary_csv.exists()
+
+    # Explicit save_results produces the checkpoint
+    logger.save_results(results)
+    assert results_json.is_file()
     assert summary_csv.is_file()
 
     logger.close()
 
 
 def test_point_mass_3dof_executes_with_disabled_logger(
-    tmp_path: Path, vehicle: BaseVehicleConfig
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vehicle: BaseVehicleConfig
 ) -> None:
     """Disabled FlightLogger performs zero disk I/O."""
+    monkeypatch.chdir(tmp_path)
     logger = FlightLogger(
         vehicle_name="test_rocket",
         analysis_name="point_mass_3dof_boost",
         enabled=False,
     )
-    logger.output_dir = tmp_path / "never_created"
-    logger.figures_dir = logger.output_dir / "figures"
-    logger.artifacts_dir = logger.output_dir / "artifacts"
-    logger.log_file_path = logger.output_dir / "execution.log"
 
     analysis = PointMass3DOFBoostAnalysis(logger=logger)
     analysis.setup(vehicle)
@@ -382,25 +378,20 @@ def test_point_mass_3dof_executes_with_disabled_logger(
 
 
 def test_run_boost_study_with_flight_logger(
-    tmp_path: Path, vehicle: BaseVehicleConfig
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vehicle: BaseVehicleConfig
 ) -> None:
     """run_boost_study runs end-to-end generating figures, artifacts, and checkpoints."""
     from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
         run_boost_study,
     )
 
+    monkeypatch.chdir(tmp_path)
     logger = FlightLogger(
         vehicle_name="test_rocket",
         analysis_name="point_mass_3dof_boost",
         enabled=True,
     )
-    run_dir = tmp_path / "study_run"
-    logger.output_dir = run_dir
-    logger.figures_dir = run_dir / "figures"
-    logger.artifacts_dir = run_dir / "artifacts"
-    logger.log_file_path = run_dir / "execution.log"
-    logger._setup_directories()
-    logger._setup_logging()
+    run_dir = logger.output_dir
 
     results = run_boost_study(vehicle, logger=logger)
     assert isinstance(results, AnalysisResults)
@@ -416,10 +407,10 @@ def test_run_boost_study_with_flight_logger(
     logger.close()
 
 
-def test_run_boost_study_accepts_toml_path(
+def test_run_boost_study_rejects_path_input(
     tmp_path: Path, vehicle: BaseVehicleConfig
 ) -> None:
-    """run_boost_study accepts a path to a TOML file."""
+    """run_boost_study strictly requires a BaseVehicleConfig instance, not a path."""
     from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
         run_boost_study,
     )
@@ -428,9 +419,8 @@ def test_run_boost_study_accepts_toml_path(
     vehicle.to_toml(config_file)
 
     disabled_logger = FlightLogger("test_rocket", "boost", enabled=False)
-    results = run_boost_study(config_file, logger=disabled_logger)
-    assert isinstance(results, AnalysisResults)
-    assert results["burnout_time"] > 0.0
+    with pytest.raises(TypeError, match="BaseVehicleConfig"):
+        run_boost_study(config_file, logger=disabled_logger)  # type: ignore[arg-type]
 
 
 def test_point_mass_3dof_full_flight_simulation(
@@ -471,25 +461,20 @@ def test_point_mass_3dof_full_flight_via_operating_state(
 
 
 def test_run_boost_study_full_flight(
-    tmp_path: Path, vehicle: BaseVehicleConfig
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vehicle: BaseVehicleConfig
 ) -> None:
     """run_boost_study with stop_at_burnout=False generates full_flight.png and full metrics."""
     from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
         run_boost_study,
     )
 
+    monkeypatch.chdir(tmp_path)
     logger = FlightLogger(
         vehicle_name="test_rocket",
         analysis_name="point_mass_3dof_boost",
         enabled=True,
     )
-    run_dir = tmp_path / "study_run_full"
-    logger.output_dir = run_dir
-    logger.figures_dir = run_dir / "figures"
-    logger.artifacts_dir = run_dir / "artifacts"
-    logger.log_file_path = run_dir / "execution.log"
-    logger._setup_directories()
-    logger._setup_logging()
+    run_dir = logger.output_dir
 
     results = run_boost_study(vehicle, logger=logger, stop_at_burnout=False)
     assert isinstance(results, AnalysisResults)
@@ -548,6 +533,28 @@ def test_plot_boost_phase_and_full_flight() -> None:
     ax_full_speed = fig_full.axes[0]
     assert ax_full_speed.get_lines()[0].get_xdata()[-1] == pytest.approx(10.0)
     plt.close(fig_full)
+
+
+def test_resolve_booster_params_preserves_ground_altitude(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """resolve_booster_params_from_vehicle correctly propagates ground_altitude_m."""
+    params_default = resolve_booster_params_from_vehicle(vehicle)
+    assert (
+        params_default.ground_altitude_m
+        == PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M
+    )
+
+    params_custom = resolve_booster_params_from_vehicle(
+        vehicle, operating_state={"ground_altitude_m": 250.0}
+    )
+    assert params_custom.ground_altitude_m == 250.0
+
+    params_arg = resolve_booster_params_from_vehicle(
+        vehicle, ground_altitude_m=500.0
+    )
+    assert params_arg.ground_altitude_m == 500.0
+
 
 
 
