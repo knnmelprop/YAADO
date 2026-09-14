@@ -369,3 +369,5 @@ AnyPropulsionComponent = Annotated[
     SolidMotor | RamjetEngine | TurbojetEngine, 
     Field(discriminator="type")
 ]
+
+AnyBoosterComponent = SolidMotor
