@@ -4,7 +4,7 @@ from pydantic import Field
 
 from .mass import MassProperties
 from .body import AxisymmetricBody, AnyBodyComponent
-from .propulsion import SolidMotor, RamjetEngine, TurbojetEngine, AnyPropulsionComponent
+from .propulsion import SolidMotor, RamjetEngine, TurbojetEngine, AnyPropulsionComponent, AnyBoosterComponent
 from .aero_surfaces import Fins, Wings, ControlSurface, AnyAeroComponent
 
 AnyComponent = Annotated[
@@ -16,6 +16,7 @@ AnyComponent = Annotated[
 AERO_COMPONENTS = (Fins, Wings)
 BODY_COMPONENTS = (AxisymmetricBody,)
 PROPULSION_COMPONENTS = (SolidMotor, RamjetEngine, TurbojetEngine)
+BOOSTER_COMPONENTS = (SolidMotor,)
 ALL_COMPONENTS = (MassProperties,) + AERO_COMPONENTS + BODY_COMPONENTS + PROPULSION_COMPONENTS
 
 __all__ = [
@@ -28,11 +29,13 @@ __all__ = [
     "Wings",
     "ControlSurface",
     "AnyPropulsionComponent",
+    "AnyBoosterComponent",
     "AnyAeroComponent",
     "AnyBodyComponent",
     "AnyComponent",
     "AERO_COMPONENTS",
     "BODY_COMPONENTS",
     "PROPULSION_COMPONENTS",
+    "BOOSTER_COMPONENTS",
     "ALL_COMPONENTS",
 ]

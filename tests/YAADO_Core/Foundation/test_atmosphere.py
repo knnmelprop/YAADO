@@ -3,7 +3,12 @@
 import pytest
 
 import YAADO_Core.Foundation.constants as const
-from YAADO_Core.Foundation.atmosphere import AtmosphereState, isa_atmosphere
+from YAADO_Core.Foundation.atmosphere import (
+    AtmosphereArrayState,
+    AtmosphereState,
+    isa_atmosphere,
+    isa_atmosphere_array,
+)
 
 
 def test_isa_atmosphere_sea_level() -> None:
@@ -78,12 +83,13 @@ def test_isa_atmosphere_delta_t_isa() -> None:
 
 
 def test_isa_atmosphere_array_input() -> None:
-    """isa_atmosphere evaluates vectorized NumPy arrays matching scalar outputs."""
+    """isa_atmosphere_array evaluates vectorized NumPy arrays matching scalar outputs."""
     import numpy as np
 
     altitudes = np.array([0.0, 11000.0, 20000.0])
-    atm_array = isa_atmosphere(altitudes)
+    atm_array = isa_atmosphere_array(altitudes)
 
+    assert isinstance(atm_array, AtmosphereArrayState)
     assert isinstance(atm_array.density, np.ndarray)
     assert len(atm_array.density) == 3
 

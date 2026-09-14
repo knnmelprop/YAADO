@@ -27,9 +27,11 @@ import YAADO_Core.Foundation.constants as const
 from YAADO_Core.ComponentStore import (
     AERO_COMPONENTS,
     BODY_COMPONENTS,
+    BOOSTER_COMPONENTS,
     PROPULSION_COMPONENTS,
     AnyAeroComponent,
     AnyBodyComponent,
+    AnyBoosterComponent,
     AnyPropulsionComponent,
 )
 from YAADO_Core.Foundation.analysis_base import (
@@ -37,7 +39,7 @@ from YAADO_Core.Foundation.analysis_base import (
     BaseAnalysis,
     FidelityLevel,
 )
-from YAADO_Core.Foundation.atmosphere import isa_atmosphere
+from YAADO_Core.Foundation.atmosphere import isa_atmosphere, isa_atmosphere_array
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
@@ -412,7 +414,7 @@ class BoosterParams:
 
 def _resolve_booster_propulsion(
     vehicle: BaseVehicleConfig, motor_name: str | None = None
-) -> AnyPropulsionComponent:
+) -> AnyBoosterComponent:
     """Resolve the booster propulsion component from the vehicle configuration.
 
     Args:
@@ -420,7 +422,7 @@ def _resolve_booster_propulsion(
         motor_name: Optional explicit name/ID of the motor in ``vehicle.propulsion``.
 
     Returns:
-        The resolved propulsion component conforming to :data:`~YAADO_Core.ComponentStore.PROPULSION_COMPONENTS`.
+        The resolved propulsion component conforming to :data:`~YAADO_Core.ComponentStore.BOOSTER_COMPONENTS`.
 
     Raises:
         ValueError: If ``motor_name`` is not found in ``vehicle.propulsion``,
@@ -442,7 +444,7 @@ def _resolve_booster_propulsion(
                 f"Propulsion component '{motor_name}' is {type(component).__name__}, "
                 "expected a registered propulsion component."
             )
-        if not (hasattr(component, "burn_time") and hasattr(component, "propellant_mass")):
+        if not isinstance(component, BOOSTER_COMPONENTS):
             raise ValueError(
                 f"Propulsion component '{motor_name}' ({type(component).__name__}) "
                 "does not provide 'burn_time' and 'propellant_mass' required for boost simulation."
@@ -452,14 +454,12 @@ def _resolve_booster_propulsion(
     booster_candidates = {
         name: comp
         for name, comp in vehicle.propulsion.items()
-        if isinstance(comp, PROPULSION_COMPONENTS)
-        and hasattr(comp, "burn_time")
-        and hasattr(comp, "propellant_mass")
+        if isinstance(comp, BOOSTER_COMPONENTS)
     }
     if not booster_candidates:
         raise ValueError(
             "vehicle has no boost-capable propulsion component "
-            "(must belong to PROPULSION_COMPONENTS and define burn_time and propellant_mass)"
+            "(must belong to BOOSTER_COMPONENTS and define burn_time and propellant_mass)"
         )
     if len(booster_candidates) > 1:
         raise ValueError(
@@ -801,8 +801,8 @@ def _ground_impact_event(t_s: float, state: np.ndarray, params: BoosterParams) -
     return state[1] - params.ground_altitude_m
 
 
-_ground_impact_event.terminal = True
-_ground_impact_event.direction = -1.0
+setattr(_ground_impact_event, "terminal", True)
+setattr(_ground_impact_event, "direction", -1.0)
 
 
 def integrate_boost_phase(params: BoosterParams) -> OptimizeResult:
@@ -906,9 +906,9 @@ def _evaluate_samples(
     x_eval, h_eval, vx_eval, vh_eval = y_eval
     speed_eval = np.hypot(vx_eval, vh_eval)
 
-    atm = isa_atmosphere(h_eval)
-    sos = np.asarray(atm.speed_of_sound)
-    rho = np.asarray(atm.density)
+    atm = isa_atmosphere_array(h_eval)
+    sos = atm.speed_of_sound
+    rho = atm.density
 
     mach_eval = np.where(sos > 0.0, speed_eval / sos, 0.0)
     q_eval = 0.5 * rho * speed_eval**2
