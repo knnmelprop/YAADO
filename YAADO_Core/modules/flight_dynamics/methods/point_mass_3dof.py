@@ -117,6 +117,7 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         t_max_s: float = DEFAULT_T_MAX_S,
         stop_at_burnout: bool = DEFAULT_STOP_AT_BURNOUT,
         enable_logging: bool = True,
+        show_figures: bool = False,
         cd_body_subsonic: float = CD_BODY_SUBSONIC,
         cd_body_transonic: float = CD_BODY_TRANSONIC,
         cd_body_supersonic: float = CD_BODY_SUPERSONIC,
@@ -124,7 +125,6 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         mach_supersonic_lo: float = MACH_SUPERSONIC_LO,
         cd_wave_per_fin: float = CD_WAVE_PER_FIN,
         isp_alt_ref_m: float = ISP_ALT_REF_M,
-        **kwargs: Any,
     ) -> None:
         """Bind the analysis to a vehicle config and operating conditions.
 
@@ -168,10 +168,11 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis):
         self.logger = FlightLogger(
             vehicle_name=vehicle.name,
             analysis_name=self.name,
-            enabled=bool(enable_logging),
+            enabled=enable_logging,
+            show_figures=show_figures,
         )
 
-        self._stop_at_burnout = bool(stop_at_burnout)
+        self._stop_at_burnout = stop_at_burnout
 
         self._params = resolve_booster_params_from_vehicle(
             vehicle,
@@ -1464,6 +1465,7 @@ def run_boost_study(
     stop_at_burnout: bool = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT,
     t_max_s: float = PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S,
     enable_logging: bool = True,
+    show_figures: bool = False,
     sweep_angles_deg: Sequence[float] = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG,
 ) -> AnalysisResults:
     """Run a complete trajectory study with sensitivity sweep and visual artifacts.
@@ -1514,6 +1516,7 @@ def run_boost_study(
         stop_at_burnout=stop_at_burnout,
         t_max_s=t_max_s,
         enable_logging=enable_logging,
+        show_figures=show_figures,
     )
     results = analysis.execute()
     logger = analysis.logger
@@ -1526,7 +1529,7 @@ def run_boost_study(
         burn_time_s=results.metadata["nominal_burn_time"],
         ground_altitude_m=ground_alt,
     )
-    logger.save_figure(fig_boost, "boost_phase.png")
+    logger.save_figure(fig_boost, "boost_phase.png", show=True)
     if not stop_at_burnout:
         fig_full = plot_full_flight(
             results.metadata["_samples"],
