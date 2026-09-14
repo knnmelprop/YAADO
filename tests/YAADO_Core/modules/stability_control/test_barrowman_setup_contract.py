@@ -37,21 +37,21 @@ def generic_vehicle() -> BaseVehicleConfig:
     tail set, and an explicit global CG.
     """
     body = AxisymmetricBody(
-        length_m=2.0,
-        diameter_m=0.15,
+        length=2.0,
+        diameter=0.15,
         nose_type="ogive",
-        nose_length_m=0.45,
-        nose_diameter_m=0.12,
-        total_length_m=2.0,
+        nose_length=0.45,
+        nose_diameter=0.12,
+        total_length=2.0,
     )
     fins = Fins(
         count=4,
-        span_m=0.12,
-        sweep_deg=25.0,
-        chord_root_m=0.20,
-        chord_tip_m=0.08,
+        span=0.12,
+        sweep=25.0,
+        chord_root=0.20,
+        chord_tip=0.08,
     )
-    mass = MassProperties(cg_from_nose_m=1.2, total_mass_kg=12.0)
+    mass = MassProperties(cg_from_nose=1.2, total_mass=12.0)
 
     return BaseVehicleConfig(
         name="generic_test_rocket",
@@ -81,13 +81,13 @@ def test_geometry_from_vehicle_reads_all_fields(generic_vehicle: BaseVehicleConf
 def test_geometry_from_vehicle_falls_back_to_body_length_when_total_unset() -> None:
     """total_length_m falls back to the body's own length_m when unmeasured."""
     body = AxisymmetricBody(
-        length_m=1.5,
-        diameter_m=0.10,
-        nose_length_m=0.30,
-        nose_diameter_m=0.10,
+        length=1.5,
+        diameter=0.10,
+        nose_length=0.30,
+        nose_diameter=0.10,
     )
-    fins = Fins(count=3, span_m=0.08, sweep_deg=20.0, chord_root_m=0.15, chord_tip_m=0.05)
-    mass = MassProperties(cg_from_nose_m=0.9)
+    fins = Fins(count=3, span=0.08, sweep=20.0, chord_root=0.15, chord_tip=0.05)
+    mass = MassProperties(cg_from_nose=0.9)
     vehicle = BaseVehicleConfig(
         name="fallback_test",
         bodies={"body": body},
@@ -102,13 +102,13 @@ def test_geometry_from_vehicle_falls_back_to_body_length_when_total_unset() -> N
 def test_geometry_from_vehicle_uses_body_mass_when_no_global_mass() -> None:
     """CG is read from the body's own mass block if vehicle.mass_properties is unset."""
     body = AxisymmetricBody(
-        length_m=1.5,
-        diameter_m=0.10,
-        nose_length_m=0.30,
-        nose_diameter_m=0.10,
-        mass=MassProperties(cg_from_nose_m=0.75),
+        length=1.5,
+        diameter=0.10,
+        nose_length=0.30,
+        nose_diameter=0.10,
+        mass=MassProperties(cg_from_nose=0.75),
     )
-    fins = Fins(count=3, span_m=0.08, sweep_deg=20.0, chord_root_m=0.15, chord_tip_m=0.05)
+    fins = Fins(count=3, span=0.08, sweep=20.0, chord_root=0.15, chord_tip=0.05)
     vehicle = BaseVehicleConfig(
         name="body_mass_test",
         bodies={"body": body},
@@ -121,8 +121,8 @@ def test_geometry_from_vehicle_uses_body_mass_when_no_global_mass() -> None:
 
 def test_geometry_from_vehicle_rejects_missing_cg() -> None:
     """No vehicle.mass_properties and no body.mass -> explicit ValueError."""
-    body = AxisymmetricBody(length_m=1.5, diameter_m=0.10, nose_length_m=0.30, nose_diameter_m=0.10)
-    fins = Fins(count=3, span_m=0.08, sweep_deg=20.0, chord_root_m=0.15, chord_tip_m=0.05)
+    body = AxisymmetricBody(length=1.5, diameter=0.10, nose_length=0.30, nose_diameter=0.10)
+    fins = Fins(count=3, span=0.08, sweep=20.0, chord_root=0.15, chord_tip=0.05)
     vehicle = BaseVehicleConfig(name="no_cg", bodies={"body": body}, aero_surfaces={"fins": fins})
 
     with pytest.raises(ValueError, match="CG"):
@@ -131,7 +131,7 @@ def test_geometry_from_vehicle_rejects_missing_cg() -> None:
 
 def test_geometry_from_vehicle_rejects_missing_body() -> None:
     """A vehicle with no AxisymmetricBody raises rather than guessing."""
-    fins = Fins(count=3, span_m=0.08, sweep_deg=20.0, chord_root_m=0.15, chord_tip_m=0.05)
+    fins = Fins(count=3, span=0.08, sweep=20.0, chord_root=0.15, chord_tip=0.05)
     vehicle = BaseVehicleConfig(name="no_body", aero_surfaces={"fins": fins})
 
     with pytest.raises(ValueError, match="AxisymmetricBody"):
@@ -140,9 +140,9 @@ def test_geometry_from_vehicle_rejects_missing_body() -> None:
 
 def test_geometry_from_vehicle_rejects_missing_fins() -> None:
     """A vehicle with no Fins component raises rather than guessing."""
-    body = AxisymmetricBody(length_m=1.5, diameter_m=0.10, nose_length_m=0.30, nose_diameter_m=0.10)
+    body = AxisymmetricBody(length=1.5, diameter=0.10, nose_length=0.30, nose_diameter=0.10)
     vehicle = BaseVehicleConfig(
-        name="no_fins", bodies={"body": body}, mass_properties=MassProperties(cg_from_nose_m=0.5)
+        name="no_fins", bodies={"body": body}, mass_properties=MassProperties(cg_from_nose=0.5)
     )
 
     with pytest.raises(ValueError, match="Fins"):

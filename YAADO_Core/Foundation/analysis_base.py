@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
+from YAADO_Core.Foundation.flight_logger import FlightLogger
+
 if TYPE_CHECKING:
     from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
@@ -42,14 +44,17 @@ class AnalysisResults:
         name: Name of the analysis that produced the results.
         fidelity: Fidelity level of the method used.
         data: Scalar outputs in SI units, keyed by symbol (e.g. ``CL``,
-            ``CD``, ``CL_alpha``, ``CM``).
+            ``CD``, ``thrust``).
         metadata: Free-form context (solver version, mesh size, warnings).
+        units: Explicit physical SI units for each output in ``data`` (e.g.
+            ``{"thrust": "N", "isp": "s", "CL": "-"}``).
     """
 
     name: str
     fidelity: FidelityLevel
     data: dict[str, float] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    units: dict[str, str] = field(default_factory=dict)
 
     def __getitem__(self, key: str) -> float:
         """Return a scalar output by symbol name."""
@@ -58,6 +63,34 @@ class AnalysisResults:
     def __contains__(self, key: str) -> bool:
         return key in self.data
 
+    def get_unit(self, key: str) -> str:
+        """Return the physical unit for a metric, or '-' if dimensionless.
+
+        Args:
+            key: Metric symbol name.
+
+        Returns:
+            Unit string (e.g., 'N', 'm/s', '-').
+        """
+        return self.units.get(key, "-")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize container to a primitive dictionary for JSON export.
+
+        Returns:
+            Dictionary with name, fidelity integer, data, units, and metadata.
+        """
+        return {
+            "name": self.name,
+            "fidelity": (
+                self.fidelity.value
+                if hasattr(self.fidelity, "value")
+                else self.fidelity
+            ),
+            "data": self.data,
+            "units": self.units,
+            "metadata": self.metadata,
+        }
 
 class BaseAnalysis(ABC):
     """Abstract base class for all analysis methods.
@@ -68,31 +101,64 @@ class BaseAnalysis(ABC):
 
     Args:
         name: Unique analysis name (used in :class:`AnalysisResults`).
+        logger: Optional FlightLogger instance for diagnostic logging,
+            telemetry, and visual artifacts.
     """
 
     #: Fidelity level of the method; override in subclasses.
     fidelity: FidelityLevel = FidelityLevel.LEVEL_0
 
-    def __init__(self, name: str) -> None:
+    def __init__(
+        self,
+        name: str,
+    ) -> None:
         self.name = name
+        self._logger: FlightLogger | None = None
         self._is_setup = False
+
+    @property
+    def logger(self) -> FlightLogger:
+        """The FlightLogger bound to this analysis during setup.
+
+        Returns:
+            The active FlightLogger instance.
+
+        Raises:
+            RuntimeError: If accessed before setup(vehicle) is called.
+        """
+        if self._logger is None:
+            raise RuntimeError(
+                f"Analysis '{self.name}' has not been setup yet. "
+                "Call setup(vehicle) before accessing the logger."
+            )
+        return self._logger
+
+    @logger.setter
+    def logger(self, value: FlightLogger) -> None:
+        if not isinstance(value, FlightLogger):
+            raise TypeError(
+                f"logger must be a FlightLogger instance, got {type(value).__name__}"
+            )
+        self._logger = value
 
     @abstractmethod
     def setup(
         self,
         vehicle: BaseVehicleConfig,
-        operating_state: dict | None = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
-        """Bind the analysis to a vehicle configuration and prepare inputs.
+        """Bind the analysis to a vehicle configuration and prepare solver inputs.
 
         Extracts the necessary geometry, component parameters, and operating 
         conditions to initialize the underlying solver for execution.
 
         Args:
             vehicle: The centralized vehicle configuration to analyze.
-            operating_state: Optional dictionary of operating conditions in SI units
-                (e.g., ``mach``, ``altitude_m``, ``alpha_deg``). If ``None``,
-                the analysis will use its documented defaults.
+            *args: Solver-specific positional arguments (for legacy compatibility).
+            **kwargs: Solver-specific execution settings, flight conditions,
+                or calibration parameters. Concrete subclasses define explicit,
+                typed keyword arguments with default values in SI units.
         """
 
     @abstractmethod

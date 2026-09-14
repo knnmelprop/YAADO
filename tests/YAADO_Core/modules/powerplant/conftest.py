@@ -41,7 +41,7 @@ def build_generic_ramjet_vehicle() -> BaseVehicleConfig:
         propulsion={
             "stage2_ramjet": RamjetEngine(
                 design_mach=GENERIC_DESIGN_MACH,
-                combustor_temp_K=GENERIC_COMBUSTOR_TEMP_K,
+                combustor_temp=GENERIC_COMBUSTOR_TEMP_K,
                 nozzle_area_ratio=GENERIC_NOZZLE_AREA_RATIO,
             )
         },
