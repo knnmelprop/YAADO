@@ -59,6 +59,10 @@ class YaadoJSONEncoder(json.JSONEncoder):
         # datetime / date objects
         if isinstance(o, (datetime, date)):
             return o.isoformat()
+        # Dataclasses
+        if hasattr(o, "__dataclass_fields__"):
+            from dataclasses import asdict
+            return asdict(o)
         return super().default(o)
 
 

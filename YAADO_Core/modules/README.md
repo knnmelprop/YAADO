@@ -7,10 +7,12 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 Rules for repair:
 * Remove AI-sloppy comments and overreliance on unverified dictionaries.
 * For constants use centralized constants instead of defining them at the top of the file. Pretty much, follow a single source of truth principle.
-* Make sure the components are not hardcoded.
+* Make sure the `ComponentStore` components are not hardcoded.
 * Make sure the logger is connected.
 * Make sure the method can actually run by testing it on some actual TOML file.
 * Make sure it does not violate a single entry-point principle (it should not have any standalone CLI or anything like that, it should only be accessed through the main YAADO CLI)
+* Make sure there is no redundant type casting
+* Remove dual-path typing and embrace strict data contracts.
 
 *(None yet)*
 

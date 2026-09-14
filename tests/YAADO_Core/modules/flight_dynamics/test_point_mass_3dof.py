@@ -3,6 +3,7 @@
 import math
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from YAADO_Core.ComponentStore import (
@@ -451,27 +452,31 @@ def test_run_boost_study_full_flight(
     # Metadata should contain both _boost_samples (0-4s) and _samples (0-flight_time)
     assert "_boost_samples" in results.metadata
     assert "_samples" in results.metadata
-    assert results.metadata["_boost_samples"]["t_s"][-1] == pytest.approx(4.0)
-    assert results.metadata["_samples"]["t_s"][-1] > 4.0
+    assert results.metadata["_boost_samples"].t_s[-1] == pytest.approx(4.0)
+    assert results.metadata["_samples"].t_s[-1] > 4.0
 
 
 def test_plot_boost_phase_and_full_flight() -> None:
     """plot_boost_phase slices full samples and plot_full_flight plots full trajectory."""
     from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        TrajectorySamples,
         plot_boost_phase,
         plot_full_flight,
     )
     import matplotlib.pyplot as plt
 
-    samples = {
-        "t_s": [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
-        "x_m": [0.0, 100.0, 300.0, 600.0, 800.0, 900.0],
-        "h_m": [0.0, 200.0, 600.0, 900.0, 800.0, 0.0],
-        "v_ms": [0.0, 100.0, 250.0, 200.0, 100.0, 80.0],
-        "mach": [0.0, 0.3, 0.8, 0.6, 0.3, 0.2],
-        "q_pa": [0.0, 5000.0, 25000.0, 15000.0, 4000.0, 2000.0],
-        "burn_time_s": 4.0,
-    }
+    t_s = np.array([0.0, 2.0, 4.0, 6.0, 8.0, 10.0])
+    samples = TrajectorySamples(
+        t_s=t_s,
+        x_m=np.array([0.0, 100.0, 300.0, 600.0, 800.0, 900.0]),
+        h_m=np.array([0.0, 200.0, 600.0, 900.0, 800.0, 0.0]),
+        v_ms=np.array([0.0, 100.0, 250.0, 200.0, 100.0, 80.0]),
+        mach=np.array([0.0, 0.3, 0.8, 0.6, 0.3, 0.2]),
+        q_pa=np.array([0.0, 5000.0, 25000.0, 15000.0, 4000.0, 2000.0]),
+        q_max_idx=2,
+        apogee_idx=3,
+        burn_time_s=4.0,
+    )
 
     fig_boost = plot_boost_phase(samples, burn_time_s=4.0)
     assert fig_boost is not None
@@ -557,22 +562,26 @@ def test_validate_results_supports_below_sea_level(
 def test_plots_clip_y_axis_to_zero_and_ground() -> None:
     """Plotting functions clip velocity, mach, and q to 0.0, and altitude to ground."""
     from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        TrajectorySamples,
         plot_boost_phase,
         plot_full_flight,
         plot_launch_angle_sweep,
     )
     import matplotlib.pyplot as plt
 
-    samples = {
-        "t_s": [0.0, 2.0, 4.0],
-        "x_m": [0.0, 100.0, 300.0],
-        "h_m": [100.0, 200.0, 400.0],
-        "v_ms": [0.0, 150.0, 300.0],
-        "mach": [0.0, 0.45, 0.9],
-        "q_pa": [0.0, 12000.0, 35000.0],
-        "ground_altitude_m": 50.0,
-        "burn_time_s": 4.0,
-    }
+    t_s = np.array([0.0, 2.0, 4.0])
+    samples = TrajectorySamples(
+        t_s=t_s,
+        x_m=np.array([0.0, 100.0, 300.0]),
+        h_m=np.array([100.0, 200.0, 400.0]),
+        v_ms=np.array([0.0, 150.0, 300.0]),
+        mach=np.array([0.0, 0.45, 0.9]),
+        q_pa=np.array([0.0, 12000.0, 35000.0]),
+        q_max_idx=2,
+        apogee_idx=2,
+        burn_time_s=4.0,
+        ground_altitude_m=50.0,
+    )
 
     fig_boost = plot_boost_phase(samples)
     assert fig_boost.axes[0].get_ylim()[0] == pytest.approx(0.0)  # speed
