@@ -32,7 +32,6 @@ from YAADO_Core.ComponentStore import (
     AnyAeroComponent,
     AnyBodyComponent,
     AnyBoosterComponent,
-    AnyPropulsionComponent,
 )
 from YAADO_Core.Foundation.analysis_base import (
     AnalysisResults,
@@ -801,8 +800,8 @@ def _ground_impact_event(t_s: float, state: np.ndarray, params: BoosterParams) -
     return state[1] - params.ground_altitude_m
 
 
-setattr(_ground_impact_event, "terminal", True)
-setattr(_ground_impact_event, "direction", -1.0)
+_ground_impact_event.terminal = True
+_ground_impact_event.direction = -1.0
 
 
 def integrate_boost_phase(params: BoosterParams) -> OptimizeResult:
@@ -1437,7 +1436,7 @@ def plot_launch_angle_sweep(
     import matplotlib.pyplot as plt
 
     if not sweep_results:
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig, _ = plt.subplots(figsize=(6, 4))
         return fig
 
     angles_deg = [entry["launch_angle_deg"] for entry in sweep_results]
