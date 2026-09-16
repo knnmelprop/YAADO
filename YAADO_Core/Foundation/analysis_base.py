@@ -1,18 +1,25 @@
 """Base abstractions for YAADO analyses.
 
-Every computational method (VLM, cycle analysis, empirical correlations) 
-derives from :class:`BaseAnalysis`.
+Every computational method derives from :class:`BaseAnalysis`.
 Analyses declare their fidelity via :class:`FidelityLevel` and return a
-uniform :class:`AnalysisResults` container so that workflows can swap
-methods of different fidelity without changing downstream code.
+strongly typed, frozen result container inheriting from :class:`BaseAnalysisResults`.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, fields
 from enum import IntEnum
-from typing import TYPE_CHECKING, Any
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Generic,
+    TypeVar,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 
@@ -36,76 +43,69 @@ class FidelityLevel(IntEnum):
     LEVEL_3 = 3
 
 
-@dataclass
-class AnalysisResults:
-    """Uniform container for outputs of any :class:`BaseAnalysis`.
+@dataclass(frozen=True)
+class BaseAnalysisResults:
+    """Universal base contract for all analysis result containers.
+
+    Contains core metadata. Subclasses in discipline modules (`YAADO_Core/modules/`)
+    define strictly typed fields with semantic SI unit annotations (e.g. ``Meters``, ``Newtons``).
 
     Attributes:
         name: Name of the analysis that produced the results.
         fidelity: Fidelity level of the method used.
-        data: Scalar outputs in SI units, keyed by symbol (e.g. ``CL``,
-            ``CD``, ``thrust``).
-        metadata: Free-form context (solver version, mesh size, warnings).
-        units: Explicit physical SI units for each output in ``data`` (e.g.
-            ``{"thrust": "N", "isp": "s", "CL": "-"}``).
     """
 
     name: str
     fidelity: FidelityLevel
-    data: dict[str, float] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    units: dict[str, str] = field(default_factory=dict)
 
-    def __getitem__(self, key: str) -> float:
-        """Return a scalar output by symbol name."""
-        return self.data[key]
+    def scalars(self) -> dict[str, float]:
+        """Extract all numeric scalar fields using standard dataclass reflection.
 
-    def __contains__(self, key: str) -> bool:
-        return key in self.data
-
-    def get_unit(self, key: str) -> str:
-        """Return the physical unit for a metric, or '-' if dimensionless.
-
-        Args:
-            key: Metric symbol name.
+        Excludes metadata identifiers and non-scalar structures.
 
         Returns:
-            Unit string (e.g., 'N', 'm/s', '-').
+            Dictionary mapping scalar field names to floats in canonical SI units.
         """
-        return self.units.get(key, "-")
+        res: dict[str, float] = {}
+        for f in fields(self):
+            if f.name in ("name", "fidelity") or f.name.startswith("_"):
+                continue
+            val = getattr(self, f.name)
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                res[f.name] = float(val)
+        return res
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize container to a primitive dictionary for JSON export.
+    def units(self) -> dict[str, str]:
+        """Auto-extract SI unit symbols from Annotated field type hints.
 
         Returns:
-            Dictionary with name, fidelity integer, data, units, and metadata.
+            Dictionary mapping each scalar metric name to its unit symbol string.
         """
-        return {
-            "name": self.name,
-            "fidelity": (
-                self.fidelity.value
-                if hasattr(self.fidelity, "value")
-                else self.fidelity
-            ),
-            "data": self.data,
-            "units": self.units,
-            "metadata": self.metadata,
-        }
+        hints = get_type_hints(self.__class__, include_extras=True)
+        scalar_keys = set(self.scalars().keys())
+        out: dict[str, str] = {}
+        for name in scalar_keys:
+            hint = hints.get(name)
+            if hint is not None and get_origin(hint) is Annotated:
+                args = get_args(hint)
+                if len(args) > 1 and isinstance(args[1], str):
+                    out[name] = args[1]
+                    continue
+            out[name] = "-"
+        return out
 
-class BaseAnalysis(ABC):
+TResult = TypeVar("TResult", bound=BaseAnalysisResults)
+
+class BaseAnalysis(ABC, Generic[TResult]):
     """Abstract base class for all analysis methods.
 
-    Subclasses must declare their fidelity level and implement the
-    ``setup`` / ``execute`` pair. ``execute`` must only be called after a
-    successful ``setup``.
+    Enforces the execution lifecycle via the Template Method pattern:
+    setup verification -> computation via :meth:`_compute` -> validation via :meth:`validate_results`.
 
     Args:
-        name: Unique analysis name (used in :class:`AnalysisResults`).
-        logger: Optional FlightLogger instance for diagnostic logging,
-            telemetry, and visual artifacts.
+        name: Unique analysis name.
     """
 
-    #: Fidelity level of the method; override in subclasses.
     fidelity: FidelityLevel = FidelityLevel.LEVEL_0
 
     def __init__(
@@ -141,41 +141,69 @@ class BaseAnalysis(ABC):
             )
         self._logger = value
 
-    @abstractmethod
     def setup(
         self,
         vehicle: BaseVehicleConfig,
-        *args: Any,
+        *,
+        enable_logging: bool = True,
         **kwargs: Any,
     ) -> None:
-        """Bind the analysis to a vehicle configuration and prepare solver inputs.
+        """Bind analysis to vehicle configuration and prepare solver state.
 
-        Extracts the necessary geometry, component parameters, and operating 
-        conditions to initialize the underlying solver for execution.
+        Initializes the FlightLogger and executes subclass setup.
 
         Args:
             vehicle: The centralized vehicle configuration to analyze.
-            *args: Solver-specific positional arguments (for legacy compatibility).
-            **kwargs: Solver-specific execution settings, flight conditions,
-                or calibration parameters. Concrete subclasses define explicit,
-                typed keyword arguments with default values in SI units.
+            enable_logging: Whether FlightLogger creates disk artifacts. Defaults to True.
+            **kwargs: Solver-specific execution settings.
         """
+        self.logger = FlightLogger(
+            vehicle_name=vehicle.name,
+            analysis_name=self.name,
+            enabled=enable_logging,
+        )
+        self._setup(vehicle, **kwargs)
+        self._is_setup = True
 
     @abstractmethod
-    def execute(self) -> AnalysisResults:
-        """Run the analysis and return results.
+    def _setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        **kwargs: Any,
+    ) -> None:
+        """Subclasses extract geometry and solver inputs from vehicle configuration."""
+
+    def execute(self) -> TResult:
+        """Run the analysis and return strongly typed results.
+
+        Enforces setup verification, delegates computation to :meth:`_compute`,
+        and runs physical validation checks.
 
         Returns:
-            AnalysisResults with scalar outputs in SI units.
+            Strongly typed result container inheriting from BaseAnalysisResults.
 
         Raises:
-            RuntimeError: If called before :meth:`setup`.
+            RuntimeError: If called before :meth:`setup` or if results fail validation.
         """
+        if not self._is_setup:
+            raise RuntimeError(
+                f"Analysis '{self.name}'.execute() called before setup(vehicle)."
+            )
+        results = self._compute()
+        if not self.validate_results(results):
+            raise RuntimeError(
+                f"Analysis '{self.name}' results failed physical validation checks."
+            )
+        return results
 
-    def validate_results(self, results: AnalysisResults) -> bool:
+    @abstractmethod
+    def _compute(self) -> TResult:
+        """Subclasses execute the numerical solver and return typed results."""
+
+    def validate_results(self, results: TResult) -> bool:
         """Sanity-check results against analytical expectations.
 
-        Subclasses should override with physics-based checks. The default
-        implementation only verifies the container is non-empty.
+        Subclasses should override with physics-based checks. Default
+        verifies that scalar outputs are present and non-empty.
         """
-        return bool(results.data)
+        return bool(results.scalars())
