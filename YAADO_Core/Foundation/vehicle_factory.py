@@ -18,12 +18,19 @@ import math
 from types import ModuleType
 from typing import Any
 
-from YAADO_Core.ComponentStore import Fins, RamjetEngine, SolidMotor, TurbojetEngine, Wings
+from YAADO_Core.ComponentStore import (
+    Fins,
+    RamjetEngine,
+    SolidMotor,
+    TurbojetEngine,
+    Wings,
+)
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 try:
-    import YAADO_Core.modules.suave_compat  # noqa: F401  # apply modern-Python shims before importing SUAVE
     import SUAVE as _SUAVE  # type: ignore[import-not-found]
+
+    import YAADO_Core.modules.suave_compat  # noqa: F401  # apply modern-Python shims before importing SUAVE
 except ImportError:  # pragma: no cover - depends on environment
     _SUAVE = None
 

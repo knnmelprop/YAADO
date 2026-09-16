@@ -248,3 +248,18 @@ def test_load_results_rejects_missing_or_invalid_fidelity(clean_test_flight_logg
     bad_checkpoint_2.write_text(json.dumps({"fidelity": 99, "data": {"x": 1}}), encoding="utf-8")
     with pytest.raises(ValueError, match="invalid fidelity level"):
         logger.load_results("invalid_fidelity.json")
+
+
+def test_save_json_and_save_text(clean_test_flight_logger):
+    """Verify save_json and save_text write artifacts cleanly."""
+    logger = clean_test_flight_logger()
+
+    json_path = logger.save_json({"sweep_values": [1.0, 2.0, 3.0]}, "sweep.json")
+    assert json_path is not None
+    assert json_path.is_file()
+    assert json.loads(json_path.read_text(encoding="utf-8")) == {"sweep_values": [1.0, 2.0, 3.0]}
+
+    text_path = logger.save_text("line1\nline2", "report.txt")
+    assert text_path is not None
+    assert text_path.is_file()
+    assert text_path.read_text(encoding="utf-8") == "line1\nline2"
