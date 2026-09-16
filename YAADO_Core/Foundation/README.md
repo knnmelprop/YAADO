@@ -6,26 +6,28 @@ This directory contains the core abstractions, data contracts, and runtime infra
 
 | Module | Primary Class / Function | Purpose |
 |---|---|---|
-| [`analysis_base.py`](analysis_base.py) | `BaseAnalysis`, `AnalysisResults`, `FidelityLevel` | Solver execution contract, uniform result container, and fidelity ladder. |
+| [`analysis_base.py`](analysis_base.py) | `BaseAnalysis`, `BaseAnalysisResults`, `FidelityLevel` | Solver execution contract, typed result container base, and fidelity ladder. |
+| [`units.py`](units.py) | Semantic SI Types (`Meters`, `Seconds`, `Newtons`, etc.) | Semantic type aliases using `typing.Annotated` for canonical SI physics fields. |
 | [`solver_registry.py`](solver_registry.py) | `SolverRegistry`, `SolverInfo` | External tool dependency tracker (AVL, XFOIL, SU2, pyCycle). |
 | [`vehicle_base.py`](vehicle_base.py) | `BaseVehicleConfig` | Global declarative I/O manager and Pydantic schema for vehicle configurations. |
 | [`vehicle_factory.py`](vehicle_factory.py) | `suave_vehicle_from_config` | Superstructure translating declarative vehicle configs into `SUAVE.Vehicle` models. |
-| [`flight_logger.py`](flight_logger.py) | `FlightLogger` | Run telemetry, diagnostic text logging, visual artifact management, and checkpoints. |
+| [`flight_logger.py`](flight_logger.py) | `FlightLogger`, `YaadoJSONEncoder` | Run telemetry, diagnostic text logging, visual artifact management, and checkpoints. |
 | [`mission_builder.py`](mission_builder.py) | `MissionBuilder`, `MissionSegment` | Solver-agnostic ordered mission profile builder (climb, cruise, boost). |
 
-## 1. Analysis & Data Contracts (`analysis_base.py`, `solver_registry.py`)
+## 1. Analysis & Data Contracts (`analysis_base.py`, `units.py`, `solver_registry.py`)
 
 `YAADO` uses explicit, decoupled data handoffs between computational modules.
 
 ### 1.1 `BaseAnalysis`
-Every solver—whether a simple empirical equation or a massive CFD wrapper—must inherit from `BaseAnalysis`:
-* **`setup(vehicle, operating_state)`**: Extracts geometry and initializes underlying solvers.
-* **`execute()`**: Solves the physics and returns an `AnalysisResults` container.
+Every solver—whether a simple empirical equation or a massive CFD wrapper—inherits from `BaseAnalysis[TResult]`, adhering to the Template Method pattern:
+* **`setup(vehicle, **kwargs)`**: Initializes `FlightLogger`, sets setup state flags, and delegates vehicle geometry extraction to the internal `_setup(vehicle, **kwargs)` hook.
+* **`execute(**kwargs) -> TResult`**: Enforces prior setup, runs numerical computation via `_compute(**kwargs)`, verifies results via `validate_results(results)`, and returns the strongly-typed container.
 
-### 1.2 `AnalysisResults`
-Solvers are forbidden from returning loose floats or undocumented dictionaries. They **must** return an `AnalysisResults` dataclass:
-* **`data`**: Purely numerical scalar outputs in **SI units** (e.g., `{"thrust_N": 450.0, "CL": 0.35}`).
-* **`metadata`**: Free-form context (e.g., station tables, polar arrays, solver assumptions, warnings).
+### 1.2 `BaseAnalysisResults` & Semantic SI Units
+Solvers are strictly forbidden from returning loose floats or untyped dictionaries (`data: dict`, `metadata: dict`). Instead, each discipline module defines frozen dataclasses inheriting from `BaseAnalysisResults`:
+* **Typed Fields**: Physics metrics are explicit dataclass fields rather than string keys in a dictionary.
+* **Semantic SI Units (`units.py`)**: Quantities are typed using semantic aliases such as `thrust: Newtons`, `burn_time: Seconds`, `velocity: MetersPerSecond`. Units are attached via `typing.Annotated[float, "unit_str"]`.
+* **Reflection-Based Discovery**: Methods `scalars()` and `units()` inspect dataclass fields and annotations dynamically, enabling automated serialization without manual dictionary maintenance.
 
 ### 1.3 `FidelityLevel`
 Analyses declare their fidelity on a standardized ladder (`LEVEL_0` to `LEVEL_3`) so that optimization workflows can swap low-fidelity empirical methods with high-fidelity CFD without breaking downstream pipelines.
@@ -56,7 +58,8 @@ FlightLogs/
 └── {vehicle_name}/
     └── {analysis_name}_{YYYY-MM-DD_HHMM}/
         ├── execution.log       # Timestamped diagnostic logs (replacing print)
-        ├── results.json        # Serialized AnalysisResults checkpoint
+        ├── results.json        # Serialized BaseAnalysisResults checkpoint
+        ├── summary.csv         # Formatted CSV metrics and execution metadata
         ├── figures/            # Matplotlib visual artifacts (.png)
         └── artifacts/          # Tabular sweeps, CSVs, or solver export scripts
 ```
@@ -66,11 +69,13 @@ FlightLogs/
 1. **Diagnostic Logging (Replacing `print()`):**
    Provides structured severity levels (`debug`, `info`, `warning`, `error`, `exception`) with timestamped formatting in `execution.log`. Keeps terminal output clean via an optional `log_to_console` flag.
 2. **Visual Data Management:**
-   Saves matplotlib plots directly to `figures/` using `save_figure(fig, "polar.png")` and automatically closes figures to eliminate memory leaks during parameter sweeps.
+   Saves matplotlib plots directly to `figures/` using `save_figure(fig, "polar.png")` and automatically closes figures to eliminate memory leaks during parameter sweeps. Headless-safe by default.
 3. **Simulation Checkpointing:**
-   Serializes `AnalysisResults` to `results.json` using `save_results()` so downstream analyses (e.g., flight dynamics loading precomputed aerodynamic polars) can resume studies with zero re-computation.
+   Serializes `BaseAnalysisResults` to `results.json` and generates `summary.csv` using `save_results()`. Downstream analyses can restore typed results using `load_results(filename, result_cls)` with zero recomputation.
 4. **Zero-Overhead Optimization Mode:**
    When running inside tight OpenMDAO optimization loops or Monte Carlo iterations, setting `enabled=False` bypasses all disk I/O, figure rendering, and file handlers with zero performance penalty.
+5. **Context Manager Protocol:**
+   Supports Python context management (`with FlightLogger(...) as logger:`) to guarantee proper closing and flushing of file handlers.
 
 ## 4. Mission Profile Definition (`mission_builder.py`)
 
