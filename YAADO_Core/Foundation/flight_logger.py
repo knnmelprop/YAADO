@@ -10,17 +10,20 @@ from __future__ import annotations
 import csv
 import json
 import logging
+from dataclasses import asdict, fields, is_dataclass
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     import matplotlib.figure
 
-    from YAADO_Core.Foundation.analysis_base import AnalysisResults
+    from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults
+
+T = TypeVar("T", bound="BaseAnalysisResults")
 
 
 class YaadoJSONEncoder(json.JSONEncoder):
@@ -60,8 +63,7 @@ class YaadoJSONEncoder(json.JSONEncoder):
         if isinstance(o, (datetime, date)):
             return o.isoformat()
         # Dataclasses
-        if hasattr(o, "__dataclass_fields__"):
-            from dataclasses import asdict
+        if is_dataclass(o) and not isinstance(o, type):
             return asdict(o)
         return super().default(o)
 
@@ -118,12 +120,7 @@ class FlightLogger:
         self._setup_logging()
 
     def _setup_directories(self) -> None:
-        """Create output, figures, and artifacts directories if logging is enabled.
-
-        When ``self.enabled`` is True, ensures that ``self.output_dir``,
-        ``self.figures_dir``, and ``self.artifacts_dir`` exist on disk using
-        ``mkdir(parents=True, exist_ok=True)``. Does nothing when disabled.
-        """
+        """Create output, figures, and artifacts directories if logging is enabled."""
         if not self.enabled:
             return
 
@@ -132,14 +129,7 @@ class FlightLogger:
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     def _setup_logging(self) -> None:
-        """Configure file and console logging handlers on the underlying logger.
-
-        Flushes, closes, and removes any stale ``FileHandler`` instances from
-        previous runs on this logger before attaching a fresh ``FileHandler``
-        pointing to ``self.log_file_path`` with timestamped formatting:
-        ``%(asctime)s [%(levelname)s] [%(name)s]: %(message)s``.
-        If ``self.log_to_console`` is True, attaches a ``logging.StreamHandler``.
-        """
+        """Configure file and console logging handlers on the underlying logger."""
         self.logger.setLevel(self.log_level)
 
         if not self.enabled:
@@ -346,18 +336,18 @@ class FlightLogger:
 
     def save_results(
         self,
-        results: AnalysisResults,
+        results: BaseAnalysisResults,
         filename: str = "results.json",
         indent: int = 2,
     ) -> Path | None:
         """Save analysis outputs as a structured JSON checkpoint and summary CSV.
 
-        Writes scalar SI outputs, explicit units metadata, free-form metadata,
+        Writes scalar SI outputs, explicit units metadata, full dataclass details,
         vehicle name, and timestamp into ``self.output_dir / filename`` using
         ``YaadoJSONEncoder``, and writes ``summary.csv`` alongside it.
 
         Args:
-            results: AnalysisResults container.
+            results: BaseAnalysisResults instance.
             filename: Checkpoint filename. Defaults to "results.json".
             indent: JSON indentation level. Defaults to 2.
 
@@ -367,65 +357,98 @@ class FlightLogger:
         if not self.enabled:
             return None
 
-        from YAADO_Core.Foundation.analysis_base import AnalysisResults
+        from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults
 
-        if not isinstance(results, AnalysisResults):
+        if not isinstance(results, BaseAnalysisResults):
             raise TypeError(
                 f"Unsupported results type: {type(results).__name__}; "
-                "save_results strictly requires an AnalysisResults instance."
+                "save_results strictly requires a BaseAnalysisResults instance."
             )
 
         target_path = self.output_dir / filename
-
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        fidelity_val = getattr(results.fidelity, "value", results.fidelity)
-        data_dict = results.data
-        units_dict = results.units
-        metadata_dict = results.metadata
+        scalars_dict = results.scalars()
+        units_dict = results.units()
         analysis_name = results.name or self.analysis_name
 
         payload = {
             "vehicle_name": self.vehicle_name,
             "analysis_name": analysis_name,
             "timestamp": self.timestamp_str,
-            "fidelity": fidelity_val,
-            "data": data_dict,
+            "fidelity": results.fidelity.value,
+            "data": scalars_dict,
             "units": units_dict,
-            "metadata": metadata_dict,
+            "details": asdict(results),
         }
 
         with open(target_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, cls=YaadoJSONEncoder, indent=indent)
 
         # Automatically write summary.csv alongside results.json
-        if isinstance(data_dict, dict) and data_dict:
+        if scalars_dict:
+            metadata: dict[str, Any] = {"fidelity": results.fidelity.value}
+            for f in fields(results):
+                if f.name in ("fidelity", "name"):
+                    continue
+                val = getattr(results, f.name)
+                if isinstance(val, (bool, str, Enum)):
+                    metadata[f.name] = val.value if isinstance(val, Enum) else val
+
             summary_csv_path = self.output_dir / "summary.csv"
-            full_meta = {"fidelity": fidelity_val, **metadata_dict}
             self._write_summary_csv(
-                data=data_dict,
+                data=scalars_dict,
                 units=units_dict,
                 filepath=summary_csv_path,
-                metadata=full_meta,
+                metadata=metadata,
             )
 
         self.info("Saved results checkpoint to %s", target_path)
         return target_path
 
-    def load_results(self, filename: str = "results.json") -> AnalysisResults:
-        """Load an AnalysisResults checkpoint from this run directory.
+    @overload
+    def load_results(
+        self,
+        filename: str = "results.json",
+        result_cls: None = None,
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def load_results(
+        self,
+        filename: str = "results.json",
+        *,
+        result_cls: type[T],
+    ) -> T: ...
+
+    @overload
+    def load_results(
+        self,
+        filename: str,
+        result_cls: type[T],
+    ) -> T: ...
+
+    def load_results(
+        self,
+        filename: str = "results.json",
+        result_cls: type[T] | None = None,
+    ) -> T | dict[str, Any]:
+        """Load an analysis checkpoint from this run directory.
 
         Args:
             filename: Checkpoint filename in ``self.output_dir``. Defaults to "results.json".
+            result_cls: Optional strongly typed result class inheriting from
+                :class:`BaseAnalysisResults`. If provided, reconstructs the typed instance
+                using ``details``. If None, returns the raw checkpoint payload dictionary.
 
         Returns:
-            Reconstructed AnalysisResults dataclass with data, units, and metadata.
+            Reconstructed typed result instance or checkpoint payload dictionary.
 
         Raises:
             FileNotFoundError: If the specified checkpoint file does not exist.
             ValueError: If the checkpoint JSON is missing 'fidelity' or contains an invalid fidelity level.
         """
-        from YAADO_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
+        from YAADO_Core.Foundation.analysis_base import FidelityLevel
 
         target_path = self.output_dir / filename
 
@@ -447,13 +470,16 @@ class FlightLogger:
                 f"Must be one of {valid_levels}."
             ) from err
 
-        return AnalysisResults(
-            name=payload.get("analysis_name", self.analysis_name),
-            fidelity=fidelity,
-            data=payload.get("data", {}),
-            metadata=payload.get("metadata", {}),
-            units=payload.get("units", {}),
-        )
+        if result_cls is not None:
+            details = dict(payload.get("details", {}))
+            if "fidelity" in details and isinstance(details["fidelity"], str):
+                try:
+                    details["fidelity"] = FidelityLevel(details["fidelity"])
+                except ValueError:
+                    pass
+            return result_cls(**details)
+
+        return payload
 
     # -------------------------------------------------------------------------
     # Auxiliary Artifact Management
@@ -489,9 +515,65 @@ class FlightLogger:
         self.debug("Saved artifact %s to %s", filename, target_path)
         return target_path
 
+    def save_json(
+        self,
+        data: Any,
+        filename: str,
+        indent: int = 2,
+    ) -> Path | None:
+        """Save JSON-serializable data to the artifacts/ directory.
+
+        Args:
+            data: Data to serialize.
+            filename: Destination filename within artifacts/.
+            indent: JSON indentation. Defaults to 2.
+
+        Returns:
+            Resolved Path to saved file, or None if logging is disabled.
+        """
+        if not self.enabled:
+            return None
+
+        target_path = self.artifacts_dir / filename
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(target_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, cls=YaadoJSONEncoder, indent=indent)
+
+        self.debug("Saved JSON artifact %s to %s", filename, target_path)
+        return target_path
+
+    def save_text(
+        self,
+        content: str,
+        filename: str,
+    ) -> Path | None:
+        """Save text content to the artifacts/ directory.
+
+        Args:
+            content: Text string to write.
+            filename: Destination filename within artifacts/.
+
+        Returns:
+            Resolved Path to saved file, or None if logging is disabled.
+        """
+        return self.save_artifact(filename=filename, content=content)
+
     # -------------------------------------------------------------------------
     # Lifecycle & Cleanup
     # -------------------------------------------------------------------------
+
+    def __enter__(self) -> FlightLogger:
+        """Enter runtime context manager."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        """Exit runtime context manager and close all handlers."""
+        self.close()
 
     def close(self) -> None:
         """Flush and close all logging handlers cleanly."""

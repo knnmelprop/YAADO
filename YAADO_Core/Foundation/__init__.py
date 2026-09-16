@@ -4,8 +4,8 @@ Exposes the base abstractions used by all analysis and vehicle modules
 """  # noqa: N999
 
 from .analysis_base import (
-    AnalysisResults,
     BaseAnalysis,
+    BaseAnalysisResults,
     FidelityLevel,
 )
 from .flight_logger import (
@@ -17,8 +17,8 @@ from .vehicle_base import (
 )
 
 __all__ = [
-    "AnalysisResults",
     "BaseAnalysis",
+    "BaseAnalysisResults",
     "BaseVehicleConfig",
     "FidelityLevel",
     "FlightLogger",
