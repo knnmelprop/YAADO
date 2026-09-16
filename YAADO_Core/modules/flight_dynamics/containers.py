@@ -6,7 +6,8 @@ Provides strongly typed dataclasses for trajectory metrics, samples, and simulat
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+
+import numpy as np
 
 from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults
 from YAADO_Core.Foundation.units import (
@@ -17,8 +18,21 @@ from YAADO_Core.Foundation.units import (
     Seconds,
 )
 
-if TYPE_CHECKING:
-    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import TrajectorySamples
+
+@dataclass(frozen=True)
+class TrajectorySamples:
+    """Dense evaluation arrays and key trajectory indices."""
+
+    t_s: np.ndarray
+    x_m: np.ndarray
+    h_m: np.ndarray
+    v_ms: np.ndarray
+    mach: np.ndarray
+    q_pa: np.ndarray
+    q_max_idx: int
+    apogee_idx: int
+    burn_time_s: float
+    ground_altitude_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -47,11 +61,11 @@ class PointMassBoostResults(BaseAnalysisResults):
     final_h: Meters
     final_v: MetersPerSecond
     final_mach: Dimensionless
-    apogee_altitude: Meters | None = None
-    apogee_time: Seconds | None = None
-    apogee_range: Meters | None = None
-    flight_time: Seconds | None = None
-    flight_range: Meters | None = None
-    impact_velocity: MetersPerSecond | None = None
+    apogee_altitude: Meters
+    apogee_time: Seconds
+    apogee_range: Meters
+    flight_time: Seconds
+    flight_range: Meters
+    impact_velocity: MetersPerSecond = 0.0
     samples: TrajectorySamples | None = None
     boost_samples: TrajectorySamples | None = None
