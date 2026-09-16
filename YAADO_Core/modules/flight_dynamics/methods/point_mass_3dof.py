@@ -34,9 +34,11 @@ from YAADO_Core.Foundation.analysis_base import (
     FidelityLevel,
 )
 from YAADO_Core.Foundation.atmosphere import isa_atmosphere, isa_atmosphere_array
-from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
+from YAADO_Core.modules.flight_dynamics.containers import (
+    PointMassBoostResults,
+    TrajectorySamples,
+)
 
 
 class PointMass3DOFBoostAnalysis(BaseAnalysis[PointMassBoostResults]):
@@ -625,22 +627,6 @@ def integrate_boost_phase(params: BoosterParams) -> OptimizeResult:
 
 
 @dataclass(frozen=True)
-class TrajectorySamples:
-    """Dense evaluation arrays and key trajectory indices."""
-
-    t_s: np.ndarray
-    x_m: np.ndarray
-    h_m: np.ndarray
-    v_ms: np.ndarray
-    mach: np.ndarray
-    q_pa: np.ndarray
-    q_max_idx: int
-    apogee_idx: int
-    burn_time_s: float
-    ground_altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M
-
-
-@dataclass(frozen=True)
 class TrajectoryMetrics:
     """Scalar metrics derived from a 3-DOF trajectory solution."""
 
@@ -663,7 +649,7 @@ class TrajectoryMetrics:
     apogee_altitude: float
     apogee_time: float
     apogee_range: float
-    impact_velocity: float | None
+    impact_velocity: float = 0.0
 
 
 def _evaluate_samples(
@@ -793,7 +779,7 @@ def derive_trajectory_metrics(
         apogee_altitude=apogee_altitude,
         apogee_time=apogee_time,
         apogee_range=apogee_range,
-        impact_velocity=final_v if ground_impact else None,
+        impact_velocity=final_v if ground_impact else 0.0,
     )
     return metrics, boost_samples, full_samples
 

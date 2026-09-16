@@ -3,33 +3,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 
 from YAADO_Core.Foundation.analysis_base import (
-    AnalysisResults,
     BaseAnalysis,
     BaseAnalysisResults,
     FidelityLevel,
 )
-from YAADO_Core.Foundation.flight_logger import FlightLogger
+from YAADO_Core.Foundation.units import Dimensionless, Newtons
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 
-@dataclass
+@dataclass(frozen=True)
 class MockTypedResults(BaseAnalysisResults):
     """Custom strongly typed result container used for testing."""
 
-    thrust: float = 1200.0
-    burnout_mach: float = 2.4
+    thrust: Newtons
+    burnout_mach: Dimensionless
     ground_impact: bool = False
     notes: str = "nominal"
-
-    UNITS: ClassVar[dict[str, str]] = {
-        "thrust": "N",
-        "burnout_mach": "-",
-    }
 
 
 class MockAnalysis(BaseAnalysis[MockTypedResults]):
@@ -39,18 +33,13 @@ class MockAnalysis(BaseAnalysis[MockTypedResults]):
 
     def __init__(self, name: str = "mock_solver") -> None:
         super().__init__(name=name)
+        self.should_pass_validation: bool = True
 
-    def setup(self, vehicle: BaseVehicleConfig, *args: Any, **kwargs: Any) -> None:
-        self.logger = FlightLogger(
-            vehicle_name=vehicle.name,
-            analysis_name=self.name,
-            enabled=False,
-        )
-        self._is_setup = True
+    def _setup(self, vehicle: BaseVehicleConfig, **kwargs: Any) -> None:
+        self.vehicle_name = vehicle.name
+        self.should_pass_validation = kwargs.get("should_pass_validation", True)
 
-    def execute(self) -> MockTypedResults:
-        if not self._is_setup:
-            raise RuntimeError("execute called before setup")
+    def _compute(self, **kwargs: Any) -> MockTypedResults:
         return MockTypedResults(
             name=self.name,
             fidelity=self.fidelity,
@@ -58,47 +47,36 @@ class MockAnalysis(BaseAnalysis[MockTypedResults]):
             burnout_mach=2.8,
         )
 
+    def validate_results(self, results: MockTypedResults) -> bool:
+        return self.should_pass_validation
+
 
 def test_base_analysis_results_typed_extraction():
-    """Verify scalar extraction and units mapping on BaseAnalysisResults."""
+    """Verify scalar extraction and units reflection on BaseAnalysisResults."""
     res = MockTypedResults(
         name="test_sim",
         fidelity=FidelityLevel.LEVEL_1,
         thrust=1250.0,
         burnout_mach=2.2,
+        ground_impact=False,
+        notes="test run",
     )
 
     # Scalar extraction ignores strings and booleans
-    scalars = res.scalar_metrics()
+    scalars = res.scalars()
     assert scalars == {"thrust": 1250.0, "burnout_mach": 2.2}
 
-    # Units mapping
-    units = res.units_map()
+    # Units reflection from Annotated types
+    units = res.units()
     assert units == {"thrust": "N", "burnout_mach": "-"}
 
-    # Attribute and key access
+    # Attribute access
     assert res.thrust == 1250.0
-    assert res["thrust"] == 1250.0
-    assert "burnout_mach" in res
-    assert res.get_unit("thrust") == "N"
-    assert res.get_unit("unknown") == "-"
-
-
-def test_analysis_results_legacy_compatibility():
-    """Verify legacy AnalysisResults behavior is fully preserved."""
-    legacy = AnalysisResults(
-        name="legacy_solver",
-        fidelity=FidelityLevel.LEVEL_0,
-        data={"CL": 0.45, "CD": 0.02},
-        units={"CL": "-", "CD": "-"},
-        metadata={"solver": "handbook"},
-    )
-
-    assert legacy["CL"] == 0.45
-    assert "CD" in legacy
-    assert legacy.scalar_metrics() == {"CL": 0.45, "CD": 0.02}
-    assert legacy.units_map() == {"CL": "-", "CD": "-"}
-    assert legacy.to_dict()["data"] == {"CL": 0.45, "CD": 0.02}
+    assert res.burnout_mach == 2.2
+    assert res.ground_impact is False
+    assert res.notes == "test run"
+    assert res.name == "test_sim"
+    assert res.fidelity == FidelityLevel.LEVEL_1
 
 
 def test_base_analysis_lifecycle():
@@ -109,9 +87,13 @@ def test_base_analysis_lifecycle():
     with pytest.raises(RuntimeError, match="has not been setup yet"):
         _ = analysis.logger
 
+    # Execution before setup raises RuntimeError
+    with pytest.raises(RuntimeError, match="called before setup"):
+        analysis.execute()
+
     # Setup with minimal config
     vehicle = BaseVehicleConfig(name="test_rocket")
-    analysis.setup(vehicle)
+    analysis.setup(vehicle, enable_logging=False)
 
     # Logger is now accessible
     assert analysis.logger.vehicle_name == "test_rocket"
@@ -122,4 +104,13 @@ def test_base_analysis_lifecycle():
     assert isinstance(results, BaseAnalysisResults)
     assert results.thrust == 1500.0
     assert results.burnout_mach == 2.8
-    assert analysis.validate_results(results) is True
+
+
+def test_base_analysis_validation_failure():
+    """Verify BaseAnalysis raises RuntimeError if validation fails."""
+    analysis = MockAnalysis()
+    vehicle = BaseVehicleConfig(name="test_rocket")
+    analysis.setup(vehicle, enable_logging=False, should_pass_validation=False)
+
+    with pytest.raises(RuntimeError, match="failed physical validation checks"):
+        analysis.execute()

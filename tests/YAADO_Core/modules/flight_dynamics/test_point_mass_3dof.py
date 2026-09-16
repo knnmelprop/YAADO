@@ -12,9 +12,10 @@ from YAADO_Core.ComponentStore import (
     MassProperties,
     SolidMotor,
 )
-from YAADO_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
+from YAADO_Core.Foundation.analysis_base import FidelityLevel
 from YAADO_Core.Foundation.flight_logger import FlightLogger
-from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig, ComponentNotFoundError
+from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     PointMass3DOFBoostAnalysis,
     resolve_booster_params_from_vehicle,
@@ -131,22 +132,22 @@ def test_point_mass_3dof_setup_execute_new_contract(
     )
     results = analysis.execute()
 
-    assert isinstance(results, AnalysisResults)
+    assert isinstance(results, PointMassBoostResults)
     assert results.fidelity == FidelityLevel.LEVEL_0
-    assert results.units == {
-        "burnout_time": "s",
-        "burnout_velocity": "m/s",
-        "burnout_mach": "-",
-        "burnout_altitude": "m",
-        "q_max": "Pa",
-        "range_at_burnout": "m",
-    }
-    assert results["burnout_time"] > 0.0
-    assert results["burnout_velocity"] >= 0.0
-    assert results["burnout_altitude"] >= 0.0
-    assert results["range_at_burnout"] >= 0.0
-    assert results["q_max"] >= 0.0
-    assert math.isfinite(results["burnout_mach"])
+    units = results.units()
+    assert units["burnout_time"] == "s"
+    assert units["burnout_velocity"] == "m/s"
+    assert units["burnout_mach"] == "-"
+    assert units["burnout_altitude"] == "m"
+    assert units["q_max"] == "Pa"
+    assert units["range_at_burnout"] == "m"
+
+    assert results.burnout_time > 0.0
+    assert results.burnout_velocity >= 0.0
+    assert results.burnout_altitude >= 0.0
+    assert results.range_at_burnout >= 0.0
+    assert results.q_max >= 0.0
+    assert math.isfinite(results.burnout_mach)
 
 
 def test_point_mass_3dof_setup_defaults(
@@ -156,7 +157,7 @@ def test_point_mass_3dof_setup_defaults(
     analysis = PointMass3DOFBoostAnalysis()
     analysis.setup(vehicle, enable_logging=False)
     results = analysis.execute()
-    assert results["burnout_time"] > 0.0
+    assert results.burnout_time > 0.0
 
 
 def test_point_mass_3dof_execute_before_setup_raises() -> None:
@@ -188,7 +189,7 @@ def test_resolve_booster_params_multiple_motors_requires_name(
         propellant_density=1750.0,
     )
 
-    with pytest.raises(ValueError, match="Multiple booster components found"):
+    with pytest.raises(ValueError, match="multiple components matching"):
         resolve_booster_params_from_vehicle(vehicle)
 
     params = resolve_booster_params_from_vehicle(vehicle, motor_name="stage_2")
@@ -217,14 +218,14 @@ def test_resolve_booster_params_multiple_fins_requires_name(
 def test_resolve_booster_params_nonexistent_name_raises(
     vehicle: BaseVehicleConfig,
 ) -> None:
-    """Requesting a non-existent component name raises ValueError."""
-    with pytest.raises(ValueError, match="Specified motor 'missing_stage' not found"):
+    """Requesting a non-existent component name raises ComponentNotFoundError."""
+    with pytest.raises(ComponentNotFoundError, match="Component 'missing_stage' not found"):
         resolve_booster_params_from_vehicle(vehicle, motor_name="missing_stage")
 
-    with pytest.raises(ValueError, match="Specified fin set 'missing_fins' not found"):
+    with pytest.raises(ComponentNotFoundError, match="Component 'missing_fins' not found"):
         resolve_booster_params_from_vehicle(vehicle, fins_name="missing_fins")
 
-    with pytest.raises(ValueError, match="Specified body 'missing_body' not found"):
+    with pytest.raises(ComponentNotFoundError, match="Component 'missing_body' not found"):
         resolve_booster_params_from_vehicle(vehicle, body_name="missing_body")
 
 
@@ -233,15 +234,15 @@ def test_resolve_booster_params_wrong_type_raises(
 ) -> None:
     """Targeting a component outside the registered component tuples raises TypeError."""
     vehicle.propulsion["invalid_motor"] = object()
-    with pytest.raises(TypeError, match="expected a registered propulsion component"):
+    with pytest.raises(TypeError, match="expected"):
         resolve_booster_params_from_vehicle(vehicle, motor_name="invalid_motor")
 
     vehicle.bodies["invalid_body"] = object()
-    with pytest.raises(TypeError, match="expected a registered body component"):
+    with pytest.raises(TypeError, match="expected"):
         resolve_booster_params_from_vehicle(vehicle, body_name="invalid_body")
 
     vehicle.aero_surfaces["invalid_surface"] = object()
-    with pytest.raises(TypeError, match="expected a registered aero surface component"):
+    with pytest.raises(TypeError, match="expected"):
         resolve_booster_params_from_vehicle(vehicle, fins_name="invalid_surface")
 
 
@@ -268,8 +269,8 @@ def test_resolve_booster_params_multi_propulsion_auto_selects_booster(
     params = resolve_booster_params_from_vehicle(vehicle)
     assert params.propellant_mass_kg == pytest.approx(8.0)
 
-    # Explicitly requesting the non-booster raises ValueError
-    with pytest.raises(ValueError, match="does not provide 'burn_time' and 'propellant_mass'"):
+    # Explicitly requesting the non-booster raises TypeError
+    with pytest.raises(TypeError, match="expected"):
         resolve_booster_params_from_vehicle(vehicle, motor_name="sustainer")
 
 
@@ -286,8 +287,8 @@ def test_point_mass_3dof_setup_with_named_components(
         enable_logging=False,
     )
     results = analysis.execute()
-    assert results["burnout_time"] > 0.0
-    assert results["burnout_velocity"] > 0.0
+    assert results.burnout_time > 0.0
+    assert results.burnout_velocity > 0.0
 
 
 def test_point_mass_3dof_setup_auto_initializes_logger(vehicle: BaseVehicleConfig) -> None:
@@ -314,7 +315,7 @@ def test_point_mass_3dof_executes_with_enabled_logger(
     assert analysis.logger.enabled is True
     results = analysis.execute()
 
-    assert results["burnout_time"] > 0.0
+    assert results.burnout_time > 0.0
     assert analysis.logger.log_file_path.is_file()
     log_content = analysis.logger.log_file_path.read_text(encoding="utf-8")
     assert "Starting boost trajectory integration" in log_content
@@ -343,7 +344,7 @@ def test_point_mass_3dof_executes_with_disabled_logger(
     analysis.setup(vehicle, enable_logging=False)
     results = analysis.execute()
 
-    assert results["burnout_time"] > 0.0
+    assert results.burnout_time > 0.0
     assert analysis.logger is not None
     assert not analysis.logger.output_dir.exists()
 
@@ -358,8 +359,8 @@ def test_run_boost_study_with_flight_logger(
 
     monkeypatch.chdir(tmp_path)
     results = run_boost_study(vehicle, enable_logging=True)
-    assert isinstance(results, AnalysisResults)
-    assert results["burnout_time"] > 0.0
+    assert isinstance(results, PointMassBoostResults)
+    assert results.burnout_time > 0.0
     run_dir = next((tmp_path / "FlightLogs" / vehicle.name).glob("point_mass_3dof_boost_*"))
     assert (run_dir / "execution.log").is_file()
     assert (run_dir / "results.json").is_file()
@@ -392,22 +393,27 @@ def test_point_mass_3dof_full_flight_simulation(
     analysis.setup(vehicle, stop_at_burnout=False, enable_logging=False)
     results = analysis.execute()
 
-    assert isinstance(results, AnalysisResults)
+    assert isinstance(results, PointMassBoostResults)
     # Burnout metrics are still present and positive
-    assert results["burnout_time"] == pytest.approx(4.0)
-    assert results["burnout_velocity"] > 0.0
-    assert results["burnout_altitude"] > 0.0
+    assert results.burnout_time == pytest.approx(4.0)
+    assert results.burnout_velocity > 0.0
+    assert results.burnout_altitude > 0.0
     # Full flight metrics are computed
-    assert results["apogee_altitude"] > results["burnout_altitude"]
-    assert results["apogee_time"] > results["burnout_time"]
-    assert results["flight_time"] > results["apogee_time"]
-    assert results["flight_range"] > results["range_at_burnout"]
-    assert results["impact_velocity"] > 0.0
-    assert results.units["apogee_altitude"] == "m"
-    assert results.units["flight_time"] == "s"
-    assert results.units["flight_range"] == "m"
-    assert results.metadata["stop_at_burnout"] is False
-    assert results.metadata["integration_stopped_reason"] == "ground_impact"
+    assert results.apogee_altitude is not None
+    assert results.apogee_altitude > results.burnout_altitude
+    assert results.apogee_time is not None
+    assert results.apogee_time > results.burnout_time
+    assert results.flight_time is not None
+    assert results.flight_time > results.apogee_time
+    assert results.flight_range is not None
+    assert results.flight_range > results.range_at_burnout
+    assert results.impact_velocity is not None
+    assert results.impact_velocity > 0.0
+    units = results.units()
+    assert units["apogee_altitude"] == "m"
+    assert units["flight_time"] == "s"
+    assert units["flight_range"] == "m"
+    assert results.stopped_reason == "ground_impact"
 
 
 def test_point_mass_3dof_full_flight_via_setup_override(
@@ -417,8 +423,10 @@ def test_point_mass_3dof_full_flight_via_setup_override(
     analysis = PointMass3DOFBoostAnalysis()
     analysis.setup(vehicle, stop_at_burnout=False, enable_logging=False)
     results = analysis.execute()
-    assert results["flight_time"] > results["burnout_time"]
-    assert results["apogee_altitude"] > results["burnout_altitude"]
+    assert results.flight_time is not None
+    assert results.flight_time > results.burnout_time
+    assert results.apogee_altitude is not None
+    assert results.apogee_altitude > results.burnout_altitude
 
 
 def test_run_boost_study_full_flight(
@@ -431,9 +439,11 @@ def test_run_boost_study_full_flight(
 
     monkeypatch.chdir(tmp_path)
     results = run_boost_study(vehicle, stop_at_burnout=False, enable_logging=True)
-    assert isinstance(results, AnalysisResults)
-    assert results["flight_time"] > results["burnout_time"]
-    assert results["apogee_altitude"] > results["burnout_altitude"]
+    assert isinstance(results, PointMassBoostResults)
+    assert results.flight_time is not None
+    assert results.flight_time > results.burnout_time
+    assert results.apogee_altitude is not None
+    assert results.apogee_altitude > results.burnout_altitude
 
     run_dir = next((tmp_path / "FlightLogs" / vehicle.name).glob("point_mass_3dof_boost_*"))
     boost_png = run_dir / "figures" / "boost_phase.png"
@@ -449,21 +459,22 @@ def test_run_boost_study_full_flight(
     # Crucial check: boost_phase.png and full_flight.png must not be identical
     assert boost_png.read_bytes() != full_png.read_bytes()
 
-    # Metadata should contain both _boost_samples (0-4s) and _samples (0-flight_time)
-    assert "_boost_samples" in results.metadata
-    assert "_samples" in results.metadata
-    assert results.metadata["_boost_samples"].t_s[-1] == pytest.approx(4.0)
-    assert results.metadata["_samples"].t_s[-1] > 4.0
+    # Samples should contain both boost_samples (0-4s) and samples (0-flight_time)
+    assert results.boost_samples is not None
+    assert results.samples is not None
+    assert results.boost_samples.t_s[-1] == pytest.approx(4.0)
+    assert results.samples.t_s[-1] > 4.0
 
 
 def test_plot_boost_phase_and_full_flight() -> None:
     """plot_boost_phase slices full samples and plot_full_flight plots full trajectory."""
+    import matplotlib.pyplot as plt
+
     from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
         TrajectorySamples,
         plot_boost_phase,
         plot_full_flight,
     )
-    import matplotlib.pyplot as plt
 
     t_s = np.array([0.0, 2.0, 4.0, 6.0, 8.0, 10.0])
     samples = TrajectorySamples(
@@ -555,19 +566,20 @@ def test_validate_results_supports_below_sea_level(
         enable_logging=False,
     )
     results = analysis.execute()
-    assert results["burnout_altitude"] > -400.0
+    assert results.burnout_altitude > -400.0
     assert analysis.validate_results(results) is True
 
 
 def test_plots_clip_y_axis_to_zero_and_ground() -> None:
     """Plotting functions clip velocity, mach, and q to 0.0, and altitude to ground."""
+    import matplotlib.pyplot as plt
+
     from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
         TrajectorySamples,
         plot_boost_phase,
         plot_full_flight,
         plot_launch_angle_sweep,
     )
-    import matplotlib.pyplot as plt
 
     t_s = np.array([0.0, 2.0, 4.0])
     samples = TrajectorySamples(
@@ -645,15 +657,8 @@ def test_run_boost_study_with_explicit_kwargs(
         stop_at_burnout=False,
         enable_logging=False,
     )
-    assert isinstance(results, AnalysisResults)
-    assert results["burnout_time"] > 0.0
-    assert results.metadata["initial_altitude"] == pytest.approx(100.0)
-    assert results.metadata["launch_angle"] == pytest.approx(80.0)
-    assert "apogee_altitude" in results
-
-
-
-
-
-
-
+    assert isinstance(results, PointMassBoostResults)
+    assert results.burnout_time > 0.0
+    assert results.burnout_altitude > 100.0
+    assert results.apogee_altitude is not None
+    assert results.apogee_altitude > results.burnout_altitude

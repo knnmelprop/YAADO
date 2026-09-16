@@ -4,17 +4,30 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from YAADO_Core.Foundation.analysis_base import AnalysisResults, FidelityLevel
+from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults, FidelityLevel
 from YAADO_Core.Foundation.flight_logger import (
     FlightLogger,
     YaadoJSONEncoder,
 )
+from YAADO_Core.Foundation.units import Dimensionless, Newtons, Seconds
+
+
+@dataclass(frozen=True)
+class DummyResults(BaseAnalysisResults):
+    """Dummy typed results for logger serialization tests."""
+
+    thrust: Newtons
+    isp: Seconds
+    CL: Dimensionless
+    solver: str = "test_vlm"
+    iterations: int = 10
 
 
 @pytest.fixture
@@ -32,31 +45,6 @@ def clean_test_flight_logger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     for l in loggers_to_close:
         l.close()
-
-
-def test_first_class_units_in_analysis_results():
-    """Verify first-class units metadata and legacy inference in AnalysisResults."""
-    # Explicit units
-    res = AnalysisResults(
-        name="test",
-        fidelity=FidelityLevel.LEVEL_1,
-        data={"thrust": 450.0, "CL": 0.35},
-        units={"thrust": "N", "CL": "-"},
-    )
-    assert res.get_unit("thrust") == "N"
-    assert res.get_unit("CL") == "-"
-    assert res.to_dict()["units"] == {"thrust": "N", "CL": "-"}
-
-    # Unannotated data cleanly defaults to "-" without guessing or string manipulation
-    unannotated_res = AnalysisResults(
-        name="unannotated",
-        fidelity=FidelityLevel.LEVEL_0,
-        data={"thrust_N": 500.0, "isp_s": 1200.0, "mach": 2.0},
-    )
-    assert unannotated_res.units == {}
-    assert unannotated_res.get_unit("thrust_N") == "-"
-    assert unannotated_res.get_unit("isp_s") == "-"
-    assert unannotated_res.get_unit("mach") == "-"
 
 
 def test_flight_logger_directories_created(clean_test_flight_logger):
@@ -104,23 +92,17 @@ def test_save_figure(clean_test_flight_logger):
 
 
 def test_save_and_load_results(clean_test_flight_logger):
-    """Verify saving results.json and summary.csv and reloading AnalysisResults."""
+    """Verify saving results.json and summary.csv and reloading BaseAnalysisResults."""
     logger = clean_test_flight_logger()
 
-    results = AnalysisResults(
+    results = DummyResults(
         name="test_aero",
         fidelity=FidelityLevel.LEVEL_1,
-        data={
-            "thrust": 450.0,
-            "isp": 1850.5,
-            "CL": 0.35,
-        },
-        units={
-            "thrust": "N",
-            "isp": "s",
-            "CL": "-",
-        },
-        metadata={"solver": "test_vlm", "iterations": 10},
+        thrust=450.0,
+        isp=1850.5,
+        CL=0.35,
+        solver="test_vlm",
+        iterations=10,
     )
 
     json_path = logger.save_results(results)
@@ -143,24 +125,34 @@ def test_save_and_load_results(clean_test_flight_logger):
     assert data_dict["thrust"] == ("450", "N")
     assert data_dict["isp"] == ("1850.5", "s")
     assert data_dict["CL"] == ("0.35", "-")
+    assert data_dict["iterations"] == ("10", "-")
 
     assert meta_rows[0] == ["metadata", "value", "unit"]
     meta_dict = {row[0]: (row[1], row[2]) for row in meta_rows[1:]}
     assert meta_dict["solver"] == ("test_vlm", "-")
-    assert meta_dict["iterations"] == ("10", "-")
     assert meta_dict["vehicle"] == ("test_rocket", "-")
     assert meta_dict["analysis"] == ("test_aero", "-")
 
-    # Verify load_results roundtrip
-    loaded = logger.load_results()
+    # Verify load_results payload dictionary
+    raw_payload = logger.load_results()
+    assert raw_payload["analysis_name"] == "test_aero"
+    assert raw_payload["fidelity"] == FidelityLevel.LEVEL_1.value
+    assert raw_payload["data"]["thrust"] == 450.0
+    assert raw_payload["data"]["isp"] == 1850.5
+    assert raw_payload["units"]["thrust"] == "N"
+    assert raw_payload["units"]["isp"] == "s"
+    assert raw_payload["units"]["CL"] == "-"
+
+    # Verify load_results strongly typed roundtrip
+    loaded = logger.load_results(result_cls=DummyResults)
+    assert isinstance(loaded, DummyResults)
     assert loaded.name == "test_aero"
     assert loaded.fidelity == FidelityLevel.LEVEL_1
-    assert loaded.data["thrust"] == 450.0
-    assert loaded.data["isp"] == 1850.5
-    assert loaded.units["thrust"] == "N"
-    assert loaded.units["isp"] == "s"
-    assert loaded.units["CL"] == "-"
-    assert loaded.metadata["solver"] == "test_vlm"
+    assert loaded.thrust == 450.0
+    assert loaded.isp == 1850.5
+    assert loaded.CL == 0.35
+    assert loaded.solver == "test_vlm"
+    assert loaded.iterations == 10
 
 
 def test_yaado_json_encoder_numpy():
@@ -212,10 +204,12 @@ def test_disabled_mode_zero_overhead(tmp_path):
     assert saved_fig is None
     assert not logger.output_dir.exists()
 
-    sample_res = AnalysisResults(
+    sample_res = DummyResults(
         name="test_disabled",
         fidelity=FidelityLevel.LEVEL_0,
-        data={"x": 1.0},
+        thrust=100.0,
+        isp=200.0,
+        CL=0.1,
     )
     saved_res = logger.save_results(sample_res)
     assert saved_res is None
@@ -227,9 +221,9 @@ def test_disabled_mode_zero_overhead(tmp_path):
 
 
 def test_save_results_rejects_dict_or_invalid_type(clean_test_flight_logger):
-    """Verify save_results strictly requires an AnalysisResults instance."""
+    """Verify save_results strictly requires a BaseAnalysisResults instance."""
     logger = clean_test_flight_logger()
-    with pytest.raises(TypeError, match="AnalysisResults"):
+    with pytest.raises(TypeError, match="BaseAnalysisResults"):
         logger.save_results({"data": {"x": 1}})  # type: ignore[arg-type]
 
 
@@ -263,3 +257,15 @@ def test_save_json_and_save_text(clean_test_flight_logger):
     assert text_path is not None
     assert text_path.is_file()
     assert text_path.read_text(encoding="utf-8") == "line1\nline2"
+
+
+def test_context_manager_protocol(tmp_path: Path):
+    """Verify FlightLogger cleanly operates as a context manager."""
+    with FlightLogger("cm_vehicle", "cm_analysis", enabled=True) as logger:
+        logger.output_dir = tmp_path / "cm_run"
+        logger.output_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Inside context manager")
+        assert len(logger.logger.handlers) > 0
+
+    # Handlers flushed and removed on exit
+    assert len(logger.logger.handlers) == 0
