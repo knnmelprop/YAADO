@@ -14,7 +14,8 @@ from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 from pydantic import BaseModel
 
@@ -487,7 +488,7 @@ class FlightLogger:
 
         raw_fidelity = payload["fidelity"]
         if not isinstance(raw_fidelity, str):
-            raise ValueError(
+            raise TypeError(
                 f"Corrupted checkpoint in {target_path}: 'fidelity' must be an enum string, got {type(raw_fidelity).__name__}"
             )
 
@@ -629,7 +630,7 @@ class FlightLogger:
     # Lifecycle & Cleanup
     # -------------------------------------------------------------------------
 
-    def __enter__(self) -> FlightLogger:
+    def __enter__(self) -> Self:
         """Enter runtime context manager."""
         return self
 
@@ -637,7 +638,7 @@ class FlightLogger:
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: Any,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Exit runtime context manager and close all handlers."""
         self.close()
