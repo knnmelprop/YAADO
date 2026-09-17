@@ -11,12 +11,12 @@ import shutil
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class SolverInfo:
     """Metadata about an external solver.
 
     Attributes:
-        name: Registry key, e.g. ``"avl"``.
+        name: Registry key.
         executable: Executable name looked up on ``PATH`` (empty for
             pure-Python solvers).
         description: One-line human description.
@@ -40,18 +40,40 @@ class SolverRegistry:
         self._solvers: dict[str, SolverInfo] = {}
 
     def register(self, info: SolverInfo) -> None:
-        """Register a solver; overwrites any existing entry of same name."""
+        """Register a solver; overwrites any existing entry of same name.
+
+        Args:
+            info: Solver metadata to register.
+        """
         self._solvers[info.name] = info
+
+    def is_registered(self, name: str) -> bool:
+        """Return True if a solver with the given name is registered.
+
+        Args:
+            name: Solver identifier to query.
+
+        Returns:
+            True if registered, False otherwise.
+        """
+        return name in self._solvers
 
     def get(self, name: str) -> SolverInfo:
         """Return solver info.
+
+        Args:
+            name: Identifier of the registered solver.
+
+        Returns:
+            The resolved SolverInfo instance.
 
         Raises:
             KeyError: If the solver is not registered.
         """
         if name not in self._solvers:
+            available = sorted(self._solvers.keys())
             raise KeyError(
-                f"Solver {name!r} not registered; available: {sorted(self._solvers)}"
+                f"Solver {name!r} not registered; available: {available}"
             )
         return self._solvers[name]
 
@@ -59,11 +81,10 @@ class SolverRegistry:
         """Return names of registered solvers usable in this environment."""
         return sorted(n for n, s in self._solvers.items() if s.is_available())
 
+    def all_solvers(self) -> list[str]:
+        """Return names of all registered solvers."""
+        return sorted(self._solvers.keys())
 
-#: Default registry pre-populated with the solvers used by YAADO.
+
+#: Default global registry instance (initially empty; solvers register upon verification).
 DEFAULT_REGISTRY = SolverRegistry()
-DEFAULT_REGISTRY.register(SolverInfo("avl", "avl", "Athena Vortex Lattice (VLM)"))
-DEFAULT_REGISTRY.register(SolverInfo("xfoil", "xfoil", "XFOIL 2-D airfoil analysis"))
-DEFAULT_REGISTRY.register(
-    SolverInfo("helmbold", "", "Analytical finite-wing lift-slope correlation")
-)
