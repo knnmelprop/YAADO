@@ -13,6 +13,7 @@ import pytest
 
 from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults, FidelityLevel
 from YAADO_Core.Foundation.flight_logger import (
+    CheckpointPayload,
     FlightLogger,
     YaadoJSONEncoder,
 )
@@ -133,18 +134,19 @@ def test_save_and_load_results(clean_test_flight_logger):
     assert meta_dict["vehicle"] == ("test_rocket", "-")
     assert meta_dict["analysis"] == ("test_aero", "-")
 
-    # Verify load_results payload dictionary
-    raw_payload = logger.load_results()
-    assert raw_payload["analysis_name"] == "test_aero"
-    assert raw_payload["fidelity"] == FidelityLevel.LEVEL_1.value
-    assert raw_payload["data"]["thrust"] == 450.0
-    assert raw_payload["data"]["isp"] == 1850.5
-    assert raw_payload["units"]["thrust"] == "N"
-    assert raw_payload["units"]["isp"] == "s"
-    assert raw_payload["units"]["CL"] == "-"
+    # Verify load_checkpoint returns strongly typed CheckpointPayload
+    raw_payload = logger.load_checkpoint()
+    assert isinstance(raw_payload, CheckpointPayload)
+    assert raw_payload.analysis_name == "test_aero"
+    assert raw_payload.fidelity == FidelityLevel.LEVEL_1
+    assert raw_payload.data["thrust"] == 450.0
+    assert raw_payload.data["isp"] == 1850.5
+    assert raw_payload.units["thrust"] == "N"
+    assert raw_payload.units["isp"] == "s"
+    assert raw_payload.units["CL"] == "-"
 
     # Verify load_results strongly typed roundtrip
-    loaded = logger.load_results(result_cls=DummyResults)
+    loaded = logger.load_results(DummyResults)
     assert isinstance(loaded, DummyResults)
     assert loaded.name == "test_aero"
     assert loaded.fidelity == FidelityLevel.LEVEL_1
@@ -156,7 +158,7 @@ def test_save_and_load_results(clean_test_flight_logger):
 
 
 def test_yaado_json_encoder_numpy():
-    """Verify YaadoJSONEncoder safely serializes NumPy types."""
+    """Verify YaadoJSONEncoder safely serializes NumPy types and Enums as name strings."""
     data = {
         "float_val": np.float64(3.14159),
         "int_val": np.int64(42),
@@ -170,7 +172,7 @@ def test_yaado_json_encoder_numpy():
     assert abs(decoded["float_val"] - 3.14159) < 1e-5
     assert decoded["int_val"] == 42
     assert decoded["array_val"] == [1.0, 2.0, 3.0]
-    assert decoded["fidelity"] == 2
+    assert decoded["fidelity"] == "LEVEL_2"
     assert decoded["path"] == "/test/path"
 
 
@@ -227,21 +229,65 @@ def test_save_results_rejects_dict_or_invalid_type(clean_test_flight_logger):
         logger.save_results({"data": {"x": 1}})  # type: ignore[arg-type]
 
 
-def test_load_results_rejects_missing_or_invalid_fidelity(clean_test_flight_logger):
-    """Verify load_results fails loudly on missing or invalid fidelity."""
+def test_load_checkpoint_rejects_missing_required_keys(clean_test_flight_logger):
+    """Verify load_checkpoint fails loudly when required schema keys are missing."""
     logger = clean_test_flight_logger()
 
-    # Missing fidelity key
-    bad_checkpoint_1 = logger.output_dir / "missing_fidelity.json"
-    bad_checkpoint_1.write_text(json.dumps({"data": {"x": 1}}), encoding="utf-8")
-    with pytest.raises(ValueError, match="missing 'fidelity' key"):
-        logger.load_results("missing_fidelity.json")
+    bad_checkpoint = logger.output_dir / "missing_keys.json"
+    bad_checkpoint.write_text(json.dumps({"data": {"x": 1}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing required key"):
+        logger.load_checkpoint("missing_keys.json")
 
-    # Invalid fidelity integer
-    bad_checkpoint_2 = logger.output_dir / "invalid_fidelity.json"
-    bad_checkpoint_2.write_text(json.dumps({"fidelity": 99, "data": {"x": 1}}), encoding="utf-8")
+
+def test_load_checkpoint_rejects_non_string_or_invalid_fidelity(clean_test_flight_logger):
+    """Verify load_checkpoint fails loudly on non-string or invalid fidelity."""
+    logger = clean_test_flight_logger()
+
+    base_checkpoint = {
+        "vehicle_name": "test_rocket",
+        "analysis_name": "test_aero",
+        "timestamp": "2026-01-01_120000",
+        "fidelity": "LEVEL_1",
+        "data": {},
+        "units": {},
+        "details": {},
+    }
+
+    # Non-string fidelity (e.g. int) rejected by strict data contract
+    bad_checkpoint_int = dict(base_checkpoint, fidelity=1)
+    (logger.output_dir / "int_fidelity.json").write_text(
+        json.dumps(bad_checkpoint_int), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="must be an enum string"):
+        logger.load_checkpoint("int_fidelity.json")
+
+    # Invalid fidelity enum string
+    bad_checkpoint_invalid = dict(base_checkpoint, fidelity="LEVEL_UNKNOWN")
+    (logger.output_dir / "invalid_fidelity.json").write_text(
+        json.dumps(bad_checkpoint_invalid), encoding="utf-8"
+    )
     with pytest.raises(ValueError, match="invalid fidelity level"):
-        logger.load_results("invalid_fidelity.json")
+        logger.load_checkpoint("invalid_fidelity.json")
+
+
+def test_load_results_rejects_invalid_fidelity_in_details(clean_test_flight_logger):
+    """Verify load_results fails loudly when details contains invalid fidelity."""
+    logger = clean_test_flight_logger()
+
+    base_checkpoint = {
+        "vehicle_name": "test_rocket",
+        "analysis_name": "test_aero",
+        "timestamp": "2026-01-01_120000",
+        "fidelity": "LEVEL_1",
+        "data": {},
+        "units": {},
+        "details": {"fidelity": "INVALID_NAME", "thrust": 100.0, "isp": 200.0, "CL": 0.5},
+    }
+    (logger.output_dir / "invalid_details.json").write_text(
+        json.dumps(base_checkpoint), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="Invalid fidelity name in details"):
+        logger.load_results(DummyResults, "invalid_details.json")
 
 
 def test_save_json_and_save_text(clean_test_flight_logger):

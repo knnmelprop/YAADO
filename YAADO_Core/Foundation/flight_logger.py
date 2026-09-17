@@ -10,20 +10,43 @@ from __future__ import annotations
 import csv
 import json
 import logging
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     import matplotlib.figure
 
-    from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults
+    from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults, FidelityLevel
 
 T = TypeVar("T", bound="BaseAnalysisResults")
+
+
+@dataclass(frozen=True)
+class CheckpointPayload:
+    """Strongly typed container for serialized checkpoint data.
+
+    Attributes:
+        vehicle_name: Name of the analyzed vehicle configuration.
+        analysis_name: Name of the analysis method.
+        timestamp: Timestamp of the run directory.
+        fidelity: Fidelity level of the analysis.
+        data: Mapping of metric scalar names to floats in SI units.
+        units: Mapping of metric scalar names to their SI unit symbol strings.
+        details: Complete dictionary of serialized dataclass fields.
+    """
+
+    vehicle_name: str
+    analysis_name: str
+    timestamp: str
+    fidelity: FidelityLevel
+    data: dict[str, float]
+    units: dict[str, str]
+    details: dict[str, Any]
 
 
 class YaadoJSONEncoder(json.JSONEncoder):
@@ -41,8 +64,9 @@ class YaadoJSONEncoder(json.JSONEncoder):
             - NumPy ndarrays -> list via ``.tolist()``.
             - Pydantic models -> dict via ``.model_dump(mode="json")``.
             - Path objects -> str.
-            - Enums -> enum value.
+            - Enums -> enum name string.
             - datetime/date objects -> ISO 8601 string.
+            - Dataclasses -> dict via ``asdict()``.
         """
         # NumPy arrays
         if hasattr(o, "tolist") and callable(o.tolist):
@@ -52,7 +76,7 @@ class YaadoJSONEncoder(json.JSONEncoder):
             return o.item()
         # Enums (e.g. FidelityLevel)
         if isinstance(o, Enum):
-            return o.value
+            return o.name
         # Pydantic v2 models
         if isinstance(o, BaseModel):
             return o.model_dump(mode="json")
@@ -66,6 +90,19 @@ class YaadoJSONEncoder(json.JSONEncoder):
         if is_dataclass(o) and not isinstance(o, type):
             return asdict(o)
         return super().default(o)
+
+    def iterencode(self, o: Any, _one_shot: bool = False) -> Any:
+        """Encode object, ensuring Enums (including IntEnum) serialize as name strings."""
+        def _sanitize(val: Any) -> Any:
+            if isinstance(val, Enum):
+                return val.name
+            if isinstance(val, dict):
+                return {k: _sanitize(v) for k, v in val.items()}
+            if isinstance(val, (list, tuple)):
+                return [_sanitize(v) for v in val]
+            return val
+
+        return super().iterencode(_sanitize(o), _one_shot=_one_shot)
 
 
 class FlightLogger:
@@ -106,7 +143,7 @@ class FlightLogger:
         self.log_level = log_level
 
         # Format datetime string for folder naming: e.g. "2026-09-09_215332"
-        self.timestamp_str = datetime.now().strftime("%Y-%m-%d_%H%M")  # noqa: DTZ005
+        self.timestamp_str = datetime.now().strftime("%Y-%m-%d_%H%M%S")  # noqa: DTZ005
 
         # Folder layout: FlightLogs/{vehicle_name}/{analysis_name}_{datetime}/
         self.run_folder_name = f"{analysis_name}_{self.timestamp_str}"
@@ -376,24 +413,24 @@ class FlightLogger:
             "vehicle_name": self.vehicle_name,
             "analysis_name": analysis_name,
             "timestamp": self.timestamp_str,
-            "fidelity": results.fidelity.value,
+            "fidelity": results.fidelity.name,
             "data": scalars_dict,
             "units": units_dict,
             "details": asdict(results),
         }
 
-        with open(target_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, cls=YaadoJSONEncoder, indent=indent)
+        with open(target_path, "w", encoding="utf-8") as f_out:
+            json.dump(payload, f_out, cls=YaadoJSONEncoder, indent=indent)
 
         # Automatically write summary.csv alongside results.json
         if scalars_dict:
-            metadata: dict[str, Any] = {"fidelity": results.fidelity.value}
-            for f in fields(results):
-                if f.name in ("fidelity", "name"):
+            metadata: dict[str, Any] = {"fidelity": results.fidelity.name}
+            for field_obj in fields(results):
+                if field_obj.name in ("fidelity", "name"):
                     continue
-                val = getattr(results, f.name)
+                val = getattr(results, field_obj.name)
                 if isinstance(val, (bool, str, Enum)):
-                    metadata[f.name] = val.value if isinstance(val, Enum) else val
+                    metadata[field_obj.name] = val.name if isinstance(val, Enum) else val
 
             summary_csv_path = self.output_dir / "summary.csv"
             self._write_summary_csv(
@@ -406,47 +443,22 @@ class FlightLogger:
         self.info("Saved results checkpoint to %s", target_path)
         return target_path
 
-    @overload
-    def load_results(
+    def load_checkpoint(
         self,
         filename: str = "results.json",
-        result_cls: None = None,
-    ) -> dict[str, Any]: ...
-
-    @overload
-    def load_results(
-        self,
-        filename: str = "results.json",
-        *,
-        result_cls: type[T],
-    ) -> T: ...
-
-    @overload
-    def load_results(
-        self,
-        filename: str,
-        result_cls: type[T],
-    ) -> T: ...
-
-    def load_results(
-        self,
-        filename: str = "results.json",
-        result_cls: type[T] | None = None,
-    ) -> T | dict[str, Any]:
-        """Load an analysis checkpoint from this run directory.
+    ) -> CheckpointPayload:
+        """Load the simulation checkpoint metadata and details from this run directory.
 
         Args:
             filename: Checkpoint filename in ``self.output_dir``. Defaults to "results.json".
-            result_cls: Optional strongly typed result class inheriting from
-                :class:`BaseAnalysisResults`. If provided, reconstructs the typed instance
-                using ``details``. If None, returns the raw checkpoint payload dictionary.
 
         Returns:
-            Reconstructed typed result instance or checkpoint payload dictionary.
+            Strongly typed CheckpointPayload containing verified checkpoint contents.
 
         Raises:
             FileNotFoundError: If the specified checkpoint file does not exist.
-            ValueError: If the checkpoint JSON is missing 'fidelity' or contains an invalid fidelity level.
+            ValueError: If the checkpoint JSON is missing required keys, contains an invalid fidelity
+                level, or 'fidelity' is not an enum string.
         """
         from YAADO_Core.Foundation.analysis_base import FidelityLevel
 
@@ -455,31 +467,86 @@ class FlightLogger:
         if not target_path.is_file():
             raise FileNotFoundError(f"Results checkpoint not found at: {target_path}")
 
-        with open(target_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        with open(target_path, "r", encoding="utf-8") as f_in:
+            payload = json.load(f_in)
 
-        if "fidelity" not in payload:
-            raise ValueError(f"Corrupted checkpoint in {target_path}: missing 'fidelity' key")
+        required_keys = {
+            "vehicle_name",
+            "analysis_name",
+            "timestamp",
+            "fidelity",
+            "data",
+            "units",
+            "details",
+        }
+        missing_keys = sorted(required_keys - payload.keys())
+        if missing_keys:
+            raise ValueError(
+                f"Corrupted checkpoint in {target_path}: missing required key(s): {', '.join(missing_keys)}"
+            )
+
+        raw_fidelity = payload["fidelity"]
+        if not isinstance(raw_fidelity, str):
+            raise ValueError(
+                f"Corrupted checkpoint in {target_path}: 'fidelity' must be an enum string, got {type(raw_fidelity).__name__}"
+            )
 
         try:
-            fidelity = FidelityLevel(payload["fidelity"])
-        except ValueError as err:
-            valid_levels = [lvl.value for lvl in FidelityLevel]
+            fidelity = FidelityLevel[raw_fidelity]
+        except KeyError as err:
+            valid_levels = [lvl.name for lvl in FidelityLevel]
             raise ValueError(
-                f"Corrupted checkpoint in {target_path}: invalid fidelity level {payload['fidelity']!r}. "
+                f"Corrupted checkpoint in {target_path}: invalid fidelity level {raw_fidelity!r}. "
                 f"Must be one of {valid_levels}."
             ) from err
 
-        if result_cls is not None:
-            details = dict(payload.get("details", {}))
-            if "fidelity" in details and isinstance(details["fidelity"], str):
-                try:
-                    details["fidelity"] = FidelityLevel(details["fidelity"])
-                except ValueError:
-                    pass
-            return result_cls(**details)
+        return CheckpointPayload(
+            vehicle_name=payload["vehicle_name"],
+            analysis_name=payload["analysis_name"],
+            timestamp=payload["timestamp"],
+            fidelity=fidelity,
+            data=payload["data"],
+            units=payload["units"],
+            details=payload["details"],
+        )
 
-        return payload
+    def load_results(
+        self,
+        result_cls: type[T],
+        filename: str = "results.json",
+    ) -> T:
+        """Deserialize a simulation checkpoint into a strongly typed BaseAnalysisResults container.
+
+        Args:
+            result_cls: Strongly typed result class inheriting from :class:`BaseAnalysisResults`.
+            filename: Checkpoint filename in ``self.output_dir``. Defaults to "results.json".
+
+        Returns:
+            Reconstructed typed result instance of type ``T``.
+
+        Raises:
+            FileNotFoundError: If the specified checkpoint file does not exist.
+            ValueError: If the checkpoint JSON is invalid or contains an invalid fidelity level.
+        """
+        from YAADO_Core.Foundation.analysis_base import FidelityLevel
+
+        checkpoint = self.load_checkpoint(filename=filename)
+        details = dict(checkpoint.details)
+        if "fidelity" in details:
+            fid_val = details["fidelity"]
+            if not isinstance(fid_val, str):
+                raise ValueError(
+                    f"Field 'fidelity' in details must be an enum string, got {type(fid_val).__name__}"
+                )
+            try:
+                details["fidelity"] = FidelityLevel[fid_val]
+            except KeyError as err:
+                valid_levels = [lvl.name for lvl in FidelityLevel]
+                raise ValueError(
+                    f"Invalid fidelity name in details: {fid_val!r}. Must be one of {valid_levels}."
+                ) from err
+
+        return result_cls(**details)
 
     # -------------------------------------------------------------------------
     # Auxiliary Artifact Management
