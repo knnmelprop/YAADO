@@ -201,7 +201,7 @@ def test_disabled_mode_zero_overhead(tmp_path):
 
     assert not logger.output_dir.exists()
 
-    fig, ax = plt.subplots()
+    fig, _ax = plt.subplots()
     saved_fig = logger.save_figure(fig, "plot.png")
     assert saved_fig is None
     assert not logger.output_dir.exists()
@@ -258,7 +258,7 @@ def test_load_checkpoint_rejects_non_string_or_invalid_fidelity(clean_test_fligh
     (logger.output_dir / "int_fidelity.json").write_text(
         json.dumps(bad_checkpoint_int), encoding="utf-8"
     )
-    with pytest.raises(ValueError, match="must be an enum string"):
+    with pytest.raises(TypeError, match="must be an enum string"):
         logger.load_checkpoint("int_fidelity.json")
 
     # Invalid fidelity enum string

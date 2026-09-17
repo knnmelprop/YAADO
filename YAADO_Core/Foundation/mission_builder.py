@@ -46,7 +46,7 @@ class MissionBuilder:
 
     def add_segment(
         self, name: str, segment_type: str, **parameters: Any
-    ) -> "MissionBuilder":
+    ) -> MissionBuilder:
         """Append a segment and return ``self`` for chaining.
 
         Raises:

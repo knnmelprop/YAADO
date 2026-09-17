@@ -1,6 +1,7 @@
 """Unit tests for YAADO_Core.Foundation.constants."""
 
 import math
+
 import pytest
 
 import YAADO_Core.Foundation.constants as const

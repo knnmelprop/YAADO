@@ -21,16 +21,22 @@ from .solver_registry import (
 from .vehicle_base import (
     BaseVehicleConfig,
 )
+from .vehicle_factory import (
+    VehicleFactory,
+)
 
 __all__ = [
+    "DEFAULT_REGISTRY",
     "BaseAnalysis",
     "BaseAnalysisResults",
     "BaseVehicleConfig",
     "CheckpointPayload",
-    "DEFAULT_REGISTRY",
     "FidelityLevel",
     "FlightLogger",
     "SolverInfo",
     "SolverRegistry",
+    "VehicleFactory",
     "YaadoJSONEncoder",
 ]
+
+
