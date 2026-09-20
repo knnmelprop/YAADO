@@ -10,9 +10,10 @@ This directory contains the core abstractions, data contracts, and runtime infra
 | [`units.py`](units.py) | Semantic SI Types (`Meters`, `Seconds`, `Newtons`, etc.) | Semantic type aliases using `typing.Annotated` for canonical SI physics fields. |
 | [`solver_registry.py`](solver_registry.py) | `SolverRegistry`, `SolverInfo` | External tool dependency tracker (AVL, XFOIL, SU2, pyCycle). |
 | [`vehicle_base.py`](vehicle_base.py) | `BaseVehicleConfig` | Global declarative I/O manager and Pydantic schema for vehicle configurations. |
-| [`vehicle_factory.py`](vehicle_factory.py) | `suave_vehicle_from_config` | Superstructure translating declarative vehicle configs into `SUAVE.Vehicle` models. |
+| [`vehicle_factory.py`](vehicle_factory.py) | `VehicleFactory` | Superstructure translating declarative vehicle configs into `SUAVE.Vehicle` models. |
 | [`flight_logger.py`](flight_logger.py) | `FlightLogger`, `YaadoJSONEncoder` | Run telemetry, diagnostic text logging, visual artifact management, and checkpoints. |
-| [`mission_builder.py`](mission_builder.py) | `MissionBuilder`, `MissionSegment` | Solver-agnostic ordered mission profile builder (climb, cruise, boost). |
+| [`mission_builder.py`](mission_builder.py) | `MissionBuilder`, `MissionProfile`, `AnyMissionSegment` | Solver-agnostic ordered mission profile builder and typed segment schemas. |
+
 
 ## 1. Analysis & Data Contracts (`analysis_base.py`, `units.py`, `solver_registry.py`)
 
@@ -79,5 +80,7 @@ FlightLogs/
 
 ## 4. Mission Profile Definition (`mission_builder.py`)
 
-### 4.1 `MissionBuilder` & `MissionSegment`
-Defines an ordered mission profile (e.g., climb, cruise, boost, stage separation) as plain, solver-agnostic records. These records are later mapped onto SUAVE mission segments or OpenMDAO trajectory phases during mission evaluation.
+### 4.1 `MissionBuilder`, `MissionProfile` & Typed Segments
+Defines an ordered mission profile (e.g., boost, climb, cruise, descent, staging) as strongly-typed, immutable schemas without duplicating vehicle design parameters (`BaseVehicleConfig` remains the Single Source of Truth).
+
+`MissionBuilder` accepts pre-validated segment models directly via `.add_segment(...)`, enforces segment name uniqueness across the profile, and cross-validates subsystem references (`active_propulsion`, `jettison_component`) against the vehicle before producing an immutable `MissionProfile`. These records are mapped onto SUAVE mission segments, 3DoF/6DoF trajectory phases, or OpenMDAO trajectory optimization constraints.

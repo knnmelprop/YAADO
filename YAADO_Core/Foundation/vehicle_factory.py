@@ -15,9 +15,11 @@ import math
 from collections.abc import Callable
 from typing import Any, ClassVar
 
+import YAADO_Core.modules.suave_compat  # noqa: F401  # apply modern-Python shims before importing SUAVE
+
+# isort: split
 import SUAVE
 
-import YAADO_Core.modules.suave_compat  # noqa: F401  # apply modern-Python shims before importing SUAVE
 from YAADO_Core.ComponentStore import (
     AnyAeroComponent,
     AnyBodyComponent,
