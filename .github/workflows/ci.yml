@@ -24,5 +24,8 @@ jobs:
       - name: Install core runtime deps
         run: uv sync
 
+      - name: Bootstrap submodules and install SUAVE
+        run: ./external/bootstrap_submodules.sh
+
       - name: Run fast + cfd_smoke tiers
         run: uv run pytest -q
