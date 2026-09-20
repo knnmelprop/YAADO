@@ -305,11 +305,10 @@ def test_save_json_and_save_text(clean_test_flight_logger):
     assert text_path.read_text(encoding="utf-8") == "line1\nline2"
 
 
-def test_context_manager_protocol(tmp_path: Path):
+def test_context_manager_protocol(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify FlightLogger cleanly operates as a context manager."""
+    monkeypatch.chdir(tmp_path)
     with FlightLogger("cm_vehicle", "cm_analysis", enabled=True) as logger:
-        logger.output_dir = tmp_path / "cm_run"
-        logger.output_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Inside context manager")
         assert len(logger.logger.handlers) > 0
 

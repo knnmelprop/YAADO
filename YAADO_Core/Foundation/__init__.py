@@ -13,6 +13,17 @@ from .flight_logger import (
     FlightLogger,
     YaadoJSONEncoder,
 )
+from .mission_builder import (
+    AnyMissionSegment,
+    BaseMissionSegment,
+    BoostSegment,
+    ClimbSegment,
+    CruiseSegment,
+    DescentSegment,
+    MissionBuilder,
+    MissionProfile,
+    StagingSegment,
+)
 from .solver_registry import (
     DEFAULT_REGISTRY,
     SolverInfo,
@@ -27,16 +38,26 @@ from .vehicle_factory import (
 
 __all__ = [
     "DEFAULT_REGISTRY",
+    "AnyMissionSegment",
     "BaseAnalysis",
     "BaseAnalysisResults",
+    "BaseMissionSegment",
     "BaseVehicleConfig",
+    "BoostSegment",
     "CheckpointPayload",
+    "ClimbSegment",
+    "CruiseSegment",
+    "DescentSegment",
     "FidelityLevel",
     "FlightLogger",
+    "MissionBuilder",
+    "MissionProfile",
     "SolverInfo",
     "SolverRegistry",
+    "StagingSegment",
     "VehicleFactory",
     "YaadoJSONEncoder",
 ]
+
 
 
