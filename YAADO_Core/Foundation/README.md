@@ -83,4 +83,28 @@ FlightLogs/
 ### 4.1 `MissionBuilder`, `MissionProfile` & Typed Segments
 Defines an ordered mission profile (e.g., boost, climb, cruise, descent, staging) as strongly-typed, immutable schemas without duplicating vehicle design parameters (`BaseVehicleConfig` remains the Single Source of Truth).
 
-`MissionBuilder` accepts pre-validated segment models directly via `.add_segment(...)`, enforces segment name uniqueness across the profile, and cross-validates subsystem references (`active_propulsion`, `jettison_component`) against the vehicle before producing an immutable `MissionProfile`. These records are mapped onto SUAVE mission segments, 3DoF/6DoF trajectory phases, or OpenMDAO trajectory optimization constraints.
+Segment schemas are validated via Pydantic v2 models with strict canonical SI units:
+* **`BoostSegment`**: Launch angle, azimuth, rail length, active booster reference.
+* **`ClimbSegment`**: Target altitude, target Mach/velocity, climb rate, throttle.
+* **`CruiseSegment`**: Cruising altitude, Mach/velocity, distance or duration termination.
+* **`DescentSegment`**: Target altitude, descent speed, throttle.
+* **`StagingSegment`**: Coast duration, jettisoned component key.
+
+`MissionBuilder` accepts pre-validated segment models directly via `.add_segment(...)`, enforces segment name uniqueness across the profile, and cross-validates subsystem references (`active_propulsion`, `jettison_component`) against the vehicle before producing an immutable `MissionProfile`. Segments are accessed directly via the strongly-typed `profile.segments` tuple:
+
+```python
+builder = MissionBuilder("harpoon_sea_skim", vehicle=vehicle)
+profile = (
+    builder
+    .add_segment(BoostSegment(name="launch", launch_angle=83.0, active_propulsion="launch_booster"))
+    .add_segment(StagingSegment(name="booster_sep", duration=0.5, jettison_component="launch_booster"))
+    .add_segment(ClimbSegment(name="ingress", target_altitude=300.0, target_mach=0.8, active_propulsion="sustainer"))
+    .add_segment(CruiseSegment(name="sea_skim", altitude=15.0, mach=0.85, distance=120000.0, active_propulsion="sustainer"))
+    .add_segment(DescentSegment(name="terminal", target_altitude=0.0, target_mach=0.85))
+    .build()
+)
+
+# Segments stored as an immutable tuple
+assert len(profile.segments) == 5
+assert profile.segments[0].name == "launch"
+```
