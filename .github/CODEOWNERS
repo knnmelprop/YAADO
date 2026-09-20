@@ -1,13 +1,28 @@
 * @Arseni10Lk
 
-# Hopefully other people will be added
-analyses/aerodynamics/ @Arseni10Lk
-analyses/aero/         @Arseni10Lk
-analyses/propulsion/   @Arseni10Lk
-src/schemas/           @Arseni10Lk
-vehicles/              @Arseni10Lk
-workflows/             @Arseni10Lk
-analyses/trajectory/   @Arseni10Lk
-docs/                  @Arseni10Lk
-external/              @Arseni10Lk
-.github/               @Arseni10Lk
+# Core Framework
+/YAADO_Core/                         @Arseni10Lk
+/YAADO_Core/Foundation/              @Arseni10Lk
+/YAADO_Core/FlightDeck/              @Arseni10Lk
+/YAADO_Core/ComponentStore/          @Arseni10Lk
+/YAADO_Core/modules/                 @Arseni10Lk
+/YAADO_Core/modules/wind_tunnel/     @Arseni10Lk
+/YAADO_Core/modules/powerplant/      @Arseni10Lk
+/YAADO_Core/modules/flight_dynamics/ @Arseni10Lk
+/YAADO_Core/modules/stability_control/ @Arseni10Lk
+/YAADO_Core/modules/airframe/        @Arseni10Lk
+
+# CLI and User Assembly
+/Terminal/                           @Arseni10Lk
+
+# Declarative Configs and Telemetry
+/Hangar/                             @Arseni10Lk
+/FlightLogs/                         @Arseni10Lk
+
+# Test Suite
+/tests/                              @Arseni10Lk
+
+# Integrations, Docs & CI/CD
+/external/                           @Arseni10Lk
+/docs/                               @Arseni10Lk
+/.github/                            @Arseni10Lk
