@@ -10,7 +10,6 @@ into memory *before* SUAVE is imported.
 
 import collections
 import collections.abc
-import sys
 
 try:
     import scipy.integrate
@@ -26,10 +25,10 @@ def apply_shims() -> None:
     # 1. Fix SUAVE's vendored `pint` library
     # In Python 3.10, the abstract base classes were removed from `collections`
     # and strictly moved to `collections.abc`.
-    collections.MutableMapping = collections.abc.MutableMapping
-    collections.Mapping = collections.abc.Mapping
-    collections.Iterable = collections.abc.Iterable
-    collections.Callable = collections.abc.Callable
+    collections.MutableMapping = collections.abc.MutableMapping     # type: ignore[attr-defined]
+    collections.Mapping = collections.abc.Mapping                   # type: ignore[attr-defined]
+    collections.Iterable = collections.abc.Iterable                 # type: ignore[attr-defined]
+    collections.Callable = collections.abc.Callable                 # type: ignore[attr-defined]
 
     if not SCIPY_AVAILABLE:
         return
@@ -37,7 +36,7 @@ def apply_shims() -> None:
     # 2. Fix SUAVE's Battery networks
     # scipy.integrate.cumtrapz was renamed to cumulative_trapezoid in SciPy 1.14
     if not hasattr(scipy.integrate, "cumtrapz"):
-        scipy.integrate.cumtrapz = scipy.integrate.cumulative_trapezoid
+        scipy.integrate.cumtrapz = scipy.integrate.cumulative_trapezoid  # type: ignore[attr-defined]
 
     # 3. Fix SUAVE's Cryogenic_Lead distributors
     # scipy.misc.derivative was completely removed in SciPy 1.12.
@@ -47,7 +46,8 @@ def apply_shims() -> None:
     if not hasattr(scipy.misc, "derivative"):
         def _derivative(func, x0, dx=1.0, n=1, args=(), order=3):
             return (func(x0 + dx, *args) - func(x0 - dx, *args)) / (2.0 * dx)
-        scipy.misc.derivative = _derivative
+
+        scipy.misc.derivative = _derivative  # type: ignore[attr-defined]
 
 
 # Automatically apply the shims when this module is imported

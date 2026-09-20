@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -23,10 +23,14 @@ class ControlSurface(BaseModel):
         span_fraction_start: The inboard starting position as a fraction of the span. (Range: 0.0 to 1.0)
         span_fraction_end: The outboard ending position as a fraction of the span. (Range: 0.0 to 1.0)
         chord_fraction: The fraction of the chord taken up by the control surface. (Range: 0.0 to 1.0)
-        max_deflection_deg: Maximum physical deflection angle in degrees. (> 0)
+        max_deflection: Maximum physical deflection angle in degrees. (> 0)
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    UNITS: ClassVar[dict[str, str]] = {
+        "max_deflection": "deg",
+    }
 
     name: str = Field(
         examples=["aft_fin_actuator_tab"],
@@ -54,7 +58,7 @@ class ControlSurface(BaseModel):
         examples=[0.28],
         description='''The fraction of the chord taken up by the control surface. (Range: 0.0 to 1.0)'''
     )
-    max_deflection_deg: float = Field(
+    max_deflection: float = Field(
         gt=0.0,
         examples=[30.0],
         description='''Maximum physical deflection angle in degrees. (> 0)'''
@@ -68,10 +72,10 @@ class Wings(BaseModel):
 
     Attributes:
         aspect_ratio: Wing aspect ratio b^2/S. (> 0)
-        sweep_deg: Quarter-chord sweep in degrees. (Range: -10 to 70)
+        sweep: Quarter-chord sweep in degrees. (Range: -10 to 70)
         taper_ratio: Tip/root chord ratio. (Range: 0 to 1)
-        span_m: Wing span in meters. (> 0)
-        dihedral_deg: Dihedral angle in degrees. (Range: -20 to 20)
+        span: Wing span in meters. (> 0)
+        dihedral: Dihedral angle in degrees. (Range: -20 to 20)
         airfoil_root: Root airfoil designation (e.g. "NACA2412").
         airfoil_tip: Tip airfoil designation. Defaults to root airfoil if omitted.
         control_surfaces: List of control surfaces attached to the wing.
@@ -79,6 +83,12 @@ class Wings(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    UNITS: ClassVar[dict[str, str]] = {
+        "span": "m",
+        "sweep": "deg",
+        "dihedral": "deg",
+    }
 
     type: Literal["wing"] = Field(default="wing", frozen=True)
 
@@ -89,7 +99,7 @@ class Wings(BaseModel):
         description='''Wing aspect ratio b^2/S. (> 0)'''
     )
     
-    sweep_deg: float = Field(
+    sweep: float = Field(
         ge=-10.0, 
         le=70.0,
         examples=[45.0],
@@ -103,13 +113,13 @@ class Wings(BaseModel):
         description='''Tip/root chord ratio. (Range: 0 to 1)'''
     )
     
-    span_m: float = Field(
+    span: float = Field(
         gt=0.0,
         examples=[0.914],
         description='''Wing span in meters. (> 0)'''
     )
     
-    dihedral_deg: float = Field(
+    dihedral: float = Field(
         default=0.0,
         ge=-20.0, 
         le=20.0,
@@ -139,9 +149,9 @@ class Wings(BaseModel):
         examples=[
             {
                 "type": "mass",
-                "cg_from_nose_m": 1.95,
+                "cg_from_nose": 1.95,
                 "cg_source": "Planar equivalent projection estimate",
-                "total_mass_kg": 24.0,
+                "total_mass": 24.0,
             }
         ],
         description='''Mass Properties'''
@@ -162,15 +172,22 @@ class Fins(BaseModel):
 
     Attributes:
         count: Number of fins in the radial set. (Range: 3 to 8)
-        span_m: Exposed semi-span of one individual fin in meters. (> 0)
-        sweep_deg: Leading-edge sweep angle in degrees. (Range: 0.0 to 75.0)
-        chord_root_m: Root chord length in meters. Defaults to None. (> 0)
-        chord_tip_m: Tip chord length in meters. Defaults to None. (>= 0)
+        span: Exposed semi-span of one individual fin in meters. (> 0)
+        sweep: Leading-edge sweep angle in degrees. (Range: 0.0 to 75.0)
+        chord_root: Root chord length in meters. Defaults to None. (> 0)
+        chord_tip: Tip chord length in meters. Defaults to None. (>= 0)
         control_surfaces: List of control surfaces attached to the trailing edge of these fins.
         mass: Mass Properties
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    UNITS: ClassVar[dict[str, str]] = {
+        "span": "m",
+        "sweep": "deg",
+        "chord_root": "m",
+        "chord_tip": "m",
+    }
 
     type: Literal["fins"] = Field(default="fins", frozen=True)
 
@@ -181,27 +198,27 @@ class Fins(BaseModel):
         description='''Number of fins in the radial set. (Range: 3 to 8)'''
     )
     
-    span_m: float = Field(
+    span: float = Field(
         gt=0.0,
         examples=[0.285],
         description='''Exposed semi-span of one individual fin in meters. (> 0)'''
     )
     
-    sweep_deg: float = Field(
+    sweep: float = Field(
         ge=0.0, 
         le=75.0,
         examples=[60.0],
         description='''Leading-edge sweep angle in degrees. (Range: 0.0 to 75.0)'''
     )
     
-    chord_root_m: float | None = Field(
+    chord_root: float | None = Field(
         default=None, 
         gt=0.0,
         examples=[0.75],
         description='''Root chord length in meters. Defaults to None. (> 0)'''
     )
     
-    chord_tip_m: float | None = Field(
+    chord_tip: float | None = Field(
         default=None, 
         ge=0.0,
         examples=[0.15],
@@ -218,7 +235,7 @@ class Fins(BaseModel):
                     "span_fraction_start": 0.10,
                     "span_fraction_end": 0.90,
                     "chord_fraction": 0.28,
-                    "max_deflection_deg": 30.0,
+                    "max_deflection": 30.0,
                 }
             ]
         ],
@@ -230,9 +247,9 @@ class Fins(BaseModel):
         examples=[
             {
                 "type": "mass",
-                "cg_from_nose_m": 3.55,
+                "cg_from_nose": 3.55,
                 "cg_source": "Tail actuator package balance",
-                "total_mass_kg": 16.0,
+                "total_mass": 16.0,
             }
         ],
         description='''Mass Properties'''

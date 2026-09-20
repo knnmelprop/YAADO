@@ -71,8 +71,8 @@ def test_nested_mass_properties_examples_are_typed() -> None:
         mass_obj = getattr(instance, "mass")
         assert mass_obj is not None, f"{comp_cls.__name__}.mass should have a prefilled example"
         assert isinstance(mass_obj, MassProperties), f"{comp_cls.__name__}.mass must be a MassProperties instance"
-        assert mass_obj.total_mass_kg is not None
-        assert mass_obj.total_mass_kg > 0.0
+        assert mass_obj.total_mass is not None
+        assert mass_obj.total_mass > 0.0
 
 
 def test_nested_control_surfaces_examples_are_typed() -> None:

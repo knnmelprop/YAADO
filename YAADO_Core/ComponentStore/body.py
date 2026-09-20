@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,27 +18,36 @@ class AxisymmetricBody(BaseModel):
         Example values are taken from the AGM-84 Harpoon.
 
     Attributes:
-        length_m: Total body length in meters. (> 0)
-        diameter_m: Body diameter in meters. (> 0)
+        length: Total body length in meters. (> 0)
+        diameter: Body diameter in meters. (> 0)
         nose_type: Nose shape ("ogive", "conical" or "hemispherical"). Defaults to ogive.
-        nose_length_m: Length of the nose section in meters. Defaults to None if unmeasured. (> 0)
-        nose_diameter_m: Diameter at the base of the nose in meters. Defaults to None if unmeasured. (> 0)
-        total_length_m: Total length of the vehicle including protrusions in meters. Defaults to None if unmeasured. (> 0)
-        max_diameter_m: Maximum diameter including any transitions in meters. Defaults to None if unmeasured. (> 0)
+        nose_length: Length of the nose section in meters. Defaults to None if unmeasured. (> 0)
+        nose_diameter: Diameter at the base of the nose in meters. Defaults to None if unmeasured. (> 0)
+        total_length: Total length of the vehicle including protrusions in meters. Defaults to None if unmeasured. (> 0)
+        max_diameter: Maximum diameter including any transitions in meters. Defaults to None if unmeasured. (> 0)
         mass: Mass Properties
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    UNITS: ClassVar[dict[str, str]] = {
+        "length": "m",
+        "diameter": "m",
+        "nose_length": "m",
+        "nose_diameter": "m",
+        "total_length": "m",
+        "max_diameter": "m",
+    }
+
     type: Literal["axisymmetric_body"] = Field(default="axisymmetric_body", frozen=True)
 
-    length_m: float = Field(
+    length: float = Field(
         gt=0.0,
         examples=[3.84],
         description='''Total body length in meters. (> 0)'''
     )
     
-    diameter_m: float = Field(
+    diameter: float = Field(
         gt=0.0,
         examples=[0.343],
         description='''Body diameter in meters. (> 0)'''
@@ -50,28 +59,28 @@ class AxisymmetricBody(BaseModel):
         description='''Nose shape ("ogive", "conical" or "hemispherical"). Defaults to ogive.'''
     )
     
-    nose_length_m: float | None = Field(
+    nose_length: float | None = Field(
         default=None, 
         gt=0.0,
         examples=[0.75],
         description='''Length of the nose section in meters. Defaults to None if unmeasured. (> 0)'''
     )
     
-    nose_diameter_m: float | None = Field(
+    nose_diameter: float | None = Field(
         default=None, 
         gt=0.0,
         examples=[0.343],
         description='''Diameter at the base of the nose in meters. Defaults to None if unmeasured. (> 0)'''
     )
     
-    total_length_m: float | None = Field(
+    total_length: float | None = Field(
         default=None, 
         gt=0.0,
         examples=[3.84],
         description='''Total length of the vehicle including protrusions in meters. Defaults to None if unmeasured. (> 0)'''
     )
     
-    max_diameter_m: float | None = Field(
+    max_diameter: float | None = Field(
         default=None, 
         gt=0.0,
         examples=[0.343],
@@ -83,9 +92,9 @@ class AxisymmetricBody(BaseModel):
         examples=[
             {
                 "type": "mass",
-                "cg_from_nose_m": 2.05,
+                "cg_from_nose": 2.05,
                 "cg_source": "AGM-84A baseline mass properties document",
-                "total_mass_kg": 520.0,
+                "total_mass": 520.0,
             }
         ],
         description='''Mass properties.'''
