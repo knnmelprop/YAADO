@@ -1,0 +1,1 @@
+"""YAADO interactive terminal interface."""
