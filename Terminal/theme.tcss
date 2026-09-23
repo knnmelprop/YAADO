@@ -1,0 +1,90 @@
+$yaado-background: #0b0f17;      /* Deep Midnight - Root Canvas */
+$yaado-surface: #111827;         /* Charcoal Panel - Primary Containers */
+$yaado-panel: #1b2436;           /* Elevated Slate - Cards, Modals, Popovers */
+$yaado-border-subtle: #25334a;   /* Subtle Border - Structural Lines */
+$yaado-border-focus: #3b82f6;    /* Avionics Blue - Focus Ring */
+$yaado-accent: #f59e0b;          /* Propulsion Amber - Highlights, Tab Underline, CTA */
+$yaado-accent-hover: #d97706;    /* Amber Hover State */
+$yaado-primary: #1d4ed8;         /* Deep Cobalt - Selection Fill & Cursor */
+$yaado-secondary: #0284c7;       /* Avionics Cyan - Secondary Tags & Badges */
+$yaado-success: #10b981;         /* Converged Green - Solver Success, Valid Input */
+$yaado-warning: #f59e0b;         /* Advisory Amber - Non-fatal Warnings */
+$yaado-error: #ef4444;           /* Abort Red - Failure, Solver Divergence */
+$yaado-text: #f8fafc;            /* Telemetry White - Data Values & Headings */
+$yaado-text-muted: #94a3b8;      /* Silver Slate - Units, Labels, Keys */
+$yaado-text-disabled: #475569;   /* Muted Slate - Passive Framing & Timestamps */
+
+/* ==========================================================================
+   Root Layout & Chrome
+   ========================================================================== */
+
+Screen {
+    background: $yaado-background;
+    color: $yaado-text;
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: $yaado-background;
+    color: $yaado-text-muted;
+}
+
+Footer > .footer--key {
+    background: $yaado-panel;
+    color: $yaado-accent;
+}
+
+Footer > .footer--description {
+    color: $yaado-text-muted;
+}
+
+/* ==========================================================================
+   Navigation & Tabs (Clean 1-Row Minimalist Style)
+   ========================================================================== */
+
+/* Hide Textual's default sliding underline bar */
+Underline {
+    display: none;
+}
+
+TabbedContent {
+    background: transparent;
+    height: 1fr;
+}
+
+Tabs {
+    background: transparent;
+    dock: top;
+    height: 1;
+    margin: 1 1;
+}
+
+/* Inactive Tab: Subtle silver text, no border, no background box */
+Tab {
+    background: transparent;
+    border: none;
+    color: $yaado-text-muted;
+    height: 1;
+    padding: 0 2;
+    margin-right: 1;
+    text-style: none;
+}
+
+/* Hover: Crisp white */
+Tab:hover {
+    color: $yaado-text;
+}
+
+/* Active Tab: Bright Propulsion Amber text in bold */
+Tab.-active, Tabs:focus Tab.-active {
+    background: transparent;
+    border: none;
+    color: $yaado-accent;
+    text-style: bold;
+}
+
+TabPane {
+    padding: 1;
+    background: transparent;
+}
