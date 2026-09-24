@@ -30,12 +30,36 @@ Footer {
     color: $yaado-text-muted;
 }
 
-Footer > .footer--key {
-    background: $yaado-panel;
+FooterKey {
+    background: transparent;
+}
+
+FooterKey .footer-key--key {
+    background: transparent;
     color: $yaado-accent;
 }
 
-Footer > .footer--description {
+FooterKey .footer-key--description {
+    background: transparent;
+    color: $yaado-text-muted;
+}
+
+FooterKey:hover {
+    background: transparent;
+}
+
+FooterKey:hover .footer-key--key {
+    background: transparent;
+    color: $yaado-accent-hover;
+}
+
+FooterKey:hover .footer-key--description {
+    background: transparent;
+    color: $yaado-text;
+}
+
+FooterLabel {
+    background: transparent;
     color: $yaado-text-muted;
 }
 
@@ -87,4 +111,144 @@ Tab.-active, Tabs:focus Tab.-active {
 TabPane {
     padding: 1;
     background: transparent;
+}
+
+/* ==========================================================================
+   Main Cockpit Layout
+   ========================================================================== */
+
+#main-layout {
+    height: 1fr;
+    width: 1fr;
+}
+
+#left-column {
+    width: 1fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#right-column {
+    width: 2fr;
+    height: 1fr;
+}
+
+.cockpit-card {
+    border: round $yaado-border-subtle;
+    border-title-color: $yaado-accent;
+    border-title-style: bold;
+    border-title-align: left;
+    border-title-background: transparent;
+    background: transparent;
+    padding: 1;
+    height: 1fr;
+}
+
+#hangar-card {
+    margin-bottom: 1;
+}
+
+.cockpit-card:focus-within {
+    border: round $yaado-border-focus;
+}
+
+#preview-content {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    text-align: center;
+    color: $yaado-text-muted;
+}
+
+/* ==========================================================================
+   Hangar Workspace Layout
+   ========================================================================== */
+
+#hangar-layout {
+    height: 1fr;
+    width: 1fr;
+}
+
+#componentstore-card {
+    width: 1fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#hangar-right-column {
+    width: 3fr;
+    height: 1fr;
+}
+
+#panel-and-hangar {
+    height: 1.5fr;
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+#workspace-card {
+    width: 2fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#hangar-library-card {
+    width: 1fr;
+    height: 1fr;
+}
+
+#component-preview-card {
+    height: 1fr;
+    width: 1fr;
+}
+
+#component-preview {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    text-align: center;
+    color: $yaado-text-muted;
+}
+
+/* ==========================================================================
+   Flight Deck Workspace Layout
+   ========================================================================== */
+
+#flightdeck-layout {
+    height: 1fr;
+    width: 1fr;
+}
+
+#flightdeck-solvers-card {
+    width: 1fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#flightdeck-middle-column {
+    width: 2fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#flightdeck-pipeline-card {
+    height: 1fr;
+}
+
+#flightdeck-results-card {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#flightdeck-runs-card {
+    width: 1fr;
+    height: 1fr;
+}
+
+#flightdeck-runs-content {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    text-align: center;
+    color: $yaado-text-muted;
 }

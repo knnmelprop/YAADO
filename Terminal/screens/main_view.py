@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from textual.containers import Container
+from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import DataTable, Label, Static
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -38,12 +39,35 @@ class MainView(Container):
         self.active_vehicle = active_vehicle
 
     def compose(self) -> ComposeResult:
-        """Render the system readiness card, active vehicle summary, and quick launchpad.
+        """Render the hangar, flightlogs and a window for info preview.
 
         Yields:
             Child widgets comprising the main dashboard interface.
         """
-        yield from ()
+        with Horizontal(id="main-layout"):
+            # Left column: Action launchpads
+            with Vertical(id="left-column", classes="cockpit-col"):
+                hangar_card = Container(id="hangar-card", classes="cockpit-card")
+                hangar_card.border_title = "Hangar"
+                with hangar_card:
+                    yield Static("• [bold]New Vehicle[/bold] (Create from template)")
+                    yield Static("• [bold]Open Vehicle[/bold] (Select from Hangar)")
+
+                flightlogs_card = Container(id="flightlogs-card", classes="cockpit-card")
+                flightlogs_card.border_title = "FlightLogs"
+                with flightlogs_card:
+                    yield Static("• [bold]New Analysis[/bold] (Point Mass 3-DOF / Aero / Mass)")
+                    yield Static("• [bold]Browse History[/bold] (Recent simulation runs)")
+
+            # Right column: Main window for info preview depending on the selected item
+            with Vertical(id="right-column", classes="cockpit-col"):
+                preview_card = Container(id="preview-card", classes="cockpit-card")
+                preview_card.border_title = "Preview"
+                with preview_card:
+                    yield Static(
+                        "Nothing to show\n\nClick on something or select an action to see details.",
+                        id="preview-content",
+                    )
 
     def refresh_system_status(self) -> dict[str, Any]:
         """Query system solvers and environment health.

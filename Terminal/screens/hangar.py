@@ -10,10 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from textual.containers import Container
+from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Static
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
+
     from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 
@@ -52,7 +54,38 @@ class HangarView(Container):
         Yields:
             Child widgets comprising the Hangar workspace.
         """
-        yield from ()
+        with Horizontal(id="hangar-layout"):
+            # Left column: ComponentStore
+            componentstore_card = Container(id="componentstore-card", classes="cockpit-card")
+            componentstore_card.border_title = "Component Store"
+            with componentstore_card:
+                    yield Static("• [bold]This is a catalog of components[/bold]")
+                    yield Static("• [bold]Here the user can pick a component to add it to the workspace[/bold]")
+
+            # Right column
+            with Vertical(id="hangar-right-column", classes="cockpit-col"):
+
+                with Horizontal(id="panel-and-hangar"):
+                    workspace_card = Container(id="workspace-card", classes="cockpit-card")
+                    workspace_card.border_title = "Vehicle"
+                    with workspace_card:
+                        yield Static("• [bold]Here all the component comprising the vehicle are displayed[/bold]")
+                        yield Static("• [bold]The user can drop a component here to add it to the vehicle[/bold]")
+
+                    hangar_card = Container(id="hangar-library-card", classes="cockpit-card")
+                    hangar_card.border_title = "Hangar"
+                    with hangar_card:
+                        yield Static("• [bold]The user can see vehicles here[/bold]")
+                        yield Static("• [bold]Browse and pick the vehicles that are displayed in the workspace[/bold]")
+
+                # Right column bottom: Component parameters
+                component_stat_card = Container(id="component-preview-card", classes="cockpit-card")
+                component_stat_card.border_title = "Component Parameters"
+                with component_stat_card:
+                    yield Static(
+                        "Nothing to show\n\nSelect a component to see details.",
+                        id="component-preview",
+                    )
 
     def refresh_vehicle_library(self) -> None:
         """Scan the filesystem to discover user vehicles and reference examples."""

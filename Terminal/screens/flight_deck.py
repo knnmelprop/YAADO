@@ -10,7 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from textual.containers import Container
+from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Static
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -48,7 +49,37 @@ class FlightDeckView(Container):
         Yields:
             Child widgets comprising the Flight Deck interface.
         """
-        yield from ()
+        with Horizontal(id="flightdeck-layout"):
+            # Left column: Available methods (available analyses)
+            solvers_card = Container(id="flightdeck-solvers-card", classes="cockpit-card")
+            solvers_card.border_title = "Available Solvers"
+            with solvers_card:
+                yield Static("• [bold]This is a catalog of analyses[/bold]")
+                yield Static("• [bold]Pick an analysis to add to pipeline[/bold]")
+
+            # Middle column: Pipeline chaining & Inspect results
+            with Vertical(id="flightdeck-middle-column", classes="cockpit-col"):
+
+                results_card = Container(id="flightdeck-results-card", classes="cockpit-card")
+                results_card.border_title = "Inspect Results"
+                with results_card:
+                    yield Static("• [bold]Telemetry data, CSVs, and convergence logs[/bold]")
+                    yield Static("• [bold]Pick an analysis run to inspect data[/bold]")
+                    
+                pipeline_card = Container(id="flightdeck-pipeline-card", classes="cockpit-card")
+                pipeline_card.border_title = "Analysis Pipeline"
+                with pipeline_card:
+                    yield Static("• [bold]Analysis chaining & workflow pipeline[/bold]")
+                    yield Static("• [bold]Stage 1: Point Mass 3-DOF Trajectory[/bold]")
+
+            # Right column: Previous runs & historical logs
+            runs_card = Container(id="flightdeck-runs-card", classes="cockpit-card")
+            runs_card.border_title = "FlightLogs History"
+            with runs_card:
+                yield Static(
+                    "Historical simulation runs will be listed here.\n\nSelect a run to inspect its telemetry.",
+                    id="flightdeck-runs-content",
+                )
 
     def list_available_solvers(self) -> list[str]:
         """Query SolverRegistry for registered and verified analysis methods.
