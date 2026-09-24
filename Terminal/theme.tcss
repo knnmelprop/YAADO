@@ -18,15 +18,15 @@ $yaado-text-disabled: #475569;   /* Muted Slate - Passive Framing & Timestamps *
    Root Layout & Chrome
    ========================================================================== */
 
-Screen {
-    background: $yaado-background;
+App, Screen {
+    background: ansi_default;
     color: $yaado-text;
 }
 
 Footer {
     dock: bottom;
     height: 1;
-    background: $yaado-background;
+    background: ansi_default;
     color: $yaado-text-muted;
 }
 
@@ -57,7 +57,7 @@ Tabs {
     background: transparent;
     dock: top;
     height: 1;
-    margin: 1 1;
+    margin: 0 1;
 }
 
 /* Inactive Tab: Subtle silver text, no border, no background box */

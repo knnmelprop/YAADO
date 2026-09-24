@@ -25,6 +25,9 @@ class YaadoApp(App[None]):
     TITLE = "YAADO"
     CSS_PATH = "theme.tcss"
 
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(ansi_color=True, **kwargs)
+
     BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
         ("d", "toggle_dark", "Toggle Dark/Light Mode"),
