@@ -146,18 +146,72 @@ TabPane {
 
 #hangar-card {
     margin-bottom: 1;
+    padding-left: 1;
+    padding-top: 1;
+    padding-right: 1;
+    padding-bottom: 0;
 }
 
 .cockpit-card:focus-within {
     border: round $yaado-border-focus;
 }
 
+#hangar-tree {
+    background: transparent;
+    padding: 0;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+#hangar-tree:focus {
+    background: transparent;
+}
+
+#hangar-tree > .tree--cursor {
+    background: $yaado-primary;
+    color: $yaado-text;
+    text-style: bold;
+}
+
+#hangar-tree > .tree--guides {
+    color: $yaado-border-subtle;
+}
+
+#hangar-tree > .tree--guides-hover {
+    color: $yaado-accent;
+}
+
+#hangar-tree > .tree--highlight-line {
+    background: transparent;
+}
+
+Button#new-vehicle-btn {
+    width: 100%;
+    height: 3;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text-muted;
+    text-style: bold;
+}
+
+Button#new-vehicle-btn:hover {
+    background: transparent;
+    border: round $yaado-accent;
+    color: $yaado-accent;
+}
+
+Button#new-vehicle-btn:focus {
+    background: transparent;
+    border: round $yaado-border-focus;
+    color: $yaado-text;
+}
+
 #preview-content {
     width: 100%;
     height: 100%;
-    content-align: center middle;
-    text-align: center;
-    color: $yaado-text-muted;
+    padding: 0 1;
+    color: $yaado-text;
+    overflow-y: auto;
 }
 
 /* ==========================================================================

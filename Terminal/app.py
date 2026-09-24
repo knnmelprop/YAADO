@@ -65,3 +65,4 @@ class YaadoApp(App[None]):
         """
         tabs = self.query_one(TabbedContent)
         tabs.active = tab_id
+        self.set_focus(None)
