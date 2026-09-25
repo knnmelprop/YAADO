@@ -8,66 +8,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, Literal
 
 from textual import events, on
-from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Button, Static, Tree
+from textual.widgets import Button, Static
 
+from Terminal.widgets import FlightLogsTree, VehicleTree
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
-
-class HangarTree(Tree[Path | None]):
-    """Tree widget for browsing Hangar vehicle configurations."""
-
-    BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("enter", "open_selected", "Open in Hangar", show=True),
-    ]
-
-    def action_open_selected(self) -> None:
-        """Open the highlighted vehicle in Hangar Workshop."""
-        if (
-            self.cursor_node is not None
-            and isinstance(self.cursor_node.data, Path)
-            and self.cursor_node.data.is_file()
-        ):
-            from Terminal.app import YaadoApp
-
-            if isinstance(self.app, YaadoApp):
-                self.app.call_after_refresh(self.app.action_switch_tab, "hangar")
-
-    def on_click(self, event: events.Click) -> None:
-        """Open vehicle on double click."""
-        if event.chain == 2:
-            self.action_open_selected()
-
-
-class FlightLogsTree(Tree[Path | None]):
-    """Tree widget for browsing simulation history runs."""
-
-    BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("enter", "open_selected", "Open in Flight Deck", show=True),
-    ]
-
-    def action_open_selected(self) -> None:
-        """Open the highlighted simulation run in Flight Deck."""
-        if (
-            self.cursor_node is not None
-            and isinstance(self.cursor_node.data, Path)
-            and (self.cursor_node.data / "results.json").is_file()
-        ):
-            from Terminal.app import YaadoApp
-
-            if isinstance(self.app, YaadoApp):
-                self.app.call_after_refresh(self.app.action_switch_tab, "flight-deck")
-
-    def on_click(self, event: events.Click) -> None:
-        """Open simulation run on double click."""
-        if event.chain == 2:
-            self.action_open_selected()
 
 
 class MainView(Container):
@@ -91,6 +42,18 @@ class MainView(Container):
         super().__init__(**kwargs)
         self.active_vehicle = active_vehicle
         self._current_preview_type: str | None = None
+        self._selected_vehicle_path: Path | None = None
+        self._selected_flightlog_path: Path | None = None
+        self._last_selected_source: Literal["hangar", "flightlogs"] = "hangar"
+
+    def on_mount(self) -> None:
+        """Initialize default selection and preview on mount."""
+        hangar_tree = self.query_one("#hangar-tree", VehicleTree)
+        first_path = hangar_tree.select_first_vehicle()
+        if first_path:
+            self._selected_vehicle_path = first_path
+            self._last_selected_source = "hangar"
+            self._update_preview(first_path)
 
     def compose(self) -> ComposeResult:
         """Render the hangar, flightlogs and a window for info preview.
@@ -104,24 +67,16 @@ class MainView(Container):
                 hangar_card = Container(id="hangar-card", classes="cockpit-card")
                 hangar_card.border_title = "Hangar"
                 with hangar_card:
-                    tree = HangarTree("Hangar", id="hangar-tree")
-                    tree.show_root = False
-                    tree.guide_depth = 2
-                    self._populate_hangar_tree(tree)
-                    yield tree
-                    btn = Button("➕ New Vehicle", id="new-vehicle-btn")
+                    yield VehicleTree(id="hangar-tree")
+                    btn = Button("+ New Vehicle", id="new-vehicle-btn")
                     btn.can_focus = False
                     yield btn
 
                 flightlogs_card = Container(id="flightlogs-card", classes="cockpit-card")
                 flightlogs_card.border_title = "FlightLogs"
                 with flightlogs_card:
-                    tree_fl = FlightLogsTree("FlightLogs", id="flightlogs-tree")
-                    tree_fl.show_root = False
-                    tree_fl.guide_depth = 2
-                    self._populate_flightlogs_tree(tree_fl)
-                    yield tree_fl
-                    btn_fl = Button("⚡ Run New Analysis", id="new-analysis-btn")
+                    yield FlightLogsTree(id="flightlogs-tree")
+                    btn_fl = Button("+ Run Analysis", id="new-analysis-btn")
                     btn_fl.can_focus = False
                     yield btn_fl
 
@@ -136,113 +91,6 @@ class MainView(Container):
                     )
                     preview_content.can_focus = True
                     yield preview_content
-
-    def _populate_hangar_tree(self, tree: Tree[Path | None]) -> None:
-        """Scan filesystem and populate the Hangar vehicle tree.
-
-        Args:
-            tree: The Tree widget to populate with discovered configurations.
-        """
-        repo_root = Path(__file__).resolve().parents[2]
-        hangar_dir = repo_root / "Hangar"
-        examples_dir = hangar_dir / "examples"
-
-        # 1. Reference examples
-        examples_node = tree.root.add("📁 [bold]Reference Examples[/bold]", expand=True)
-        if examples_dir.is_dir():
-            for toml_path in sorted(examples_dir.rglob("*.toml")):
-                vehicle_name = toml_path.stem.replace("_", " ")
-                examples_node.add_leaf(f"🚀 {vehicle_name}", data=toml_path)
-
-        # 2. User projects
-        user_node = tree.root.add("📁 [bold]User Vehicles[/bold]", expand=True)
-        user_tomls: list[Path] = []
-        if hangar_dir.is_dir():
-            for p in sorted(hangar_dir.rglob("*.toml")):
-                if not p.is_relative_to(examples_dir):
-                    user_tomls.append(p)
-        if user_tomls:
-            for toml_path in user_tomls:
-                user_node.add_leaf(f"🚀 {toml_path.stem.replace('_', ' ')}", data=toml_path)
-        else:
-            user_node.add_leaf("[dim](No custom vehicles yet)[/dim]", data=None)
-
-    def _populate_flightlogs_tree(self, tree: Tree[Path | None]) -> None:
-        """Scan filesystem and populate the FlightLogs history tree grouped by vehicle.
-
-        Args:
-            tree: The Tree widget to populate with discovered simulation runs.
-        """
-        repo_root = Path(__file__).resolve().parents[2]
-        logs_dir = repo_root / "FlightLogs"
-        if not logs_dir.is_dir():
-            tree.root.add_leaf("[dim](No simulation runs yet)[/dim]", data=None)
-            return
-
-        vehicle_dirs = [
-            d for d in sorted(logs_dir.iterdir())
-            if d.is_dir() and not d.name.startswith((".", "__"))
-        ]
-
-        if not vehicle_dirs:
-            tree.root.add_leaf("[dim](No simulation runs yet)[/dim]", data=None)
-            return
-
-        has_any_runs = False
-        for v_dir in vehicle_dirs:
-            runs = [
-                d for d in sorted(v_dir.iterdir(), reverse=True)
-                if d.is_dir() and not d.name.startswith((".", "__"))
-            ]
-            if not runs:
-                continue
-
-            has_any_runs = True
-            v_node = tree.root.add(f"📁 [bold]{v_dir.name}[/bold]", expand=True, data=v_dir)
-            for run_dir in runs:
-                label = self._format_run_label(run_dir)
-                v_node.add_leaf(label, data=run_dir)
-
-        if not has_any_runs:
-            tree.root.add_leaf("[dim](No simulation runs yet)[/dim]", data=None)
-
-    def _format_run_label(self, run_dir: Path) -> str:
-        """Generate a compact label for a simulation run in the tree.
-
-        Args:
-            run_dir: Directory of the simulation run.
-
-        Returns:
-            Rich-formatted string representation for the tree leaf.
-        """
-        name = run_dir.name
-        parts = name.rsplit("_", 2)
-        if len(parts) >= 3 and "-" in parts[1]:
-            analysis_slug = parts[0]
-            date_str = parts[1]
-            time_str = parts[2]
-            formatted_time = f"{time_str[:2]}:{time_str[2:4]}" if len(time_str) >= 4 else time_str
-            pretty_analysis = self._pretty_analysis_name(analysis_slug)
-            return f"📊 {pretty_analysis} [dim]{date_str[5:]} {formatted_time}[/dim]"
-
-        return f"📊 {name.replace('_', ' ')}"
-
-    def _pretty_analysis_name(self, slug: str) -> str:
-        """Map analysis slugs to clean human-readable names.
-
-        Args:
-            slug: Raw analysis identifier.
-
-        Returns:
-            Human-readable analysis title.
-        """
-        mapping = {
-            "point_mass_3dof_boost": "3-DOF Boost",
-            "point_mass_3dof": "Point Mass 3-DOF",
-            "aero_polar": "Aero Polars",
-            "mass_estimation": "Mass & Inertia",
-        }
-        return mapping.get(slug, slug.replace("_", " ").title())
 
     def _format_timestamp(self, ts: str) -> str:
         """Format a timestamp string into standard YYYY-MM-DD HH:MM:SS format.
@@ -339,7 +187,7 @@ class MainView(Container):
             Rich-formatted string displaying vehicle specifications and dimensions.
         """
         lines: list[str] = [
-            f"[bold amber]🚀 {config.name}[/bold amber]",
+            f"[bold amber]{config.name}[/bold amber]",
             f"[dim]{path.name} ({path.parent.name})[/dim]",
             "",
         ]
@@ -374,7 +222,7 @@ class MainView(Container):
         """
         results_file = run_dir / "results.json"
         if not results_file.is_file():
-            return f"[bold amber]📊 {run_dir.name}[/bold amber]\n[dim](No results.json found)[/dim]"
+            return f"[bold amber]{run_dir.name}[/bold amber]\n[dim](No results.json found)[/dim]"
 
         try:
             with open(results_file, encoding="utf-8") as f:
@@ -413,7 +261,7 @@ class MainView(Container):
             )
             headline_keys = [k for k in candidate_headlines if k in data]
 
-        pretty_analysis = self._pretty_analysis_name(analysis_name)
+        pretty_analysis = FlightLogsTree.pretty_analysis_name(analysis_name)
         header_meta = f"Vehicle: {vehicle}"
         if formatted_ts:
             header_meta += f" • {formatted_ts}"
@@ -421,7 +269,7 @@ class MainView(Container):
             header_meta += f" • {fidelity.replace('_', ' ').title()}"
 
         lines: list[str] = [
-            f"[bold amber]📊 {pretty_analysis}[/bold amber]",
+            f"[bold amber]{pretty_analysis}[/bold amber]",
             f"[dim]{header_meta}[/dim]",
             "",
         ]
@@ -483,37 +331,78 @@ class MainView(Container):
             if d.is_dir() and not d.name.startswith((".", "__"))
         ]
         lines: list[str] = [
-            f"[bold amber]📁 {vehicle_dir.name} — FlightLogs[/bold amber]",
+            f"[bold amber]{vehicle_dir.name} — FlightLogs[/bold amber]",
             f"[dim]{len(runs)} simulation runs recorded[/dim]",
             "",
             "[bold cyan]Recent Runs:[/bold cyan]",
         ]
         for run in runs[:5]:
-            lines.append(f"  • {self._format_run_label(run)}")
+            lines.append(f"  • {FlightLogsTree.format_run_label(run)}")
 
         return "\n".join(lines)
 
-    @on(Tree.NodeHighlighted, "#hangar-tree")
-    def on_hangar_node_highlighted(self, event: Tree.NodeHighlighted[Path | None]) -> None:
-        """Update the preview card when a tree node is highlighted.
+    @on(VehicleTree.VehicleHighlighted, "#hangar-tree")
+    def on_hangar_vehicle_highlighted(self, event: VehicleTree.VehicleHighlighted) -> None:
+        """Preview vehicle on cursor highlight or mouse hover.
 
         Args:
-            event: The node highlighted event with node reference.
+            event: Vehicle highlighted event containing vehicle path.
         """
-        self._update_preview(event.node.data)
+        tree = self.query_one("#hangar-tree", VehicleTree)
+        if event.path is not None:
+            if tree.cursor_node and tree.cursor_node.data == event.path:
+                self._selected_vehicle_path = event.path
+                self._last_selected_source = "hangar"
+            self._update_preview(event.path)
+        else:
+            self._restore_default_preview()
 
-    @on(events.MouseMove, "#hangar-tree")
-    def on_hangar_tree_mouse_move(self, event: events.MouseMove) -> None:
-        """Preview vehicle configuration on mouse hover.
+    @on(VehicleTree.VehicleSelected, "#hangar-tree")
+    def on_hangar_vehicle_selected(self, event: VehicleTree.VehicleSelected) -> None:
+        """Open the selected vehicle in Hangar Workshop on confirmation.
 
         Args:
-            event: Mouse move event containing cursor coordinates.
+            event: Vehicle selected event containing vehicle path.
         """
-        tree = self.query_one("#hangar-tree", Tree)
-        line_index = event.y + tree.scroll_offset.y
-        node = tree.get_node_at_line(line_index)
-        if node is not None and node.data is not None:
-            self._update_preview(node.data)
+        from Terminal.app import YaadoApp
+
+        if isinstance(self.app, YaadoApp):
+            self.app.set_active_vehicle(event.path)
+            self.app.call_after_refresh(self.app.action_switch_tab, "hangar")
+
+    @on(FlightLogsTree.FlightLogHighlighted, "#flightlogs-tree")
+    def on_flightlog_highlighted(self, event: FlightLogsTree.FlightLogHighlighted) -> None:
+        """Preview simulation run on cursor highlight or mouse hover.
+
+        Args:
+            event: FlightLog highlighted event containing run or vehicle path.
+        """
+        tree = self.query_one("#flightlogs-tree", FlightLogsTree)
+        if event.path is not None:
+            if tree.cursor_node and tree.cursor_node.data == event.path:
+                self._selected_flightlog_path = event.path
+                self._last_selected_source = "flightlogs"
+            self._update_flightlog_preview(event.path)
+        else:
+            self._restore_default_preview()
+
+    @on(FlightLogsTree.FlightLogSelected, "#flightlogs-tree")
+    def on_flightlog_selected(self, event: FlightLogsTree.FlightLogSelected) -> None:
+        """Open the selected simulation run in Flight Deck on confirmation.
+
+        Args:
+            event: FlightLog selected event containing run directory path.
+        """
+        from Terminal.app import YaadoApp
+
+        if isinstance(self.app, YaadoApp):
+            self.app.call_after_refresh(self.app.action_switch_tab, "flight-deck")
+
+    @on(events.Leave, "#hangar-card")
+    @on(events.Leave, "#flightlogs-card")
+    def on_tree_card_leave(self) -> None:
+        """Restore default preview when mouse leaves a cockpit card."""
+        self._restore_default_preview()
 
     def _update_preview(self, data: Path | None) -> None:
         """Update the preview card with the given vehicle file data or placeholder.
@@ -560,28 +449,6 @@ class MainView(Container):
             preview_card.border_subtitle = None
             self._current_preview_type = None
 
-    @on(Tree.NodeHighlighted, "#flightlogs-tree")
-    def on_flightlog_node_highlighted(self, event: Tree.NodeHighlighted[Path | None]) -> None:
-        """Update preview card when a flightlog tree node is highlighted.
-
-        Args:
-            event: The node highlighted event with node reference.
-        """
-        self._update_flightlog_preview(event.node.data)
-
-    @on(events.MouseMove, "#flightlogs-tree")
-    def on_flightlogs_tree_mouse_move(self, event: events.MouseMove) -> None:
-        """Preview simulation run telemetry on mouse hover.
-
-        Args:
-            event: Mouse move event containing cursor coordinates.
-        """
-        tree = self.query_one("#flightlogs-tree", Tree)
-        line_index = event.y + tree.scroll_offset.y
-        node = tree.get_node_at_line(line_index)
-        if node is not None and node.data is not None:
-            self._update_flightlog_preview(node.data)
-
     @on(Button.Pressed, "#new-vehicle-btn")
     def on_new_vehicle_pressed(self) -> None:
         """Switch to Hangar workspace when New Vehicle button is pressed."""
@@ -595,7 +462,7 @@ class MainView(Container):
         """Show template options preview when hovering the New Vehicle button."""
         preview = self.query_one("#preview-content", Static)
         preview.update(
-            "[bold cyan]➕ Create New Vehicle[/bold cyan]\n\n"
+            "[bold cyan]Create New Vehicle[/bold cyan]\n\n"
             "Launch the vehicle assembly wizard to build a new configuration from a template:\n\n"
             "  • [bold]Solid Motor Rocket[/bold] (Sounding rocket / Ballistic missile)\n"
             "  • [bold]Turbojet Cruise Vehicle[/bold] (Subsonic cruise / Drone)\n"
@@ -621,7 +488,7 @@ class MainView(Container):
         """Show simulation solver suite preview when hovering Run Analysis button."""
         preview = self.query_one("#preview-content", Static)
         preview.update(
-            "[bold cyan]⚡ Run Simulation & Analysis[/bold cyan]\n\n"
+            "[bold cyan]Run Simulation & Analysis[/bold cyan]\n\n"
             "Launch physics solvers and multi-stage pipelines from the Flight Deck:\n\n"
             "  • [bold]Point Mass 3-DOF Trajectory[/bold] (Ascent, boost, coast, and ballistic descent)\n"
             "  • [bold]Aerodynamic Polars[/bold] (Barrowman, AVL vortex lattice, empirical DATCOM)\n"
@@ -635,16 +502,38 @@ class MainView(Container):
         self._restore_default_preview()
 
     def _restore_default_preview(self) -> None:
-        """Restore preview to currently targeted tree node or fallback placeholder."""
-        fl_tree = self.query_one("#flightlogs-tree", FlightLogsTree)
-        if fl_tree.has_focus and fl_tree.cursor_node is not None and fl_tree.cursor_node.data is not None:
-            self._update_flightlog_preview(fl_tree.cursor_node.data)
+        """Restore preview to currently selected tree node or fallback placeholder."""
+        if self._last_selected_source == "flightlogs":
+            fl_tree = self.query_one("#flightlogs-tree", FlightLogsTree)
+            target = (
+                fl_tree.cursor_node.data
+                if fl_tree.cursor_node and isinstance(fl_tree.cursor_node.data, Path)
+                else self._selected_flightlog_path
+            )
+            if target is not None:
+                self._update_flightlog_preview(target)
+                return
+
+        hangar_tree = self.query_one("#hangar-tree", VehicleTree)
+        target_v = (
+            hangar_tree.cursor_node.data
+            if hangar_tree.cursor_node and isinstance(hangar_tree.cursor_node.data, Path)
+            else self._selected_vehicle_path
+        )
+        if target_v is not None:
+            self._update_preview(target_v)
             return
 
-        hangar_tree = self.query_one("#hangar-tree", HangarTree)
-        if hangar_tree.cursor_node is not None and hangar_tree.cursor_node.data is not None:
-            self._update_preview(hangar_tree.cursor_node.data)
-            return
+        if self._last_selected_source != "flightlogs":
+            fl_tree = self.query_one("#flightlogs-tree", FlightLogsTree)
+            target = (
+                fl_tree.cursor_node.data
+                if fl_tree.cursor_node and isinstance(fl_tree.cursor_node.data, Path)
+                else self._selected_flightlog_path
+            )
+            if target is not None:
+                self._update_flightlog_preview(target)
+                return
 
         preview = self.query_one("#preview-content", Static)
         preview.update("[dim]Select a vehicle or simulation run to inspect telemetry.[/dim]")
@@ -697,6 +586,6 @@ class MainView(Container):
         elif clicked_card is preview_card:
             self.query_one("#preview-content", Static).focus()
         elif clicked_card is hangar_card:
-            self.query_one("#hangar-tree", HangarTree).focus()
+            self.query_one("#hangar-tree", VehicleTree).focus()
         elif clicked_card is flightlogs_card:
             self.query_one("#flightlogs-tree", FlightLogsTree).focus()

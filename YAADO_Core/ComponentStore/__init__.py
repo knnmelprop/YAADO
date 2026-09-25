@@ -1,11 +1,18 @@
 """Pydantic v2 configuration schemas for YAADO vehicles."""
 from typing import Annotated
+
 from pydantic import Field
 
+from .aero_surfaces import AnyAeroComponent, Fins, Wings
+from .body import AnyBodyComponent, AxisymmetricBody
 from .mass import MassProperties
-from .body import AxisymmetricBody, AnyBodyComponent
-from .propulsion import SolidMotor, RamjetEngine, TurbojetEngine, AnyPropulsionComponent, AnyBoosterComponent
-from .aero_surfaces import Fins, Wings, ControlSurface, AnyAeroComponent
+from .propulsion import (
+    AnyBoosterComponent,
+    AnyPropulsionComponent,
+    RamjetEngine,
+    SolidMotor,
+    TurbojetEngine,
+)
 
 AnyComponent = Annotated[
     MassProperties | AnyBodyComponent | AnyPropulsionComponent | AnyAeroComponent,
@@ -20,22 +27,15 @@ BOOSTER_COMPONENTS = (SolidMotor,)
 ALL_COMPONENTS = (MassProperties,) + AERO_COMPONENTS + BODY_COMPONENTS + PROPULSION_COMPONENTS
 
 __all__ = [
-    "MassProperties",
-    "AxisymmetricBody",
-    "SolidMotor",
-    "RamjetEngine",
-    "TurbojetEngine",
-    "Fins",
-    "Wings",
-    "ControlSurface",
-    "AnyPropulsionComponent",
-    "AnyBoosterComponent",
+    "AERO_COMPONENTS",
+    "ALL_COMPONENTS",
+    "BODY_COMPONENTS",
+    "BOOSTER_COMPONENTS",
+    "PROPULSION_COMPONENTS",
     "AnyAeroComponent",
     "AnyBodyComponent",
+    "AnyBoosterComponent",
     "AnyComponent",
-    "AERO_COMPONENTS",
-    "BODY_COMPONENTS",
-    "PROPULSION_COMPONENTS",
-    "BOOSTER_COMPONENTS",
-    "ALL_COMPONENTS",
+    "AnyPropulsionComponent",
+    "MassProperties",
 ]

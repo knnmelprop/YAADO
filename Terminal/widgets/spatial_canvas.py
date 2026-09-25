@@ -46,7 +46,6 @@ class SpatialCanvas(Widget):
             component_tag: Unique identifier of the placed component.
             slot: Target positional slot name (e.g. 'nose', 'forward', 'mid', 'aft', 'base').
         """
-        pass
 
     def reorder_components(self, source_slot: str, target_slot: str) -> None:
         """Shift or swap component positions along the vehicle longitudinal axis.
@@ -55,4 +54,3 @@ class SpatialCanvas(Widget):
             source_slot: Original slot location.
             target_slot: Destination slot location.
         """
-        pass

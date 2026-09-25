@@ -39,6 +39,7 @@ class FigurePreview(Widget):
         Yields:
             Child widgets including thumbnail display and action button.
         """
+        yield from ()
 
     def load_figure(self, image_path: Path) -> None:
         """Load and render an inline thumbnail preview for a figure file.

@@ -13,7 +13,9 @@ import YAADO_Core.modules.suave_compat  # noqa: F401
 # isort: split
 import SUAVE
 
-from YAADO_Core.ComponentStore import AxisymmetricBody, TurbojetEngine, Wings
+from YAADO_Core.ComponentStore.aero_surfaces import Wings
+from YAADO_Core.ComponentStore.body import AxisymmetricBody
+from YAADO_Core.ComponentStore.propulsion import TurbojetEngine
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.Foundation.vehicle_factory import VehicleFactory
 

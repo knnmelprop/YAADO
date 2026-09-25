@@ -14,9 +14,9 @@ from YAADO_Core.ComponentStore import (
     ALL_COMPONENTS,
     BODY_COMPONENTS,
     PROPULSION_COMPONENTS,
-    ControlSurface,
     MassProperties,
 )
+from YAADO_Core.ComponentStore.aero_surfaces import ControlSurface
 
 
 def test_component_store_registries_invariants() -> None:
@@ -68,7 +68,7 @@ def test_nested_mass_properties_examples_are_typed() -> None:
             if name != "type"
         }
         instance = comp_cls(**kwargs)
-        mass_obj = getattr(instance, "mass")
+        mass_obj = getattr(instance, "mass")  # noqa: B009
         assert mass_obj is not None, f"{comp_cls.__name__}.mass should have a prefilled example"
         assert isinstance(mass_obj, MassProperties), f"{comp_cls.__name__}.mass must be a MassProperties instance"
         assert mass_obj.total_mass is not None
@@ -89,4 +89,17 @@ def test_nested_control_surfaces_examples_are_typed() -> None:
         instance = comp_cls(**kwargs)
         for cs in instance.control_surfaces:
             assert isinstance(cs, ControlSurface)
+
+
+@pytest.mark.parametrize("comp_cls", ALL_COMPONENTS)
+def test_all_components_declare_units_and_headline_fields(comp_cls: type[BaseModel]) -> None:
+    """Every registered component must declare UNITS and HEADLINE_FIELDS ClassVars."""
+    assert hasattr(comp_cls, "UNITS"), f"{comp_cls.__name__} must define UNITS ClassVar"
+    assert isinstance(getattr(comp_cls, "UNITS"), dict)  # noqa: B009
+    assert hasattr(comp_cls, "HEADLINE_FIELDS"), f"{comp_cls.__name__} must define HEADLINE_FIELDS ClassVar"
+    headline = getattr(comp_cls, "HEADLINE_FIELDS")  # noqa: B009
+    assert isinstance(headline, tuple)
+    assert len(headline) > 0, f"{comp_cls.__name__} HEADLINE_FIELDS must not be empty"
+    for field in headline:
+        assert field in comp_cls.model_fields, f"{comp_cls.__name__} HEADLINE_FIELD '{field}' not in model_fields"
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from Terminal.Assembly import VehicleTemplateGenerator
 from YAADO_Core.ComponentStore import (
@@ -17,9 +17,9 @@ from YAADO_Core.ComponentStore import (
     ALL_COMPONENTS,
     BODY_COMPONENTS,
     PROPULSION_COMPONENTS,
-    ControlSurface,
     MassProperties,
 )
+from YAADO_Core.ComponentStore.aero_surfaces import ControlSurface
 from YAADO_Core.Foundation import BaseVehicleConfig
 
 

@@ -12,6 +12,8 @@ The TUI is the primary user-facing entry point for YAADO:
 yaado
 ```
 
+WHEN THE TERMINAL IS NOT MAXIMIZED IT SHOULD NOT DISPLAY UI and INSTEAD DISPLAY THE TEXT "Please maximize the terminal to make sure our UI doesn't break :)"
+
 ### Global Navigation Hotkeys
 * `m` — Jump to **Main Cockpit**
 * `h` — Jump to **Hangar Workshop**

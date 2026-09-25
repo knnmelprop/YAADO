@@ -46,14 +46,10 @@ Retrieves the mandatory baseline example value for an individual field, facilita
 
 ```python
 from Terminal.Assembly import VehicleTemplateGenerator
-from YAADO_Core.ComponentStore import (
-    AxisymmetricBody,
-    Wings,
-    Fins,
-    TurbojetEngine,
-    SolidMotor,
-    MassProperties,
-)
+from YAADO_Core.ComponentStore import MassProperties
+from YAADO_Core.ComponentStore.aero_surfaces import Fins, Wings
+from YAADO_Core.ComponentStore.body import AxisymmetricBody
+from YAADO_Core.ComponentStore.propulsion import SolidMotor, TurbojetEngine
 
 # Generate a pre-filled, simulation-ready vehicle template in Hangar/
 VehicleTemplateGenerator.generate_template(

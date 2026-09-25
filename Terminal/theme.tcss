@@ -167,32 +167,32 @@ TabPane {
     border-subtitle-color: $yaado-accent;
 }
 
-#hangar-tree, #flightlogs-tree {
+VehicleTree, FlightLogsTree, #hangar-tree, #flightlogs-tree, #hangar-library-tree {
     background: transparent;
     padding: 0;
     scrollbar-size: 0 0;
     height: 1fr;
 }
 
-#hangar-tree:focus, #flightlogs-tree:focus {
+VehicleTree:focus, FlightLogsTree:focus, #hangar-tree:focus, #flightlogs-tree:focus, #hangar-library-tree:focus {
     background: transparent;
 }
 
-#hangar-tree > .tree--cursor, #flightlogs-tree > .tree--cursor {
+VehicleTree > .tree--cursor, FlightLogsTree > .tree--cursor, #hangar-tree > .tree--cursor, #flightlogs-tree > .tree--cursor, #hangar-library-tree > .tree--cursor {
     background: $yaado-primary;
     color: $yaado-text;
     text-style: bold;
 }
 
-#hangar-tree > .tree--guides, #flightlogs-tree > .tree--guides {
+VehicleTree > .tree--guides, FlightLogsTree > .tree--guides, #hangar-tree > .tree--guides, #flightlogs-tree > .tree--guides, #hangar-library-tree > .tree--guides {
     color: $yaado-border-subtle;
 }
 
-#hangar-tree > .tree--guides-hover, #flightlogs-tree > .tree--guides-hover {
+VehicleTree > .tree--guides-hover, FlightLogsTree > .tree--guides-hover, #hangar-tree > .tree--guides-hover, #flightlogs-tree > .tree--guides-hover, #hangar-library-tree > .tree--guides-hover {
     color: $yaado-accent;
 }
 
-#hangar-tree > .tree--highlight-line, #flightlogs-tree > .tree--highlight-line {
+VehicleTree > .tree--highlight-line, FlightLogsTree > .tree--highlight-line, #hangar-tree > .tree--highlight-line, #flightlogs-tree > .tree--highlight-line, #hangar-library-tree > .tree--highlight-line {
     background: transparent;
 }
 
@@ -240,6 +240,7 @@ Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
 
 #componentstore-card {
     width: 1fr;
+    min-width: 26;
     height: 1fr;
     margin-right: 1;
 }
@@ -271,13 +272,127 @@ Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
     width: 1fr;
 }
 
+#component-store-view {
+    background: transparent;
+    border: none;
+    padding: 0;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+#component-store-view Collapsible {
+    padding: 0;
+    margin-bottom: 1;
+    background: transparent;
+    border: none;
+    border-top: none;
+}
+
+#component-store-view Collapsible:ansi {
+    border: none;
+    border-top: none;
+    background: transparent;
+}
+
+#component-store-view CollapsibleTitle {
+    color: $yaado-text-muted;
+    background: transparent;
+    padding: 0 1;
+}
+
+#component-store-view CollapsibleTitle:hover {
+    color: $yaado-text;
+}
+
+#component-store-view CollapsibleTitle:focus {
+    color: $yaado-border-focus;
+    text-style: bold;
+}
+
 #component-preview {
     width: 100%;
     height: 100%;
+    padding: 0 1;
+    color: $yaado-text;
+    overflow-y: auto;
+}
+
+#workspace-header {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+#workspace-schematic {
+    width: 100%;
+    height: 3;
+    margin-bottom: 1;
+    padding: 0 1;
+    border: solid $yaado-border-subtle;
+    color: $yaado-accent;
     content-align: center middle;
     text-align: center;
-    color: $yaado-text-muted;
+    text-style: bold;
 }
+
+#vehicle-components-list {
+    background: transparent;
+    border: none;
+    padding: 0;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+#vehicle-components-list:focus {
+    background: transparent;
+    border: none;
+}
+
+#vehicle-components-list > .option-list--option-highlighted {
+    background: $yaado-primary;
+    color: $yaado-text;
+    text-style: bold;
+}
+
+#vehicle-components-list > .option-list--option-disabled {
+    color: $yaado-text-muted;
+    text-style: bold;
+    background: transparent;
+}
+
+#hangar-library-buttons {
+    width: 100%;
+    height: 3;
+    margin-top: 1;
+}
+
+#hangar-new-vehicle-btn, #hangar-fork-btn {
+    width: 1fr;
+    height: 3;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text-muted;
+    text-style: bold;
+    margin-right: 1;
+}
+
+#hangar-fork-btn {
+    margin-right: 0;
+}
+
+#hangar-new-vehicle-btn:hover, #hangar-fork-btn:hover {
+    background: transparent;
+    border: round $yaado-accent;
+    color: $yaado-accent;
+}
+
+#hangar-new-vehicle-btn:focus, #hangar-fork-btn:focus {
+    background: transparent;
+    border: round $yaado-border-focus;
+    color: $yaado-text;
+}
+
 
 /* ==========================================================================
    Flight Deck Workspace Layout

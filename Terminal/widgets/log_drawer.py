@@ -31,6 +31,7 @@ class LogDrawer(Widget):
         Yields:
             Progress indicators and scrollable text log widgets.
         """
+        yield from ()
 
     def write_line(self, line: str, level: str = "INFO") -> None:
         """Append a formatted log message to the console view.

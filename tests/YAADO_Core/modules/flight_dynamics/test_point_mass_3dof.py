@@ -6,12 +6,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from YAADO_Core.ComponentStore import (
-    AxisymmetricBody,
-    Fins,
-    MassProperties,
-    SolidMotor,
-)
+from YAADO_Core.ComponentStore import MassProperties
+from YAADO_Core.ComponentStore.aero_surfaces import Fins
+from YAADO_Core.ComponentStore.body import AxisymmetricBody
+from YAADO_Core.ComponentStore.propulsion import SolidMotor
 from YAADO_Core.Foundation.analysis_base import FidelityLevel
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig, ComponentNotFoundError
@@ -257,7 +255,7 @@ def test_resolve_booster_params_multi_propulsion_auto_selects_booster(
     vehicle: BaseVehicleConfig,
 ) -> None:
     """Auto-discovery resolves the booster even when non-booster propulsion (e.g. Ramjet) is present."""
-    from YAADO_Core.ComponentStore import RamjetEngine
+    from YAADO_Core.ComponentStore.propulsion import RamjetEngine
 
     vehicle.propulsion["sustainer"] = RamjetEngine(
         design_mach=2.6,

@@ -8,6 +8,7 @@ Coordinates top-level tab navigation across the three primary stages:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar
 
 from textual import on
@@ -18,6 +19,7 @@ from textual.widgets import Footer, TabbedContent, TabPane
 from Terminal.screens.flight_deck import FlightDeckView
 from Terminal.screens.hangar import HangarView
 from Terminal.screens.main_view import MainView
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 
 class YaadoApp(App[None]):
@@ -25,10 +27,46 @@ class YaadoApp(App[None]):
 
     TITLE = "YAADO"
     CSS_PATH = "theme.tcss"
+    ALLOW_SELECT = False
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(ansi_color=True, **kwargs)
         self._active_tab: str = "main"
+        self.active_vehicle: BaseVehicleConfig | None = None
+        self.active_vehicle_path: Path | None = None
+
+    def set_active_vehicle(
+        self,
+        path: Path | None,
+        config: BaseVehicleConfig | None = None,
+    ) -> None:
+        """Set the globally active vehicle across the application tabs.
+
+        Args:
+            path: Source file path of the vehicle.
+            config: Optional pre-loaded BaseVehicleConfig instance.
+        """
+        if config is not None:
+            self.active_vehicle = config
+            self.active_vehicle_path = path
+        elif path is not None and path.is_file():
+            try:
+                self.active_vehicle = BaseVehicleConfig.from_toml(path)
+                self.active_vehicle_path = path
+            except (OSError, ValueError, KeyError):
+                self.active_vehicle = None
+                self.active_vehicle_path = None
+        else:
+            self.active_vehicle = None
+            self.active_vehicle_path = None
+
+        from textual.css.query import NoMatches
+
+        try:
+            hangar_view = self.query_one(HangarView)
+            hangar_view.load_vehicle(self.active_vehicle, self.active_vehicle_path)
+        except NoMatches:
+            pass
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
