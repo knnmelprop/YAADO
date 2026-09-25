@@ -87,6 +87,7 @@ class FlightDeckView(Container):
         Returns:
             List of usable solver names in the current environment.
         """
+        return []
 
     def execute_solver_async(self, solver_name: str, params: dict[str, Any]) -> None:
         """Launch a solver run inside a non-blocking background worker thread.
@@ -121,3 +122,4 @@ class FlightDeckView(Container):
         Returns:
             Dictionary containing parsed results, log paths, and figure paths.
         """
+        return {}

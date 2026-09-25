@@ -89,6 +89,7 @@ class Wings(BaseModel):
         "sweep": "deg",
         "dihedral": "deg",
     }
+    HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("span", "aspect_ratio", "sweep")
 
     type: Literal["wing"] = Field(default="wing", frozen=True)
 
@@ -188,6 +189,7 @@ class Fins(BaseModel):
         "chord_root": "m",
         "chord_tip": "m",
     }
+    HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("span", "count", "sweep")
 
     type: Literal["fins"] = Field(default="fins", frozen=True)
 

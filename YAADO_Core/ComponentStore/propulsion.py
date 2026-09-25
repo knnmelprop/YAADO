@@ -43,6 +43,7 @@ class SolidMotor(BaseModel):
         "casing_length": "m",
         "casing_diameter": "m",
     }
+    HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("thrust_mean", "burn_time", "isp_sl")
 
     type: Literal["solid_motor"] = Field(default="solid_motor", frozen=True)
 
@@ -174,6 +175,7 @@ class RamjetEngine(BaseModel):
         "nozzle_throat_diameter": "m",
         "nozzle_exit_diameter": "m",
     }
+    HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("design_mach", "combustor_temp", "fuel_type")
 
     type: Literal["ramjet_engine"] = Field(default="ramjet_engine", frozen=True)
     
@@ -274,6 +276,7 @@ class TurbojetEngine(BaseModel):
         "length": "m",
         "max_rpm": "rpm",
     }
+    HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("thrust", "sfc", "name")
 
     type: Literal["turbojet_engine"] = Field(default="turbojet_engine", frozen=True)
     

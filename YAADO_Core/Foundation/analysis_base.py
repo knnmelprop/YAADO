@@ -14,6 +14,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,
     Generic,
     TypeVar,
     get_args,
@@ -57,6 +58,12 @@ class BaseAnalysisResults:
 
     name: str
     fidelity: FidelityLevel
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = ()
+
+    @classmethod
+    def headline_metrics(cls) -> tuple[str, ...]:
+        """Names of primary headline metrics to feature in summaries and reports."""
+        return getattr(cls, "HEADLINE_METRICS", ())
 
     def scalars(self) -> dict[str, float]:
         """Extract all numeric scalar fields using standard dataclass reflection.

@@ -139,6 +139,9 @@ TabPane {
     border-title-style: bold;
     border-title-align: left;
     border-title-background: transparent;
+    border-subtitle-color: $yaado-text-muted;
+    border-subtitle-align: right;
+    border-subtitle-background: transparent;
     background: transparent;
     padding: 1;
     height: 1fr;
@@ -152,40 +155,48 @@ TabPane {
     padding-bottom: 0;
 }
 
-.cockpit-card:focus-within {
-    border: round $yaado-border-focus;
+#flightlogs-card {
+    padding-left: 1;
+    padding-top: 1;
+    padding-right: 1;
+    padding-bottom: 0;
 }
 
-#hangar-tree {
+.cockpit-card:focus-within {
+    border: round $yaado-border-focus;
+    border-subtitle-color: $yaado-accent;
+}
+
+#hangar-tree, #flightlogs-tree {
     background: transparent;
     padding: 0;
     scrollbar-size: 0 0;
     height: 1fr;
 }
 
-#hangar-tree:focus {
+#hangar-tree:focus, #flightlogs-tree:focus {
     background: transparent;
 }
 
-#hangar-tree > .tree--cursor {
+#hangar-tree > .tree--cursor, #flightlogs-tree > .tree--cursor {
     background: $yaado-primary;
     color: $yaado-text;
     text-style: bold;
 }
 
-#hangar-tree > .tree--guides {
+#hangar-tree > .tree--guides, #flightlogs-tree > .tree--guides {
     color: $yaado-border-subtle;
 }
 
-#hangar-tree > .tree--guides-hover {
+#hangar-tree > .tree--guides-hover, #flightlogs-tree > .tree--guides-hover {
     color: $yaado-accent;
 }
 
-#hangar-tree > .tree--highlight-line {
+#hangar-tree > .tree--highlight-line, #flightlogs-tree > .tree--highlight-line {
     background: transparent;
 }
 
-Button#new-vehicle-btn {
+Button#new-vehicle-btn, Button#new-analysis-btn {
     width: 100%;
     height: 3;
     background: transparent;
@@ -194,13 +205,13 @@ Button#new-vehicle-btn {
     text-style: bold;
 }
 
-Button#new-vehicle-btn:hover {
+Button#new-vehicle-btn:hover, Button#new-analysis-btn:hover {
     background: transparent;
     border: round $yaado-accent;
     color: $yaado-accent;
 }
 
-Button#new-vehicle-btn:focus {
+Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
     background: transparent;
     border: round $yaado-border-focus;
     color: $yaado-text;
@@ -212,6 +223,10 @@ Button#new-vehicle-btn:focus {
     padding: 0 1;
     color: $yaado-text;
     overflow-y: auto;
+}
+
+#preview-content:focus {
+    background: transparent;
 }
 
 /* ==========================================================================

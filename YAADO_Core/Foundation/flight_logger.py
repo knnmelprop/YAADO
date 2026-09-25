@@ -415,6 +415,7 @@ class FlightLogger:
             "analysis_name": analysis_name,
             "timestamp": self.timestamp_str,
             "fidelity": results.fidelity.name,
+            "headline_metrics": list(results.headline_metrics()),
             "data": scalars_dict,
             "units": units_dict,
             "details": asdict(results),

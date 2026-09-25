@@ -25,6 +25,7 @@ class MassProperties(BaseModel):
         "cg_from_nose": "m",
         "total_mass": "kg",
     }
+    HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("total_mass", "cg_from_nose")
 
     type: Literal["mass"] = Field(default="mass", frozen=True)
 

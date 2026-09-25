@@ -6,6 +6,7 @@ Provides strongly typed dataclasses for trajectory metrics, samples, and simulat
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
@@ -43,6 +44,15 @@ class PointMassBoostResults(BaseAnalysisResults):
     Scalar metrics and units are reflected automatically via :meth:`BaseAnalysisResults.scalars`
     and :meth:`BaseAnalysisResults.units`.
     """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "apogee_altitude",
+        "burnout_velocity",
+        "burnout_mach",
+        "q_max",
+        "t_end_s",
+        "final_x",
+    )
 
     burnout_time: Seconds
     burnout_velocity: MetersPerSecond
