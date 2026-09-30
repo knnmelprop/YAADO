@@ -309,12 +309,169 @@ Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
     text-style: bold;
 }
 
-#component-preview {
+DragGhost {
+    position: absolute;
+    width: auto;
+    height: 1;
+    background: $yaado-panel;
+    color: $yaado-accent;
+    text-style: bold;
+    padding: 0 1;
+    border: none;
+}
+
+ComponentTile {
+    width: 100%;
+    height: 3;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text;
+    padding: 0 1;
+    margin-bottom: 1;
+    text-align: center;
+    content-align: center middle;
+}
+
+ComponentTile:hover {
+    border: round $yaado-text-disabled;
+    background: transparent;
+}
+
+ComponentTile:focus {
+    border: round $yaado-border-focus;
+    background: transparent;
+    color: #60a5fa;
+}
+
+ComponentTile.-dragging {
+    opacity: 50%;
+    border: dashed $yaado-border-focus;
+    background: transparent;
+}
+
+
+#component-form {
     width: 100%;
     height: 100%;
+    background: transparent;
+    padding: 0 1;
+    scrollbar-size: 0 0;
+}
+
+#component-form .form-row {
+    width: 100%;
+    height: 1;
+    margin-bottom: 0;
+    align: left middle;
+}
+
+#component-form .form-label {
+    width: 16;
+    height: 1;
+    color: $yaado-text-muted;
+    text-style: bold;
+}
+
+#component-form .form-input {
+    width: 14;
+    height: 1;
+    background: transparent;
+    border: none;
     padding: 0 1;
     color: $yaado-text;
-    overflow-y: auto;
+}
+
+#component-form .form-input:focus {
+    border: none;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+#component-form .form-input > .input--selection {
+    background: #25334a;
+    color: $yaado-text;
+}
+
+#component-form .form-input > .input--cursor {
+    background: $yaado-accent;
+    color: #0b0f17;
+}
+
+#component-form .form-input.-invalid {
+    border: none;
+    background: transparent;
+    color: $yaado-error;
+    text-style: bold;
+}
+
+#component-form .form-select {
+    width: 15;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+#component-form .form-select SelectCurrent {
+    border: none;
+    height: 1;
+    padding: 0 1;
+    background: transparent;
+    color: $yaado-text;
+}
+
+#component-form .form-select:focus SelectCurrent {
+    border: none;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+#component-form .form-select SelectOverlay {
+    background: #111827;
+    border: round $yaado-border-subtle;
+    color: $yaado-text;
+}
+
+#component-form .form-select SelectOverlay:focus {
+    border: round $yaado-border-focus;
+}
+
+#component-form .form-select SelectOverlay > .option-list--option.-highlighted {
+    background: $yaado-panel;
+    color: $yaado-accent;
+    text-style: bold;
+}
+
+#component-form .form-unit {
+    width: 6;
+    height: 1;
+    color: $yaado-text-muted;
+    padding-left: 1;
+    text-style: bold;
+}
+
+#component-form .form-hint {
+    width: 1fr;
+    height: 1;
+    color: #94a3b8;
+    padding-left: 1;
+}
+
+#component-form #form-validation-status {
+    width: 100%;
+    height: 1;
+    margin-top: 1;
+    color: $yaado-error;
+    text-style: bold;
+}
+
+#component-form #form-empty-label {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    text-align: center;
+    color: $yaado-text-disabled;
 }
 
 #workspace-header {

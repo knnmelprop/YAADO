@@ -13,14 +13,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel
+from rich.markup import escape
 from textual import events, on
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.widgets import Button, OptionList, Static
 from textual.widgets.option_list import Option
 
 from Terminal.Assembly.template_generator import VehicleTemplateGenerator
-from Terminal.widgets import ComponentStoreView, ComponentTile, VehicleTree
+from Terminal.widgets import (
+    ComponentStoreView,
+    ComponentTile,
+    DynamicSchemaForm,
+    VehicleTree,
+)
 from YAADO_Core.ComponentStore import (
     AERO_COMPONENTS,
     BODY_COMPONENTS,
@@ -31,6 +38,7 @@ from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
+    from textual.timer import Timer
 
 
 class VehicleComponentList(OptionList):
@@ -88,6 +96,7 @@ class HangarView(Container):
         self.active_vehicle_path: Path | None = None
         self.selected_vehicle_name: str | None = None
         self.current_mode: Literal["library", "assembly"] = "library"
+        self._auto_save_timer: Timer | None = None
         self._component_classes: dict[str, type[BaseModel]] = {}
         for _, _, _, comp_tuple in self.SUBSYSTEM_CATEGORIES:
             for comp_cls in comp_tuple:
@@ -103,7 +112,7 @@ class HangarView(Container):
             # Left column: ComponentStore with Collapsible categories and draggable cards
             componentstore_card = Container(id="componentstore-card", classes="cockpit-card")
             componentstore_card.border_title = "Component Store"
-            componentstore_card.border_subtitle = "[a] / Double-Click / Drag to Add"
+            componentstore_card.border_subtitle = "\\[a] / Double-Click / Drag to Add"
             with componentstore_card:
                 yield ComponentStoreView(id="component-store-view")
 
@@ -112,7 +121,7 @@ class HangarView(Container):
                 with Horizontal(id="panel-and-hangar"):
                     workspace_card = Container(id="workspace-card", classes="cockpit-card")
                     workspace_card.border_title = "Vehicle"
-                    workspace_card.border_subtitle = "[d] Delete"
+                    workspace_card.border_subtitle = "\\[d] Delete"
                     with workspace_card:
                         yield Static("", id="workspace-header")
                         yield Static("", id="workspace-schematic")
@@ -134,10 +143,7 @@ class HangarView(Container):
                 component_stat_card = Container(id="component-preview-card", classes="cockpit-card")
                 component_stat_card.border_title = "Component Parameters"
                 with component_stat_card:
-                    yield Static(
-                        "[dim]Highlight a component in the store or workspace to inspect its parameters.[/dim]",
-                        id="component-preview",
-                    )
+                    yield DynamicSchemaForm(id="component-form")
 
     def on_mount(self) -> None:
         """Initialize active vehicle on startup."""
@@ -258,13 +264,13 @@ class HangarView(Container):
         """
         stages: list[str] = ["◄ NOSE"]
         for name in vehicle.bodies:
-            stages.append(f"[{name}]")
+            stages.append(f"\\[{name}]")
         for name in vehicle.aero_surfaces:
-            stages.append(f"[{name}]")
+            stages.append(f"\\[{name}]")
         for name in vehicle.propulsion:
-            stages.append(f"[{name}]")
+            stages.append(f"\\[{name}]")
         if vehicle.mass_properties is not None:
-            stages.append("[⌖ CG]")
+            stages.append("\\[⌖ CG]")
         stages.append("EXHAUST ►")
         return " ══ ".join(stages)
 
@@ -289,7 +295,7 @@ class HangarView(Container):
         comp_count = len(vehicle.all_components())
         if vehicle.mass_properties is not None:
             comp_count += 1
-        workspace_card.border_subtitle = f"{comp_count} Components • [d] Delete"
+        workspace_card.border_subtitle = f"{comp_count} Components • \\[d] Delete"
 
         mass_str = (
             f"  [dim]•[/dim]  [bold #94a3b8]{vehicle.total_mass:.1f} kg[/bold #94a3b8]"
@@ -387,16 +393,32 @@ class HangarView(Container):
             idx += 1
         return f"{base}_{idx}"
 
-    def _save_active_vehicle_if_writable(self) -> None:
-        """Save active vehicle to disk if it resides in a writable user directory."""
-        if self.active_vehicle is None or self.active_vehicle_path is None:
-            return
+    def _save_active_vehicle_if_writable(self) -> bool:
+        """Save active vehicle to disk if path is set.
+
+        Returns:
+            True if saved successfully to disk, False otherwise.
+        """
+        if self.active_vehicle is None:
+            return False
+        if self.active_vehicle_path is None:
+            name = self.active_vehicle.name or "Custom_Vehicle"
+            self.active_vehicle_path = self.hangar_root / name / f"{name}.toml"
         try:
-            if self.active_vehicle_path.resolve().is_relative_to(self.examples_root.resolve()):
-                return
+            self.active_vehicle_path.parent.mkdir(parents=True, exist_ok=True)
             self.active_vehicle.to_toml(self.active_vehicle_path)
+            return True
         except (OSError, ValueError) as exc:
             self.notify(f"Auto-save failed: {exc}", severity="warning")
+            return False
+
+    def _clear_auto_save_badge(self) -> None:
+        """Revert preview card subtitle to default after auto-save indicator timeout."""
+        try:
+            preview_card = self.query_one("#component-preview-card", Container)
+            preview_card.border_subtitle = ""
+        except (NoMatches, KeyError):
+            pass
 
     def add_component_to_vehicle(self, comp_cls_name: str | None) -> None:
         """Instantiate and attach a component from the store to the active vehicle.
@@ -409,9 +431,16 @@ class HangarView(Container):
 
         comp_cls = self._component_classes[comp_cls_name]
         try:
-            new_comp = VehicleTemplateGenerator.prefill_component_values(comp_cls)
-        except (ValueError, KeyError, TypeError):
-            new_comp = comp_cls.model_construct()
+            form = self.query_one("#component-form", DynamicSchemaForm)
+            if form.model_class == comp_cls and form.is_valid and form.current_validated_instance is not None:
+                new_comp = form.current_validated_instance.model_copy(deep=True)
+            else:
+                new_comp = VehicleTemplateGenerator.prefill_component_values(comp_cls)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            try:
+                new_comp = VehicleTemplateGenerator.prefill_component_values(comp_cls)
+            except (ValueError, KeyError, TypeError):
+                new_comp = comp_cls.model_construct()
 
         if self.active_vehicle is None:
             self.active_vehicle = BaseVehicleConfig(name="Custom_Vehicle")
@@ -441,7 +470,7 @@ class HangarView(Container):
         self._refresh_workspace()
 
         workspace_card = self.query_one("#workspace-card", Container)
-        workspace_card.border_subtitle = f"Added {comp_cls.__name__} [{key}]"
+        workspace_card.border_subtitle = f"Added {comp_cls.__name__} \\[{key}]"
 
     def delete_selected_component(self) -> None:
         """Delete currently highlighted component in the active vehicle."""
@@ -469,21 +498,6 @@ class HangarView(Container):
         workspace_card = self.query_one("#workspace-card", Container)
         workspace_card.border_subtitle = f"Deleted {name}"
 
-    @on(ComponentTile.ComponentHighlighted)
-    def on_component_tile_highlighted(self, event: ComponentTile.ComponentHighlighted) -> None:
-        """Update component preview card with the schema details of highlighted component tile.
-
-        Args:
-            event: Component tile highlighted event.
-        """
-        if event.comp_id and event.comp_id in self._component_classes:
-            comp_cls = self._component_classes[event.comp_id]
-            preview_card = self.query_one("#component-preview-card", Container)
-            preview_card.border_title = f"Store: {comp_cls.__name__}"
-            preview_card.border_subtitle = "[a] / Double-Click / Drag to Add"
-            preview = self.query_one("#component-preview", Static)
-            preview.update(self._format_component_schema_preview(comp_cls))
-
     @on(ComponentTile.ComponentSelected)
     def on_component_tile_selected(self, event: ComponentTile.ComponentSelected) -> None:
         """Add component from store into active vehicle via double-click, 'a' key, or drag-and-drop.
@@ -495,7 +509,7 @@ class HangarView(Container):
 
     @on(OptionList.OptionHighlighted, "#vehicle-components-list")
     def on_vehicle_component_highlighted(self, event: OptionList.OptionHighlighted) -> None:
-        """Display live parameter values of highlighted vehicle component.
+        """Display and edit live parameter values of highlighted vehicle component.
 
         Args:
             event: Textual option highlighted event.
@@ -515,11 +529,93 @@ class HangarView(Container):
             comp = self.active_vehicle.propulsion.get(name)
 
         if comp is not None:
+            if self._auto_save_timer is not None:
+                self._auto_save_timer.stop()
+                self._auto_save_timer = None
             preview_card = self.query_one("#component-preview-card", Container)
-            preview_card.border_title = f"Component: {name} ({comp.__class__.__name__})"
-            preview_card.border_subtitle = "[d] Delete from Vehicle"
-            preview = self.query_one("#component-preview", Static)
-            preview.update(self._format_installed_component_preview(name, comp))
+            preview_card.border_title = f"Component Parameters: {name} ({comp.__class__.__name__})"
+            preview_card.border_subtitle = ""
+            form = self.query_one("#component-form", DynamicSchemaForm)
+            self.run_worker(
+                form.load_model(
+                    comp.__class__,
+                    initial_values=comp,
+                    name=name,
+                    category=category,
+                    is_installed=True,
+                ),
+                exclusive=True,
+                group="form_loader",
+            )
+
+    @on(DynamicSchemaForm.FormChanged)
+    def on_form_changed(self, event: DynamicSchemaForm.FormChanged) -> None:
+        """Handle real-time component parameter updates and auto-save valid configurations.
+
+        Args:
+            event: Dynamic schema form changed event.
+        """
+        preview_card = self.query_one("#component-preview-card", Container)
+
+        if not event.is_valid:
+            if event.errors:
+                first_k = next(iter(event.errors))
+                preview_card.border_subtitle = f"[red]▲ {escape(first_k)}: {escape(event.errors[first_k])}[/red]"
+            return
+
+        if not event.validated_instance:
+            return
+
+        if not getattr(event, "is_user_edit", False):
+            preview_card.border_subtitle = ""
+            return
+
+        if self.active_vehicle is None or not event.name or not event.category:
+            return
+
+        # Update the component in the active vehicle model
+        if event.category == "BODY" and isinstance(event.validated_instance, BODY_COMPONENTS):
+            self.active_vehicle.bodies[event.name] = event.validated_instance
+        elif event.category == "AERO" and isinstance(event.validated_instance, AERO_COMPONENTS):
+            self.active_vehicle.aero_surfaces[event.name] = event.validated_instance
+        elif event.category == "PROP" and isinstance(event.validated_instance, PROPULSION_COMPONENTS):
+            self.active_vehicle.propulsion[event.name] = event.validated_instance
+        elif event.category == "MASS" and isinstance(event.validated_instance, MassProperties):
+            self.active_vehicle.mass_properties = event.validated_instance
+        else:
+            return
+
+        # Auto-save to TOML on disk
+        saved = self._save_active_vehicle_if_writable()
+
+        # Update workspace header and longitudinal schematic without resetting options list
+        workspace_header = self.query_one("#workspace-header", Static)
+        workspace_schematic = self.query_one("#workspace-schematic", Static)
+        mass_str = (
+            f"  [dim]•[/dim]  [bold #94a3b8]{self.active_vehicle.total_mass:.1f} kg[/bold #94a3b8]"
+            if self.active_vehicle.total_mass is not None
+            else ""
+        )
+        n_body = len(self.active_vehicle.bodies)
+        n_aero = len(self.active_vehicle.aero_surfaces)
+        n_prop = len(self.active_vehicle.propulsion)
+        header_text = (
+            f"[bold white]{self.active_vehicle.name}[/bold white]"
+            f"{mass_str}  [dim]•[/dim]  "
+            f"[bold #3b82f6]{n_body} Body[/bold #3b82f6]  [dim]•[/dim]  "
+            f"[bold #0284c7]{n_aero} Aero[/bold #0284c7]  [dim]•[/dim]  "
+            f"[bold #f59e0b]{n_prop} Prop[/bold #f59e0b]"
+        )
+        workspace_header.update(header_text)
+        workspace_schematic.update(self._generate_ascii_schematic(self.active_vehicle))
+
+        if saved:
+            preview_card.border_subtitle = "[green]● Auto-saved[/green]"
+            if self._auto_save_timer is not None:
+                self._auto_save_timer.stop()
+            self._auto_save_timer = self.set_timer(3.0, self._clear_auto_save_badge)
+        else:
+            preview_card.border_subtitle = ""
 
     @on(VehicleTree.VehicleHighlighted, "#hangar-library-tree")
     def on_hangar_library_node_highlighted(self, event: VehicleTree.VehicleHighlighted) -> None:

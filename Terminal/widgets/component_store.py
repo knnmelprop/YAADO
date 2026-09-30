@@ -8,13 +8,14 @@ double-click addition, and single-click parameter inspection.
 from __future__ import annotations
 
 import re
-import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
+from rich.text import Text
 from textual import events
 from textual.binding import Binding, BindingType
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
 from textual.errors import NoWidget
 from textual.message import Message
 from textual.widget import Widget
@@ -36,19 +37,6 @@ class DragGhost(Static):
 
     ALLOW_SELECT: ClassVar[bool] = False
 
-    DEFAULT_CSS = """
-    DragGhost {
-        position: absolute;
-        width: auto;
-        height: 1;
-        background: #1b2436;
-        color: #f59e0b;
-        text-style: bold;
-        padding: 0 1;
-        border: none;
-    }
-    """
-
 
 class ComponentTile(Widget, can_focus=True):
     """Interactive modular card representing a component in the store.
@@ -62,46 +50,6 @@ class ComponentTile(Widget, can_focus=True):
 
     ALLOW_SELECT: ClassVar[bool] = False
 
-    DEFAULT_CSS = """
-    ComponentTile {
-        width: 100%;
-        height: 3;
-        background: transparent;
-        border: round #25334a;
-        color: #f8fafc;
-        padding: 0 1;
-        margin-bottom: 1;
-    }
-
-    ComponentTile:hover {
-        border: round #475569;
-        background: transparent;
-    }
-
-    ComponentTile:focus {
-        border: round #3b82f6;
-        background: transparent;
-    }
-
-    ComponentTile:focus .tile-name {
-        color: #60a5fa;
-    }
-
-    ComponentTile.-dragging {
-        opacity: 50%;
-        border: dashed #3b82f6;
-        background: transparent;
-    }
-
-    .tile-name {
-        width: 100%;
-        text-style: bold;
-        color: #f8fafc;
-        text-align: center;
-        content-align: center middle;
-    }
-    """
-
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("a", "add_to_vehicle", "Add to Vehicle", show=True),
         Binding("enter", "select_tile", "Preview", show=False),
@@ -109,18 +57,6 @@ class ComponentTile(Widget, can_focus=True):
 
     class ComponentSelected(Message):
         """Dispatched when a component is confirmed for addition via double-click, 'a', or drop."""
-
-        def __init__(self, tile: ComponentTile, comp_id: str) -> None:
-            super().__init__()
-            self.tile = tile
-            self.comp_id = comp_id
-
-        @property
-        def control(self) -> ComponentTile:
-            return self.tile
-
-    class ComponentHighlighted(Message):
-        """Dispatched when a tile is focused or single-clicked to inspect parameters."""
 
         def __init__(self, tile: ComponentTile, comp_id: str) -> None:
             super().__init__()
@@ -160,31 +96,26 @@ class ComponentTile(Widget, can_focus=True):
         self._drag_start_y: int = 0
         self._last_click_time: float = 0.0
 
-    def compose(self) -> ComposeResult:
-        """Render the grip handle and centered component name."""
-        yield Static(f"[dim #94a3b8]⠿[/dim #94a3b8]  {self.pretty_name}", classes="tile-name")
+    def render(self) -> Text:
+        """Render centered grip handle and component name."""
+        return Text.from_markup(f"[dim #94a3b8]⠿[/dim #94a3b8]  {self.pretty_name}")
 
     def action_add_to_vehicle(self) -> None:
         """Add this component to the active vehicle."""
         self.post_message(self.ComponentSelected(self, self.comp_id))
 
     def action_select_tile(self) -> None:
-        """Focus and inspect component parameters."""
-        self.post_message(self.ComponentHighlighted(self, self.comp_id))
+        """Focus the component tile."""
+        self.focus()
 
     def on_click(self, event: events.Click) -> None:
-        """Handle mouse clicks: single click inspects, double click adds to vehicle."""
+        """Handle mouse clicks: single click focuses, double click adds to vehicle."""
         event.prevent_default()
         event.stop()
         if event.chain == 2:
             self.post_message(self.ComponentSelected(self, self.comp_id))
         else:
             self.focus()
-            self.post_message(self.ComponentHighlighted(self, self.comp_id))
-
-    def on_focus(self) -> None:
-        """Notify parent when tile receives keyboard or click focus."""
-        self.post_message(self.ComponentHighlighted(self, self.comp_id))
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
         """Focus tile, highlight component parameters, and start drag tracking."""
@@ -193,7 +124,6 @@ class ComponentTile(Widget, can_focus=True):
             event.stop()
             self.screen.clear_selection()
             self.focus()
-            self.post_message(self.ComponentHighlighted(self, self.comp_id))
             self._mouse_down = True
             self._drag_start_x = event.screen_x
             self._drag_start_y = event.screen_y
@@ -218,7 +148,7 @@ class ComponentTile(Widget, can_focus=True):
                     self._ghost.styles.offset = (event.screen_x + 1, event.screen_y)
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
-        """Complete drag-and-drop or detect double-click addition."""
+        """Complete drag-and-drop or release mouse capture."""
         event.prevent_default()
         event.stop()
         self.screen.clear_selection()
@@ -227,34 +157,45 @@ class ComponentTile(Widget, can_focus=True):
         self.remove_class("-dragging")
 
         if self._ghost is not None:
+            self._ghost.visible = False
+            self._ghost.display = False
             self._ghost.remove()
             self._ghost = None
 
         if self._is_dragging:
             self._is_dragging = False
+            is_dropped_on_target = False
             try:
-                target_widget, _ = self.screen.get_widget_at(event.screen_x, event.screen_y)
-            except (NoWidget, KeyError):
-                target_widget = None
+                right_col = self.screen.query_one("#hangar-right-column")
+                if right_col.region.contains(event.screen_x, event.screen_y):
+                    is_dropped_on_target = True
+            except (NoMatches, KeyError):
+                pass
 
-            current: Any = target_widget
-            while current is not None:
-                if getattr(current, "id", None) in (
-                    "workspace-card",
-                    "vehicle-components-list",
-                    "workspace-schematic",
-                    "workspace-header",
-                ):
-                    self.post_message(self.ComponentSelected(self, self.comp_id))
-                    break
-                current = getattr(current, "parent", None)
-        else:
-            now = time.monotonic()
-            if now - self._last_click_time < 0.4:
+            if not is_dropped_on_target:
+                try:
+                    target_widget, _ = self.screen.get_widget_at(event.screen_x, event.screen_y)
+                except (NoWidget, KeyError):
+                    target_widget = None
+
+                current: Any = target_widget
+                while current is not None:
+                    if getattr(current, "id", None) in (
+                        "hangar-right-column",
+                        "panel-and-hangar",
+                        "workspace-card",
+                        "vehicle-components-list",
+                        "workspace-schematic",
+                        "workspace-header",
+                        "component-preview-card",
+                        "component-form",
+                    ):
+                        is_dropped_on_target = True
+                        break
+                    current = getattr(current, "parent", None)
+
+            if is_dropped_on_target:
                 self.post_message(self.ComponentSelected(self, self.comp_id))
-                self._last_click_time = 0.0
-            else:
-                self._last_click_time = now
 
 
 class ComponentStoreView(VerticalScroll):

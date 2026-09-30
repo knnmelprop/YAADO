@@ -91,6 +91,10 @@ class YaadoApp(App[None]):
                 yield FlightDeckView(id="flight-deck-view")
         yield Footer()
 
+    def on_mount(self) -> None:
+        """Configure application-level settings on mount."""
+        type(self.screen).ALLOW_SELECT = False
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Dynamically enable or hide actions in the footer.
 
