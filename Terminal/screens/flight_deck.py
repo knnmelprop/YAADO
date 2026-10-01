@@ -7,7 +7,6 @@ and interactively review historical runs stored in FlightLogs.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,14 +16,20 @@ from rich.markup import escape
 from rich.text import Text
 from textual import events, on
 from textual.binding import Binding, BindingType
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import (
+    Container,
+    Horizontal,
+    ScrollableContainer,
+    Vertical,
+    VerticalScroll,
+)
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Collapsible, OptionList, Static
 from textual.widgets.option_list import Option
 
-from Terminal.widgets import FlightLogsTree
+from Terminal.widgets import FlightLogsTree, render_flightlog_preview
 from YAADO_Core.ComponentStore import (
     AERO_COMPONENTS,
     BODY_COMPONENTS,
@@ -35,6 +40,11 @@ from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     PointMass3DOFBoostAnalysis,
+    format_sweep_csv,
+    plot_boost_phase,
+    plot_full_flight,
+    plot_launch_angle_sweep,
+    run_launch_angle_sweep,
 )
 
 if TYPE_CHECKING:
@@ -456,10 +466,6 @@ class SolversStoreView(VerticalScroll):
             tile.action_run_solver()
 
 
-# Backwards compatibility alias
-AvailableSolversList = SolversStoreView
-
-
 class PipelineList(OptionList):
     """Interactive execution pipeline stage list."""
 
@@ -522,6 +528,7 @@ class FlightDeckView(Container):
         self._current_highlighted_descriptor: SolverDescriptor | None = (
             REPAIRED_SOLVERS[0] if REPAIRED_SOLVERS else None
         )
+        self._selected_flightlog_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         """Render the run setup pane, execution console drawer, and historical logs browser.
@@ -555,7 +562,7 @@ class FlightDeckView(Container):
                 )
                 results_card.border_title = "Solver Inspector"
                 results_card.border_subtitle = "\\[a]/↵ Add  r Run"
-                with results_card:
+                with results_card, ScrollableContainer(id="flightdeck-results-scroll"):
                     yield Static("", id="flightdeck-results-content")
 
                 pipeline_card = Container(
@@ -582,7 +589,7 @@ class FlightDeckView(Container):
             # Right column: Previous runs & historical logs
             runs_card = Container(id="flightdeck-runs-card", classes="cockpit-card")
             runs_card.border_title = "FlightLogs History"
-            runs_card.border_subtitle = "↵ View"
+            runs_card.border_subtitle = "↵ View  o Open  f Folder  d Delete"
             with runs_card:
                 yield FlightLogsTree(id="flightdeck-runs-tree", logs_root=self.logs_root)
 
@@ -719,7 +726,9 @@ class FlightDeckView(Container):
             )
 
             content = self.query_one("#flightdeck-results-content", Static)
+            content.remove_class("-wide-table")
             content.update("\n".join(lines))
+            self._scroll_results_to_top()
         except NoMatches:
             pass
 
@@ -774,98 +783,39 @@ class FlightDeckView(Container):
             )
 
             content = self.query_one("#flightdeck-results-content", Static)
+            content.remove_class("-wide-table")
             content.update("\n".join(lines))
+            self._scroll_results_to_top()
         except NoMatches:
             pass
 
-    def _render_historical_log(self, run_dir: Path) -> None:
-        """Format historical simulation run telemetry into results card.
+    def _render_historical_log(self, path: Path) -> None:
+        """Format historical simulation run telemetry or artifact into results card.
 
         Args:
-            run_dir: Path to historical run directory containing results.json.
+            path: Path to historical run directory or specific artifact file.
         """
         try:
             results_card = self.query_one("#flightdeck-results-card", Container)
-            results_card.border_title = f"Historical: {run_dir.name}"
-            results_card.border_subtitle = "b Inspector"
+            if path.is_file():
+                results_card.border_title = f"File: {path.name}"
+            else:
+                results_card.border_title = f"Historical: {path.name}"
+            results_card.border_subtitle = "o Open  f Folder  b Inspector"
 
-            results_file = run_dir / "results.json"
             content = self.query_one("#flightdeck-results-content", Static)
-            if not results_file.is_file():
-                content.update(
-                    f"[bold amber]{run_dir.name}[/bold amber]\n[dim](No results.json found)[/dim]"
-                )
-                return
+            is_csv = path.is_file() and path.suffix.lower() == ".csv"
+            content.set_class(is_csv, "-wide-table")
+            content.update(render_flightlog_preview(path))
+            self._scroll_results_to_top()
+        except NoMatches:
+            pass
 
-            try:
-                with open(results_file, encoding="utf-8") as f:
-                    res = json.load(f)
-            except (json.JSONDecodeError, OSError) as exc:
-                content.update(f"[red]Error parsing results.json:[/red]\n{exc}")
-                return
-
-            vehicle = res.get("vehicle_name", run_dir.parent.name)
-            analysis_name = res.get("analysis_name", run_dir.name)
-            fidelity = res.get("fidelity", "")
-            data: dict[str, Any] = res.get("data", {})
-            units_map: dict[str, str] = res.get("units", {})
-            details: dict[str, Any] = res.get("details", {})
-            headline_keys: list[str] = res.get("headline_metrics", [])
-
-            if not headline_keys:
-                candidate_headlines = (
-                    "apogee_altitude",
-                    "burnout_velocity",
-                    "burnout_mach",
-                    "q_max",
-                    "nominal_burn_time",
-                    "range_at_burnout",
-                    "final_x",
-                )
-                headline_keys = [k for k in candidate_headlines if k in data]
-
-            pretty_analysis = FlightLogsTree.pretty_analysis_name(analysis_name)
-            lines: list[str] = [
-                f"[bold #38bdf8]{pretty_analysis.upper()}[/bold #38bdf8]  [dim]Vehicle: {vehicle}[/dim]",
-                f"[dim]Run: {run_dir.name}  •  Fidelity: {fidelity}[/dim]",
-                "",
-            ]
-
-            if headline_keys:
-                lines.append("[bold cyan]Headline Metrics:[/bold cyan]")
-                for k in headline_keys:
-                    if k in data:
-                        val = data[k]
-                        unit = units_map.get(k, "")
-                        val_str = self._format_number(val, unit)
-                        extra_str = ""
-                        if unit == "m" and isinstance(val, (int, float)) and abs(val) >= 1000:
-                            extra_str = f" ({val / 1000:.2f} km)"
-                        elif unit == "Pa" and isinstance(val, (int, float)) and abs(val) >= 1000:
-                            extra_str = f" ({val / 1000:.2f} kPa)"
-                        unit_str = f" {unit}" if unit and unit != "-" else ""
-                        label = k.replace("_", " ").title()
-                        lines.append(f"  • [bold]{label}:[/bold] {val_str}{unit_str}{extra_str}")
-                lines.append("")
-
-            remaining_keys = [k for k in sorted(data.keys()) if k not in headline_keys]
-            if remaining_keys:
-                lines.append("[bold cyan]Telemetry Metrics:[/bold cyan]")
-                for k in remaining_keys:
-                    val = data[k]
-                    unit = units_map.get(k, "")
-                    unit_str = f" {unit}" if unit and unit != "-" else ""
-                    val_str = self._format_number(val, unit)
-                    label = k.replace("_", " ").title()
-                    lines.append(f"  • {label}: {val_str}{unit_str}")
-
-            stopped_reason = details.get("stopped_reason")
-            if stopped_reason:
-                reason_str = str(stopped_reason).replace("_", " ").title()
-                lines.append(f"\n[bold]Flight Termination:[/bold] {reason_str}")
-
-            lines.append("\n[dim]Press [bold]b[/bold] to return to solver inspector[/dim]")
-            content.update("\n".join(lines))
+    def _scroll_results_to_top(self) -> None:
+        """Scroll the results container back to the top and left."""
+        try:
+            scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
+            scroll.scroll_to(x=0, y=0, animate=False)
         except NoMatches:
             pass
 
@@ -968,6 +918,50 @@ class FlightDeckView(Container):
             solver.setup(self.active_vehicle, enable_logging=enable_logging, **params)
             results = solver.execute()
 
+            if enable_logging and hasattr(solver, "logger") and solver.logger.enabled:
+                if descriptor.solver_id == "point_mass_3dof_boost" and isinstance(results, PointMassBoostResults):
+                    ground_alt = params.get(
+                        "ground_altitude_m", PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M
+                    )
+                    stop_at_burnout = params.get(
+                        "stop_at_burnout", PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT
+                    )
+                    if results.boost_samples is not None:
+                        fig_boost = plot_boost_phase(
+                            results.boost_samples,
+                            burn_time_s=results.nominal_burn_time,
+                            ground_altitude_m=ground_alt,
+                        )
+                        solver.logger.save_figure(fig_boost, "boost_phase.png", show=False)
+                    if not stop_at_burnout and results.samples is not None:
+                        fig_full = plot_full_flight(
+                            results.samples,
+                            burn_time_s=results.nominal_burn_time,
+                            ground_altitude_m=ground_alt,
+                        )
+                        solver.logger.save_figure(fig_full, "full_flight.png", show=False)
+
+                    sweep_angles = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG
+                    sweep_results = run_launch_angle_sweep(
+                        self.active_vehicle,
+                        angles_deg=sweep_angles,
+                        altitude_m=params.get(
+                            "altitude_m", PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M
+                        ),
+                        ground_altitude_m=ground_alt,
+                        fins_name=params.get("fins_name"),
+                        motor_name=params.get("motor_name"),
+                        body_name=params.get("body_name"),
+                        stop_at_burnout=stop_at_burnout,
+                        t_max_s=params.get("t_max_s", PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S),
+                    )
+                    sweep_fig = plot_launch_angle_sweep(sweep_results, ground_altitude_m=ground_alt)
+                    solver.logger.save_figure(sweep_fig, "launch_angle_sweep.png", show=False)
+                    solver.logger.save_artifact("launch_angle_sweep.csv", format_sweep_csv(sweep_results))
+
+                solver.logger.save_results(results)
+
+            self._selected_flightlog_path = None
             output_dir = (
                 solver.logger.output_dir
                 if enable_logging and hasattr(solver, "logger") and solver.logger.enabled
@@ -991,65 +985,6 @@ class FlightDeckView(Container):
         except (RuntimeError, ValueError, KeyError, OSError, TypeError) as exc:
             self._notify(f"Execution error: {exc}", severity="error")
             return None
-
-    def list_available_solvers(self) -> list[str]:
-        """Query for registered and verified analysis methods.
-
-        Returns:
-            List of usable solver names in the current environment.
-        """
-        return [desc.solver_id for desc in REPAIRED_SOLVERS]
-
-    def execute_solver_async(self, solver_name: str, params: dict[str, Any]) -> None:
-        """Launch a solver run inside a background worker thread.
-
-        Args:
-            solver_name: Identifier of the solver method to execute.
-            params: Dictionary of solver input arguments in canonical SI units.
-        """
-        for desc in REPAIRED_SOLVERS:
-            if desc.solver_id == solver_name:
-                self.run_solver(desc)
-                break
-
-    def execute_pipeline_async(
-        self, pipeline_steps: list[tuple[str, dict[str, Any]]]
-    ) -> None:
-        """Execute a chained sequence of computational solvers in a background thread.
-
-        Args:
-            pipeline_steps: Ordered list of (solver_name, parameter_dict) stages.
-        """
-        self.action_run_pipeline()
-
-    def execute_sweep_async(
-        self, solver_name: str, sweep_variable: str, values: list[float]
-    ) -> None:
-        """Execute a batch parameter sweep across a range of values in a background thread.
-
-        Args:
-            solver_name: Identifier of the solver to sweep.
-            sweep_variable: Name of the independent variable being varied.
-            values: List of parameter values to evaluate in SI units.
-        """
-
-    def load_historical_run(self, run_directory: Path) -> dict[str, Any]:
-        """Load summary tables, figures, and execution logs from a past run directory.
-
-        Args:
-            run_directory: Path to a specific run folder in FlightLogs/.
-
-        Returns:
-            Dictionary containing parsed results, log paths, and figure paths.
-        """
-        results_file = run_directory / "results.json"
-        if results_file.is_file():
-            try:
-                with open(results_file, encoding="utf-8") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                return {}
-        return {}
 
     def action_quick_run(self) -> None:
         """Execute the currently focused solver on the active vehicle."""
@@ -1102,6 +1037,7 @@ class FlightDeckView(Container):
 
     def action_show_inspector(self) -> None:
         """Switch results card back to inspector view for current highlighted solver."""
+        self._selected_flightlog_path = None
         if self._current_highlighted_descriptor is not None:
             is_ready, msg = check_solver_compatibility(
                 self._current_highlighted_descriptor, self.active_vehicle
@@ -1115,6 +1051,7 @@ class FlightDeckView(Container):
         self, event: SolverTile.SolverHighlighted
     ) -> None:
         """Handle solver highlighted in catalog list."""
+        self._selected_flightlog_path = None
         self._current_highlighted_descriptor = event.descriptor
         self._render_solver_inspector(event.descriptor, event.is_ready, event.message)
 
@@ -1145,21 +1082,53 @@ class FlightDeckView(Container):
     def _on_flightlog_highlighted(
         self, event: FlightLogsTree.FlightLogHighlighted
     ) -> None:
-        """Handle hover/highlight over historical flight log."""
-        if (
-            event.path is not None
-            and event.path.is_dir()
-            and (event.path / "results.json").is_file()
-        ):
+        """Handle hover/highlight over historical flight log or artifact file."""
+        if event.path is not None:
+            try:
+                tree = self.query_one("#flightdeck-runs-tree", FlightLogsTree)
+                if tree.cursor_node and tree.cursor_node.data == event.path:
+                    self._selected_flightlog_path = event.path
+            except NoMatches:
+                pass
             self._render_historical_log(event.path)
+        else:
+            self._restore_flightdeck_preview()
 
     @on(FlightLogsTree.FlightLogSelected)
     def _on_flightlog_selected(
         self, event: FlightLogsTree.FlightLogSelected
     ) -> None:
-        """Handle selection of historical flight log."""
-        if event.path.is_dir() and (event.path / "results.json").is_file():
+        """Handle selection of historical flight log or artifact file."""
+        if event.path is not None:
+            self._selected_flightlog_path = event.path
             self._render_historical_log(event.path)
+
+    def _restore_flightdeck_preview(self) -> None:
+        """Restore preview of persistently selected flight log, or solver inspector."""
+        if self._selected_flightlog_path is not None:
+            self._render_historical_log(self._selected_flightlog_path)
+        elif self._current_highlighted_descriptor is not None:
+            is_ready, msg = check_solver_compatibility(
+                self._current_highlighted_descriptor, self.active_vehicle
+            )
+            self._render_solver_inspector(
+                self._current_highlighted_descriptor, is_ready, msg
+            )
+
+    @on(FlightLogsTree.FlightLogDeleted)
+    def _on_flightlog_deleted(self, event: FlightLogsTree.FlightLogDeleted) -> None:
+        """Handle run deletion by resetting inspection if active run was deleted."""
+        if self._selected_flightlog_path is not None and (
+            self._selected_flightlog_path == event.path
+            or str(self._selected_flightlog_path).startswith(str(event.path))
+        ):
+            self._selected_flightlog_path = None
+            self.action_show_inspector()
+
+    @on(events.Leave, "#flightdeck-runs-card")
+    def _on_runs_card_leave(self) -> None:
+        """Restore persistent flightlog preview or inspector when mouse leaves runs card."""
+        self._restore_flightdeck_preview()
 
     @on(Button.Pressed, "#solver-stage-btn")
     def _on_stage_btn_pressed(self) -> None:

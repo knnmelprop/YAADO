@@ -10,13 +10,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from textual import events
 from textual.widgets import TabbedContent
 
 from Terminal.app import YaadoApp
 from Terminal.screens.flight_deck import (
     REPAIRED_SOLVERS,
-    AvailableSolversList,
     FlightDeckView,
     SolversStoreView,
     SolverTile,
@@ -203,8 +203,7 @@ def test_available_solvers_list_population_and_labels() -> None:
     assert "[STAGED]" in prompt_staged_str
     _assert_no_emojis(prompt_staged_str)
 
-    # Test SolversStoreView alias and disciplines
-    assert SolversStoreView is AvailableSolversList
+    # Test SolversStoreView and disciplines
     store = SolversStoreView(REPAIRED_SOLVERS, vehicle)
     assert len(store.DISCIPLINES) > 0
     assert "FLIGHT DYNAMICS" in store.DISCIPLINES
@@ -320,3 +319,129 @@ def test_flight_deck_interactive_navigation_and_staging() -> None:
             assert tile.has_class("-staged")
 
     asyncio.run(_test())
+
+
+def test_flight_deck_results_vertical_scroll_and_persistence() -> None:
+    """Verify that results card contains VerticalScroll and selection persists across hover."""
+    import asyncio
+
+    from textual.app import App, ComposeResult
+    from textual.containers import ScrollableContainer
+
+    from Terminal.widgets import FlightLogsTree
+
+    class TestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield FlightDeckView(id="flightdeck")
+
+    async def _test() -> None:
+        app = TestApp()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            fd = app.query_one("#flightdeck", FlightDeckView)
+            tree = app.query_one("#flightdeck-runs-tree", FlightLogsTree)
+
+            # 1. Verify results scroll container exists
+            scroll = fd.query_one("#flightdeck-results-scroll", ScrollableContainer)
+            assert scroll is not None
+
+            # 2. Test selection persistence across hover
+            sample_run = Path("FlightLogs/ALVRJ/point_mass_3dof_boost_2026-09-20_195902")
+            if not sample_run.is_dir():
+                pytest.skip("Historical run directory not found")
+
+            log_file = sample_run / "execution.log"
+            csv_file = sample_run / "summary.csv"
+
+            # User selects log_file
+            fd._on_flightlog_selected(FlightLogsTree.FlightLogSelected(tree, log_file))
+            assert fd._selected_flightlog_path == log_file
+            results_card = fd.query_one("#flightdeck-results-card")
+            assert results_card.border_title == f"File: {log_file.name}"
+
+            # User hovers over csv_file
+            fd._on_flightlog_highlighted(FlightLogsTree.FlightLogHighlighted(tree, csv_file))
+            assert results_card.border_title == f"File: {csv_file.name}"
+            # Selected path remains log_file
+            assert fd._selected_flightlog_path == log_file
+
+            # Mouse leaves hover (posts None) -> restores selected log_file
+            fd._on_flightlog_highlighted(FlightLogsTree.FlightLogHighlighted(tree, None))
+            assert results_card.border_title == f"File: {log_file.name}"
+
+            # Mouse leaves runs card completely -> restores selected log_file
+            fd._on_runs_card_leave()
+            assert results_card.border_title == f"File: {log_file.name}"
+
+            # Switching back to inspector clears selected flightlog
+            fd.action_show_inspector()
+            assert fd._selected_flightlog_path is None
+            assert results_card.border_title == "Solver Inspector"
+
+    asyncio.run(_test())
+
+
+def test_flight_deck_run_solver_generates_all_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that run_solver generates figures, artifacts, results.json, and summary.csv."""
+    from YAADO_Core.Foundation.flight_logger import FlightLogger
+
+    harpoon_path = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
+    vehicle = BaseVehicleConfig.from_toml(harpoon_path)
+
+    # Monkeypatch FlightLogger so all disk writes go to tmp_path (FlightLogs/ is not touched)
+    orig_init = FlightLogger.__init__
+
+    def patched_init(
+        self: FlightLogger,
+        vehicle_name: str,
+        analysis_name: str,
+        enabled: bool = True,
+        log_to_console: bool = False,
+        show_figures: bool = False,
+        log_level: int = 20,
+    ) -> None:
+        # Initialize with enabled=False so no directories are created in FlightLogs/
+        orig_init(
+            self,
+            vehicle_name,
+            analysis_name,
+            enabled=False,
+            log_to_console=log_to_console,
+            show_figures=show_figures,
+            log_level=log_level,
+        )
+        self.enabled = enabled
+        self.output_dir = tmp_path / vehicle_name / self.run_folder_name
+        self.figures_dir = self.output_dir / "figures"
+        self.artifacts_dir = self.output_dir / "artifacts"
+        self.log_file_path = self.output_dir / "execution.log"
+        self._setup_directories()
+        self._setup_logging()
+
+    monkeypatch.setattr(FlightLogger, "__init__", patched_init)
+
+    fd = FlightDeckView(active_vehicle=vehicle, active_vehicle_path=harpoon_path)
+    desc = REPAIRED_SOLVERS[0]
+
+    results = fd.run_solver(desc, enable_logging=True)
+    assert results is not None
+    assert isinstance(results, PointMassBoostResults)
+
+    # Find the output directory created in tmp_path
+    vehicle_output_dirs = list((tmp_path / vehicle.name).iterdir())
+    assert len(vehicle_output_dirs) == 1
+    run_dir = vehicle_output_dirs[0]
+
+    # Verify all 6 artifacts were generated
+    assert (run_dir / "results.json").is_file(), "results.json must be generated"
+    assert (run_dir / "summary.csv").is_file(), "summary.csv must be generated"
+    assert (run_dir / "execution.log").is_file(), "execution.log must be generated"
+    assert (run_dir / "figures" / "boost_phase.png").is_file(), "boost_phase.png must be generated"
+    assert (
+        run_dir / "figures" / "launch_angle_sweep.png"
+    ).is_file(), "launch_angle_sweep.png must be generated"
+    assert (
+        run_dir / "artifacts" / "launch_angle_sweep.csv"
+    ).is_file(), "launch_angle_sweep.csv must be generated"

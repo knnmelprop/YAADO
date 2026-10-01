@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from Terminal.widgets.component_store import ComponentStoreView, ComponentTile
 from Terminal.widgets.dynamic_form import DynamicSchemaForm
+from Terminal.widgets.flightlog_preview import render_flightlog_preview
 from Terminal.widgets.flightlogs_tree import FlightLogsTree
-from Terminal.widgets.image_preview import FigurePreview
-from Terminal.widgets.log_drawer import LogDrawer
 from Terminal.widgets.modals import ConfirmModal, InputModal
-from Terminal.widgets.spatial_canvas import SpatialCanvas
 from Terminal.widgets.vehicle_tree import VehicleTree
 
 __all__ = [
@@ -16,11 +14,8 @@ __all__ = [
     "ComponentTile",
     "ConfirmModal",
     "DynamicSchemaForm",
-    "FigurePreview",
     "FlightLogsTree",
     "InputModal",
-    
-    "LogDrawer",
-    "SpatialCanvas",
     "VehicleTree",
+    "render_flightlog_preview",
 ]

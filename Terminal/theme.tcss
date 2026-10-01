@@ -217,12 +217,26 @@ Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
     color: $yaado-text;
 }
 
+#preview-scroll {
+    width: 100%;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 1;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+}
+
 #preview-content {
     width: 100%;
-    height: 100%;
+    height: auto;
     padding: 0 1;
     color: $yaado-text;
-    overflow-y: auto;
+}
+
+#preview-content.-wide-table {
+    width: auto;
+    min-width: 100%;
 }
 
 #preview-content:focus {
@@ -738,12 +752,26 @@ PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--o
     padding: 0 1;
 }
 
+#flightdeck-results-scroll {
+    width: 100%;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 1;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+}
+
 #flightdeck-results-content {
     width: 100%;
-    height: 100%;
+    height: auto;
     padding: 0 1;
     color: $yaado-text;
-    overflow-y: auto;
+}
+
+#flightdeck-results-content.-wide-table {
+    width: auto;
+    min-width: 100%;
 }
 
 .flightdeck-btn-row {

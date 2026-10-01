@@ -6,15 +6,18 @@ recent simulation run activity from FlightLogs, and quick launchpad navigation a
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from textual import events, on
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, ScrollableContainer, Vertical
 from textual.widgets import Button, Static
 
-from Terminal.widgets import FlightLogsTree, VehicleTree
+from Terminal.widgets import (
+    FlightLogsTree,
+    VehicleTree,
+    render_flightlog_preview,
+)
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 if TYPE_CHECKING:
@@ -74,6 +77,7 @@ class MainView(Container):
 
                 flightlogs_card = Container(id="flightlogs-card", classes="cockpit-card")
                 flightlogs_card.border_title = "FlightLogs"
+                flightlogs_card.border_subtitle = "↵ View  o Open  f Folder  d Delete"
                 with flightlogs_card:
                     yield FlightLogsTree(id="flightlogs-tree")
                     btn_fl = Button("+ Run Analysis", id="new-analysis-btn")
@@ -84,12 +88,11 @@ class MainView(Container):
             with Vertical(id="right-column", classes="cockpit-col"):
                 preview_card = Container(id="preview-card", classes="cockpit-card")
                 preview_card.border_title = "Preview"
-                with preview_card:
+                with preview_card, ScrollableContainer(id="preview-scroll"):
                     preview_content = Static(
                         "[dim]Select a vehicle or simulation run to inspect telemetry.[/dim]",
                         id="preview-content",
                     )
-                    preview_content.can_focus = True
                     yield preview_content
 
     def _format_timestamp(self, ts: str) -> str:
@@ -211,136 +214,6 @@ class MainView(Container):
 
         return "\n".join(lines)
 
-    def _format_flightlog_preview(self, run_dir: Path) -> str:
-        """Format simulation run telemetry into rich preview text using reflection.
-
-        Args:
-            run_dir: Path to the simulation run directory containing results.json.
-
-        Returns:
-            Rich-formatted string displaying simulation results in SI units.
-        """
-        results_file = run_dir / "results.json"
-        if not results_file.is_file():
-            return f"[bold amber]{run_dir.name}[/bold amber]\n[dim](No results.json found)[/dim]"
-
-        try:
-            with open(results_file, encoding="utf-8") as f:
-                res = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
-            return f"[red]Error parsing results.json:[/red]\n{exc}"
-
-        vehicle = res.get("vehicle_name", run_dir.parent.name)
-        analysis_name = res.get("analysis_name", run_dir.name)
-        raw_ts = res.get("timestamp", "")
-        if not raw_ts:
-            parts = run_dir.name.rsplit("_", 2)
-            if len(parts) >= 3 and "-" in parts[1]:
-                raw_ts = f"{parts[1]}_{parts[2]}"
-        formatted_ts = self._format_timestamp(raw_ts)
-        fidelity = res.get("fidelity", "")
-        data: dict[str, Any] = res.get("data", {})
-        units_map: dict[str, str] = res.get("units", {})
-        details: dict[str, Any] = res.get("details", {})
-        headline_keys: list[str] = res.get("headline_metrics", [])
-
-        # Fallback headline keys for existing logs if headline_metrics is empty
-        if not headline_keys:
-            candidate_headlines = (
-                "apogee_altitude",
-                "burnout_velocity",
-                "burnout_mach",
-                "q_max",
-                "t_end_s",
-                "final_x",
-                "cl_max",
-                "cd_min",
-                "ld_max",
-                "dry_mass",
-                "total_mass",
-            )
-            headline_keys = [k for k in candidate_headlines if k in data]
-
-        pretty_analysis = FlightLogsTree.pretty_analysis_name(analysis_name)
-        header_meta = f"Vehicle: {vehicle}"
-        if formatted_ts:
-            header_meta += f" • {formatted_ts}"
-        if fidelity:
-            header_meta += f" • {fidelity.replace('_', ' ').title()}"
-
-        lines: list[str] = [
-            f"[bold amber]{pretty_analysis}[/bold amber]",
-            f"[dim]{header_meta}[/dim]",
-            "",
-        ]
-
-        # 1. Headline metrics section (curated prominent metrics)
-        if headline_keys:
-            lines.append("[bold cyan]Headline Metrics:[/bold cyan]")
-            for k in headline_keys:
-                if k in data:
-                    val = data[k]
-                    unit = units_map.get(k, "")
-                    unit_str = f" {unit}" if unit and unit != "-" else ""
-                    val_str = self._format_number(val)
-                    extra_str = ""
-                    if unit == "m" and isinstance(val, (int, float)) and abs(val) >= 1000:
-                        extra_str = f" ({val / 1000:.2f} km)"
-                    label = k.replace("_", " ").title()
-                    lines.append(f"  • [bold]{label}:[/bold] {val_str}{unit_str}{extra_str}")
-            lines.append("")
-
-        # 2. Detailed scalar outputs (generic reflection of remaining metrics)
-        remaining_keys = [k for k in sorted(data.keys()) if k not in headline_keys]
-        if remaining_keys:
-            lines.append("[bold cyan]Telemetry Metrics:[/bold cyan]")
-            for k in remaining_keys:
-                val = data[k]
-                unit = units_map.get(k, "")
-                unit_str = f" {unit}" if unit and unit != "-" else ""
-                val_str = self._format_number(val)
-                label = k.replace("_", " ").title()
-                lines.append(f"  • {label}: {val_str}{unit_str}")
-
-        # 3. Artifacts / Figures (if any)
-        figures_dir = run_dir / "figures"
-        if figures_dir.is_dir():
-            figs = sorted([f.name for f in figures_dir.glob("*.png")])
-            if figs:
-                lines.append(f"\n[bold cyan]Generated Figures:[/bold cyan] [dim]{', '.join(figs)}[/dim]")
-
-        # 4. Termination detail (factual, no "converged")
-        stopped_reason = details.get("stopped_reason")
-        if stopped_reason:
-            reason_str = str(stopped_reason).replace("_", " ").title()
-            lines.append(f"\n[bold]Flight Termination:[/bold] {reason_str}")
-
-        return "\n".join(lines)
-
-    def _format_vehicle_runs_preview(self, vehicle_dir: Path) -> str:
-        """Format vehicle run overview into preview text.
-
-        Args:
-            vehicle_dir: Directory containing simulation runs for a vehicle.
-
-        Returns:
-            Rich-formatted summary of the vehicle's simulation history.
-        """
-        runs = [
-            d for d in sorted(vehicle_dir.iterdir(), reverse=True)
-            if d.is_dir() and not d.name.startswith((".", "__"))
-        ]
-        lines: list[str] = [
-            f"[bold amber]{vehicle_dir.name} — FlightLogs[/bold amber]",
-            f"[dim]{len(runs)} simulation runs recorded[/dim]",
-            "",
-            "[bold cyan]Recent Runs:[/bold cyan]",
-        ]
-        for run in runs[:5]:
-            lines.append(f"  • {FlightLogsTree.format_run_label(run)}")
-
-        return "\n".join(lines)
-
     @on(VehicleTree.VehicleHighlighted, "#hangar-tree")
     def on_hangar_vehicle_highlighted(self, event: VehicleTree.VehicleHighlighted) -> None:
         """Preview vehicle on cursor highlight or mouse hover.
@@ -388,15 +261,24 @@ class MainView(Container):
 
     @on(FlightLogsTree.FlightLogSelected, "#flightlogs-tree")
     def on_flightlog_selected(self, event: FlightLogsTree.FlightLogSelected) -> None:
-        """Open the selected simulation run in Flight Deck on confirmation.
+        """Inspect the selected simulation run or file in the main preview pane.
 
         Args:
-            event: FlightLog selected event containing run directory path.
+            event: FlightLog selected event containing run directory or file path.
         """
-        from Terminal.app import YaadoApp
+        self._selected_flightlog_path = event.path
+        self._last_selected_source = "flightlogs"
+        self._update_flightlog_preview(event.path)
 
-        if isinstance(self.app, YaadoApp):
-            self.app.call_after_refresh(self.app.action_switch_tab, "flight-deck")
+    @on(FlightLogsTree.FlightLogDeleted, "#flightlogs-tree")
+    def on_flightlog_deleted(self, event: FlightLogsTree.FlightLogDeleted) -> None:
+        """Handle run deletion by resetting preview if active run was deleted."""
+        if self._selected_flightlog_path is not None and (
+            self._selected_flightlog_path == event.path
+            or str(self._selected_flightlog_path).startswith(str(event.path))
+        ):
+            self._selected_flightlog_path = None
+            self._restore_default_preview()
 
     @on(events.Leave, "#hangar-card")
     @on(events.Leave, "#flightlogs-card")
@@ -411,6 +293,7 @@ class MainView(Container):
             data: Optional Path to vehicle TOML file.
         """
         preview = self.query_one("#preview-content", Static)
+        preview.remove_class("-wide-table")
         preview_card = self.query_one("#preview-card", Container)
         if isinstance(data, Path) and data.is_file():
             try:
@@ -426,28 +309,37 @@ class MainView(Container):
             preview.update("[dim]Select a vehicle or simulation run to inspect telemetry.[/dim]")
             preview_card.border_subtitle = None
             self._current_preview_type = None
+        self._scroll_preview_to_top()
 
     def _update_flightlog_preview(self, data: Path | None) -> None:
-        """Update preview card when a flightlog run or vehicle node is targeted.
+        """Update preview card when a flightlog run, file, or vehicle node is targeted.
 
         Args:
-            data: Path to run directory or vehicle directory.
+            data: Path to run directory, artifact file, or vehicle directory.
         """
         preview = self.query_one("#preview-content", Static)
         preview_card = self.query_one("#preview-card", Container)
-        if isinstance(data, Path) and data.is_dir():
-            if (data / "results.json").is_file():
-                preview.update(self._format_flightlog_preview(data))
-                preview_card.border_subtitle = "↵ Open in Flight Deck"
-                self._current_preview_type = "flight-deck"
-            else:
-                preview.update(self._format_vehicle_runs_preview(data))
-                preview_card.border_subtitle = "Select a run"
-                self._current_preview_type = None
+        if isinstance(data, Path):
+            is_csv = data.is_file() and data.suffix.lower() == ".csv"
+            preview.set_class(is_csv, "-wide-table")
+            preview.update(render_flightlog_preview(data))
+            preview_card.border_subtitle = "o Open  f Folder"
+            self._current_preview_type = None
         else:
+            preview.remove_class("-wide-table")
             preview.update("[dim]Select a vehicle or simulation run to inspect telemetry.[/dim]")
             preview_card.border_subtitle = None
             self._current_preview_type = None
+        self._scroll_preview_to_top()
+
+    def _scroll_preview_to_top(self) -> None:
+        """Scroll the preview vertical container back to the top."""
+        from textual.css.query import NoMatches
+        try:
+            scroll = self.query_one("#preview-scroll", ScrollableContainer)
+            scroll.scroll_to(x=0, y=0, animate=False)
+        except NoMatches:
+            pass
 
     @on(Button.Pressed, "#new-vehicle-btn")
     def on_new_vehicle_pressed(self) -> None:
@@ -461,6 +353,7 @@ class MainView(Container):
     def on_new_vehicle_hover(self) -> None:
         """Show template options preview when hovering the New Vehicle button."""
         preview = self.query_one("#preview-content", Static)
+        preview.remove_class("-wide-table")
         preview.update(
             "[bold cyan]Create New Vehicle[/bold cyan]\n\n"
             "Launch the vehicle assembly wizard to build a new configuration from a template:\n\n"
@@ -487,6 +380,7 @@ class MainView(Container):
     def on_new_analysis_hover(self) -> None:
         """Show simulation solver suite preview when hovering Run Analysis button."""
         preview = self.query_one("#preview-content", Static)
+        preview.remove_class("-wide-table")
         preview.update(
             "[bold cyan]Run Simulation & Analysis[/bold cyan]\n\n"
             "Launch physics solvers and multi-stage pipelines from the Flight Deck:\n\n"
