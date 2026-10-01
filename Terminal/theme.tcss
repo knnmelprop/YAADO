@@ -774,6 +774,132 @@ PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--o
     min-width: 100%;
 }
 
+#flightdeck-params-form {
+    width: 100%;
+    height: 1fr;
+    padding: 0 1;
+    overflow-y: scroll;
+    scrollbar-size-vertical: 1;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+}
+
+#flightdeck-params-form:focus {
+    border: none;
+}
+
+#flightdeck-params-form.-hidden {
+    display: none;
+}
+
+.solver-form-header {
+    width: 100%;
+    height: auto;
+    color: $yaado-text;
+    margin-bottom: 1;
+}
+
+.solver-form-footer {
+    width: 100%;
+    height: auto;
+    color: $yaado-text;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#flightdeck-results-scroll.-hidden {
+    display: none;
+}
+
+#flightdeck-params-form .form-row {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    margin-bottom: 0;
+    align: left top;
+}
+
+#flightdeck-params-form .form-label {
+    width: 28;
+    height: 1;
+    color: $yaado-text-muted;
+    text-style: bold;
+}
+
+#flightdeck-params-form .form-input {
+    width: 14;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0 1;
+    color: $yaado-text;
+}
+
+#flightdeck-params-form .form-input:focus {
+    border: none;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+#flightdeck-params-form .form-input > .input--selection {
+    background: #25334a;
+    color: $yaado-text;
+}
+
+#flightdeck-params-form .form-input > .input--cursor {
+    background: $yaado-accent;
+    color: #0b0f17;
+}
+
+#flightdeck-params-form .form-input.-invalid {
+    border: none;
+    background: transparent;
+    color: $yaado-error;
+    text-style: bold;
+}
+
+#flightdeck-params-form .form-select {
+    width: 14;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+#flightdeck-params-form .form-select SelectCurrent {
+    border: none;
+    height: 1;
+    padding: 0 1;
+    background: transparent;
+    color: $yaado-text;
+}
+
+#flightdeck-params-form .form-unit {
+    width: 6;
+    height: 1;
+    color: $yaado-text-disabled;
+    padding-left: 1;
+}
+
+#flightdeck-params-form .form-hint {
+    height: 1;
+    color: $yaado-text-disabled;
+    padding-left: 1;
+}
+
+#flightdeck-params-form .form-error {
+    width: 100%;
+    height: auto;
+    color: $yaado-error;
+    margin-bottom: 0;
+}
+
+#flightdeck-params-form .form-error.-hidden {
+    display: none;
+}
+
 .flightdeck-btn-row {
     width: 100%;
     height: 3;

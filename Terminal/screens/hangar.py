@@ -22,6 +22,9 @@ from textual.widgets import Button, OptionList, Static
 from textual.widgets.option_list import Option
 
 from Terminal.Assembly.template_generator import VehicleTemplateGenerator
+from Terminal.formatting import (
+    _format_compact_value_and_unit,
+)
 from Terminal.widgets import (
     ComponentStoreView,
     ComponentTile,
@@ -105,45 +108,7 @@ def _abbreviate_field(field_name: str) -> str:
     return field_name[:4]
 
 
-def _format_compact_value_and_unit(val: object, unit: str) -> tuple[str, str]:
-    """Format numeric or string parameter value and SI unit into compact display representation."""
-    if not isinstance(val, (int, float)) or isinstance(val, bool):
-        return str(val), unit if unit and unit != "-" else ""
 
-    num = float(val)
-    if num == 0.0:
-        return "0", unit if unit and unit != "-" else ""
-
-    if unit == "deg":
-        if abs(num) >= 100 or num.is_integer():
-            return f"{num:.0f}", "°"
-        return f"{num:.1f}".rstrip("0").rstrip("."), "°"
-
-    if unit == "N":
-        if abs(num) >= 1e6:
-            return f"{num / 1e6:.2f}".rstrip("0").rstrip("."), "MN"
-        if abs(num) >= 1000:
-            return f"{num / 1000:.2f}".rstrip("0").rstrip("."), "kN"
-        return f"{num:.1f}".rstrip("0").rstrip("."), "N"
-
-    if unit == "Pa":
-        if abs(num) >= 1e6:
-            return f"{num / 1e6:.2f}".rstrip("0").rstrip("."), "MPa"
-        if abs(num) >= 1000:
-            return f"{num / 1000:.2f}".rstrip("0").rstrip("."), "kPa"
-        return f"{num:.1f}".rstrip("0").rstrip("."), "Pa"
-
-    unit_str = unit if unit and unit != "-" else ""
-    if abs(num) < 0.0001 or abs(num) >= 1e6:
-        val_str = f"{num:.2e}"
-    elif abs(num) >= 1000:
-        val_str = f"{num:.0f}"
-    elif abs(num) >= 10:
-        val_str = f"{num:.1f}".rstrip("0").rstrip(".")
-    else:
-        val_str = f"{num:.3f}".rstrip("0").rstrip(".")
-
-    return val_str, unit_str
 
 
 class HangarView(Container):

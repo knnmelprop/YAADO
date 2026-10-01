@@ -18,11 +18,13 @@ from Terminal.app import YaadoApp
 from Terminal.screens.flight_deck import (
     REPAIRED_SOLVERS,
     FlightDeckView,
+    PipelineStage,
     SolversStoreView,
     SolverTile,
     check_solver_compatibility,
     resolve_fins_name,
 )
+from Terminal.widgets import SolverParamsForm, format_stage_param_specs
 from YAADO_Core.Foundation.analysis_base import FidelityLevel
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
@@ -445,3 +447,161 @@ def test_flight_deck_run_solver_generates_all_artifacts(
     assert (
         run_dir / "artifacts" / "launch_angle_sweep.csv"
     ).is_file(), "launch_angle_sweep.csv must be generated"
+
+
+def test_aerospace_symbol_formatting() -> None:
+    """Verify that stage parameters format using compact aerospace symbols and no emojis."""
+    desc = REPAIRED_SOLVERS[0]
+    stage = PipelineStage(descriptor=desc, params=dict(desc.default_params))
+    badge = format_stage_param_specs(stage)
+
+    # Check key symbols
+    assert "γ₀=83°" in badge
+    assert "h₀=100m" in badge
+    assert "h_g=0m" in badge
+    assert "t_max=300s" in badge
+    assert "stop_burnout=True" in badge
+    _assert_no_emojis(badge)
+
+    # Change params and verify symbol formatting updates
+    stage.params["launch_angle_deg"] = 75.0
+    stage.params["altitude_m"] = 250.0
+    stage.params["stop_at_burnout"] = False
+    badge_updated = format_stage_param_specs(stage)
+    assert "γ₀=75°" in badge_updated
+    assert "h₀=250m" in badge_updated
+    assert "stop_burnout=False" in badge_updated
+    _assert_no_emojis(badge_updated)
+
+
+def test_flight_deck_pipeline_stage_symbols_display() -> None:
+    """Verify that staged pipeline options display compact aerospace symbols instead of words."""
+    import asyncio
+
+    from textual.app import App, ComposeResult
+    from textual.widgets import OptionList
+
+    harpoon_path = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
+    vehicle = BaseVehicleConfig.from_toml(harpoon_path)
+
+    class TestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield FlightDeckView(active_vehicle=vehicle, id="flightdeck")
+
+    async def _test() -> None:
+        app = TestApp()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            fd = app.query_one("#flightdeck", FlightDeckView)
+            desc = REPAIRED_SOLVERS[0]
+
+            # Stage solver
+            fd.stage_solver(desc)
+            await pilot.pause(0.1)
+
+            pipeline_list = fd.query_one("#flightdeck-pipeline-list", OptionList)
+            assert pipeline_list.option_count == 1
+            option = pipeline_list.get_option_at_index(0)
+            prompt_str = str(option.prompt)
+
+            # Assert aerospace symbols are present in prompt
+            assert "γ₀=83°" in prompt_str
+            assert "h₀=100m" in prompt_str
+            assert "stop_burnout=True" in prompt_str
+            assert "[READY]" in prompt_str
+            _assert_no_emojis(prompt_str)
+
+            # Update a parameter on stage 1 via ParamChanged event
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            fd._on_param_changed(
+                SolverParamsForm.ParamChanged(
+                    form=form,
+                    name="launch_angle_deg",
+                    value=72.5,
+                    is_valid=True,
+                    stage_index=1,
+                )
+            )
+            await pilot.pause(0.1)
+
+            # Option prompt in pipeline list should now reflect tuned symbol
+            updated_option = pipeline_list.get_option_at_index(0)
+            updated_prompt_str = str(updated_option.prompt)
+            assert "γ₀=72.5°" in updated_prompt_str
+            assert "stop_burnout=True" in updated_prompt_str
+            _assert_no_emojis(updated_prompt_str)
+
+    asyncio.run(_test())
+
+
+def test_flight_deck_run_solver_with_custom_parameters() -> None:
+    """Verify run_solver executes with custom parameter overrides."""
+    harpoon_path = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
+    vehicle = BaseVehicleConfig.from_toml(harpoon_path)
+
+    fd = FlightDeckView(active_vehicle=vehicle, active_vehicle_path=harpoon_path)
+    desc = REPAIRED_SOLVERS[0]
+
+    custom_params = {
+        "launch_angle_deg": 45.0,
+        "altitude_m": 500.0,
+        "ground_altitude_m": 0.0,
+        "t_max_s": 50.0,
+        "stop_at_burnout": True,
+    }
+    results = fd.run_solver(desc, enable_logging=False, params=custom_params)
+    assert results is not None
+    assert isinstance(results, PointMassBoostResults)
+    assert results.burnout_mach > 0.8
+
+
+def test_flight_deck_solver_form_scrollable() -> None:
+    """Verify that clicking on a solver loads its requirements and the form is vertically scrollable."""
+    import asyncio
+
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    harpoon_path = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
+    vehicle = BaseVehicleConfig.from_toml(harpoon_path)
+
+    class TestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield FlightDeckView(active_vehicle=vehicle, id="flightdeck")
+
+    async def _test() -> None:
+        app = TestApp()
+        async with app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause(0.2)
+            fd = app.query_one("#flightdeck", FlightDeckView)
+            tile = fd.query_one(SolverTile)
+
+            # Click on solver tile
+            await pilot.click(tile)
+            await pilot.pause(0.2)
+
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            assert form is not None
+            assert not form.has_class("-hidden")
+
+            # Check that header contains requirements
+            header = form.query_one("#solver-form-header", Static)
+            header_text = str(header.render())
+            assert "booster motor" in header_text.lower() and "solidmotor" in header_text.lower()
+
+            # Verify that form content overflows visible height and is scrollable
+            assert form.virtual_size.height > form.size.height
+            assert form.scroll_y == 0
+
+            # Scroll down and verify scroll_y increases
+            form.scroll_end(animate=False)
+            await pilot.pause(0.1)
+            assert form.scroll_y > 0
+
+            # Scroll back home
+            form.scroll_home(animate=False)
+            await pilot.pause(0.1)
+            assert form.scroll_y == 0
+
+    asyncio.run(_test())
+

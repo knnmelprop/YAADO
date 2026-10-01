@@ -29,7 +29,13 @@ from textual.widget import Widget
 from textual.widgets import Button, Collapsible, OptionList, Static
 from textual.widgets.option_list import Option
 
-from Terminal.widgets import FlightLogsTree, render_flightlog_preview
+from Terminal.widgets import (
+    FlightLogsTree,
+    SolverParam,
+    SolverParamsForm,
+    format_stage_param_specs,
+    render_flightlog_preview,
+)
 from YAADO_Core.ComponentStore import (
     AERO_COMPONENTS,
     BODY_COMPONENTS,
@@ -64,7 +70,7 @@ class SolverDescriptor:
         description: Methodological and physics summary.
         required_components_desc: Required vehicle components and attributes.
         headline_outputs: Sequence of (field_name, unit_str, display_title) tuples.
-        default_params: Canonical default parameters in SI units.
+        parameters: Sequence of tunable SolverParam definitions with symbols and defaults.
     """
 
     solver_id: str
@@ -75,10 +81,15 @@ class SolverDescriptor:
     description: str
     required_components_desc: str
     headline_outputs: tuple[tuple[str, str, str], ...]
-    default_params: dict[str, Any]
+    parameters: tuple[SolverParam, ...]
+
+    @property
+    def default_params(self) -> dict[str, Any]:
+        """Canonical default parameters in SI units."""
+        return {p.name: p.default for p in self.parameters}
 
 
-@dataclass(frozen=True)
+@dataclass
 class PipelineStage:
     """A configured solver stage in an execution pipeline.
 
@@ -114,11 +125,58 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
             ("final_x", "m", "Final Range"),
             ("flight_time", "s", "Flight Time"),
         ),
-        default_params={
-            "launch_angle_deg": 83.0,
-            "altitude_m": 100.0,
-            "stop_at_burnout": True,
-        },
+        parameters=(
+            SolverParam(
+                name="launch_angle_deg",
+                label="Launch Angle",
+                symbol="γ₀",
+                unit="deg",
+                param_type=float,
+                default=83.0,
+                description="Elevation launch rail angle above horizon",
+                min_value=0.0,
+                max_value=90.0,
+            ),
+            SolverParam(
+                name="altitude_m",
+                label="Launch Altitude",
+                symbol="h₀",
+                unit="m",
+                param_type=float,
+                default=100.0,
+                description="Initial launch pad altitude above MSL",
+                min_value=0.0,
+            ),
+            SolverParam(
+                name="ground_altitude_m",
+                label="Ground Altitude",
+                symbol="h_g",
+                unit="m",
+                param_type=float,
+                default=0.0,
+                description="Ground elevation for ballistic impact termination",
+                min_value=0.0,
+            ),
+            SolverParam(
+                name="t_max_s",
+                label="Max Flight Time",
+                symbol="t_max",
+                unit="s",
+                param_type=float,
+                default=300.0,
+                description="Maximum simulation integration duration",
+                min_value=1.0,
+            ),
+            SolverParam(
+                name="stop_at_burnout",
+                label="Stop at Burnout",
+                symbol="stop_burnout",
+                unit="bool",
+                param_type=bool,
+                default=True,
+                description="Terminate integration at motor burnout",
+            ),
+        ),
     ),
 )
 
@@ -528,6 +586,10 @@ class FlightDeckView(Container):
         self._current_highlighted_descriptor: SolverDescriptor | None = (
             REPAIRED_SOLVERS[0] if REPAIRED_SOLVERS else None
         )
+        self._active_params: dict[str, Any] = (
+            dict(REPAIRED_SOLVERS[0].default_params) if REPAIRED_SOLVERS else {}
+        )
+        self._editing_stage_index: int | None = None
         self._selected_flightlog_path: Path | None = None
 
     def compose(self) -> ComposeResult:
@@ -562,8 +624,10 @@ class FlightDeckView(Container):
                 )
                 results_card.border_title = "Solver Inspector"
                 results_card.border_subtitle = "\\[a]/↵ Add  r Run"
-                with results_card, ScrollableContainer(id="flightdeck-results-scroll"):
-                    yield Static("", id="flightdeck-results-content")
+                with results_card:
+                    yield SolverParamsForm(id="flightdeck-params-form")
+                    with ScrollableContainer(id="flightdeck-results-scroll", classes="-hidden"):
+                        yield Static("", id="flightdeck-results-content")
 
                 pipeline_card = Container(
                     id="flightdeck-pipeline-card", classes="cockpit-card"
@@ -653,7 +717,7 @@ class FlightDeckView(Container):
     def _render_solver_inspector(
         self, descriptor: SolverDescriptor, is_ready: bool, message: str
     ) -> None:
-        """Render solver specifications and vehicle compatibility into the results card.
+        """Render solver specifications and parameter form into the results card.
 
         Args:
             descriptor: Solver metadata descriptor.
@@ -665,70 +729,58 @@ class FlightDeckView(Container):
             results_card.border_title = "Solver Inspector"
             results_card.border_subtitle = "\\[a]/↵ Add  r Run"
 
-            fid_label = (
-                descriptor.fidelity.name.replace("_", " ").title()
-                if hasattr(descriptor.fidelity, "name")
-                else "Level 0"
+            form = self.query_one("#flightdeck-params-form", SolverParamsForm)
+            scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
+            form.remove_class("-hidden")
+            scroll.add_class("-hidden")
+
+            self._editing_stage_index = None
+            veh_name = self.active_vehicle.name if self.active_vehicle is not None else None
+            params = (
+                self._active_params
+                if self._current_highlighted_descriptor == descriptor
+                else dict(descriptor.default_params)
             )
-            lines: list[str] = [
-                (
-                    f"[bold #38bdf8]{descriptor.name.upper()}[/bold #38bdf8]  "
-                    f"[bold #0284c7][{fid_label}][/bold #0284c7]  "
-                    f"[dim]{descriptor.discipline}[/dim]"
-                ),
-                "",
-            ]
-
-            if self.active_vehicle is not None:
-                veh_name = escape(self.active_vehicle.name)
-                if is_ready:
-                    status_str = f"[bold #10b981][READY][/bold #10b981]  [dim]{escape(message)}[/dim]"
-                else:
-                    status_str = f"[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]  [dim]{escape(message)}[/dim]"
-                lines.append(f"[bold]Active Vehicle:[/bold] {veh_name}  {status_str}")
-            else:
-                lines.append(
-                    "[bold]Active Vehicle:[/bold] [dim]None loaded[/dim]  "
-                    "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]  "
-                    "[dim]Load a vehicle in Hangar to enable execution[/dim]"
-                )
-
-            stage_indices = [
-                str(idx)
-                for idx, s in enumerate(self.pipeline, start=1)
-                if s.descriptor.solver_id == descriptor.solver_id
-            ]
-            if stage_indices:
-                pipeline_status = f"[bold #38bdf8]Staged in Pipeline (Stage {', '.join(stage_indices)})[/bold #38bdf8]"
-            else:
-                pipeline_status = "[dim]Not staged in pipeline[/dim]"
-            lines.append(f"[bold]Pipeline Status:[/bold] {pipeline_status}")
-
-            lines.append("")
-            lines.append("[bold cyan]Description:[/bold cyan]")
-            lines.append(f"  {descriptor.description}")
-            lines.append("")
-            lines.append("[bold cyan]Requirements:[/bold cyan]")
-            lines.append(f"  {descriptor.required_components_desc}")
-            lines.append("")
-            lines.append("[bold cyan]Nominal Parameters:[/bold cyan]")
-            for p_key, p_val in descriptor.default_params.items():
-                p_label = p_key.replace("_", " ").title()
-                lines.append(f"  • {p_label}: {p_val}")
-            lines.append("")
-            lines.append("[bold cyan]Primary Outputs:[/bold cyan]")
-            for _, f_unit, f_label in descriptor.headline_outputs:
-                unit_str = f" [{f_unit}]" if f_unit and f_unit != "-" else ""
-                lines.append(f"  • {f_label}{unit_str}")
-            lines.append("")
-            lines.append(
-                "[dim]Press [bold]r[/bold] to run solver • Press [bold]a[/bold] or [bold]↵ Enter[/bold] to stage into pipeline[/dim]"
+            form.load_solver(
+                descriptor=descriptor,
+                params=params,
+                stage_index=None,
+                is_ready=is_ready,
+                compatibility_msg=message,
+                vehicle_name=veh_name,
             )
+        except NoMatches:
+            pass
 
-            content = self.query_one("#flightdeck-results-content", Static)
-            content.remove_class("-wide-table")
-            content.update("\n".join(lines))
-            self._scroll_results_to_top()
+    def _render_stage_params(self, stage_idx: int, stage: PipelineStage) -> None:
+        """Render and tune parameters for a staged pipeline solver.
+
+        Args:
+            stage_idx: 1-based index of stage in pipeline.
+            stage: PipelineStage instance to inspect and tune.
+        """
+        try:
+            results_card = self.query_one("#flightdeck-results-card", Container)
+            results_card.border_title = f"Pipeline Stage {stage_idx}"
+            results_card.border_subtitle = "r Run Stage  d Delete Stage  b Inspector"
+
+            form = self.query_one("#flightdeck-params-form", SolverParamsForm)
+            scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
+            form.remove_class("-hidden")
+            scroll.add_class("-hidden")
+
+            self._editing_stage_index = stage_idx
+            is_ready, msg = check_solver_compatibility(stage.descriptor, self.active_vehicle)
+            veh_name = self.active_vehicle.name if self.active_vehicle is not None else None
+
+            form.load_solver(
+                descriptor=stage.descriptor,
+                params=stage.params,
+                stage_index=stage_idx,
+                is_ready=is_ready,
+                compatibility_msg=msg,
+                vehicle_name=veh_name,
+            )
         except NoMatches:
             pass
 
@@ -749,6 +801,11 @@ class FlightDeckView(Container):
             results_card = self.query_one("#flightdeck-results-card", Container)
             results_card.border_title = "Simulation Telemetry"
             results_card.border_subtitle = "b Inspector  r Re-run"
+
+            form = self.query_one("#flightdeck-params-form", SolverParamsForm)
+            scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
+            form.add_class("-hidden")
+            scroll.remove_class("-hidden")
 
             veh_name = self.active_vehicle.name if self.active_vehicle else "Unknown"
             lines: list[str] = [
@@ -803,6 +860,11 @@ class FlightDeckView(Container):
                 results_card.border_title = f"Historical: {path.name}"
             results_card.border_subtitle = "o Open  f Folder  b Inspector"
 
+            form = self.query_one("#flightdeck-params-form", SolverParamsForm)
+            scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
+            form.add_class("-hidden")
+            scroll.remove_class("-hidden")
+
             content = self.query_one("#flightdeck-results-content", Static)
             is_csv = path.is_file() and path.suffix.lower() == ".csv"
             content.set_class(is_csv, "-wide-table")
@@ -816,6 +878,11 @@ class FlightDeckView(Container):
         try:
             scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
             scroll.scroll_to(x=0, y=0, animate=False)
+        except NoMatches:
+            pass
+        try:
+            form = self.query_one("#flightdeck-params-form", SolverParamsForm)
+            form.scroll_home(animate=False)
         except NoMatches:
             pass
 
@@ -857,7 +924,9 @@ class FlightDeckView(Container):
                     if is_ready
                     else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
                 )
-                label = f"Stage {idx}: [bold]{escape(stage.descriptor.name)}[/bold]  {status_tag}"
+                param_specs = format_stage_param_specs(stage)
+                param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
+                label = f"Stage {idx}: [bold]{escape(stage.descriptor.name)}[/bold]{param_badge}  {status_tag}"
                 pipeline_list.add_option(Option(prompt=label, id=f"stage_{idx}"))
         except NoMatches:
             pass
@@ -869,13 +938,26 @@ class FlightDeckView(Container):
         except (LookupError, RuntimeError, AttributeError):
             pass
 
-    def stage_solver(self, descriptor: SolverDescriptor) -> None:
+    def stage_solver(
+        self,
+        descriptor: SolverDescriptor,
+        params: dict[str, Any] | None = None,
+    ) -> None:
         """Stage a solver into the sequential pipeline.
 
         Args:
             descriptor: Metadata descriptor for the solver to add.
+            params: Optional tuned parameters. Defaults to active parameters if matching or default_params.
         """
-        stage = PipelineStage(descriptor=descriptor, params=dict(descriptor.default_params))
+        if params is None:
+            if self._current_highlighted_descriptor == descriptor and self._active_params:
+                staged_params = dict(self._active_params)
+            else:
+                staged_params = dict(descriptor.default_params)
+        else:
+            staged_params = dict(params)
+
+        stage = PipelineStage(descriptor=descriptor, params=staged_params)
         self.pipeline.append(stage)
         self._refresh_pipeline_ui()
         self.refresh_solvers_list()
@@ -885,13 +967,17 @@ class FlightDeckView(Container):
         )
 
     def run_solver(
-        self, descriptor: SolverDescriptor, enable_logging: bool = True
+        self,
+        descriptor: SolverDescriptor,
+        enable_logging: bool = True,
+        params: dict[str, Any] | None = None,
     ) -> PointMassBoostResults | None:
         """Run a single solver on the active vehicle.
 
         Args:
             descriptor: Solver to execute.
             enable_logging: Whether FlightLogger creates disk artifacts. Defaults to True.
+            params: Optional solver parameter overrides.
 
         Returns:
             The analysis results if successful, or None on failure.
@@ -909,21 +995,27 @@ class FlightDeckView(Container):
 
         try:
             solver = descriptor.solver_cls(descriptor.solver_id)
-            params = dict(descriptor.default_params)
+            if params is not None:
+                exec_params = dict(params)
+            elif self._current_highlighted_descriptor == descriptor and self._active_params:
+                exec_params = dict(self._active_params)
+            else:
+                exec_params = dict(descriptor.default_params)
+
             if descriptor.solver_id == "point_mass_3dof_boost":
                 fins_name = resolve_fins_name(self.active_vehicle)
                 if fins_name:
-                    params["fins_name"] = fins_name
+                    exec_params["fins_name"] = fins_name
 
-            solver.setup(self.active_vehicle, enable_logging=enable_logging, **params)
+            solver.setup(self.active_vehicle, enable_logging=enable_logging, **exec_params)
             results = solver.execute()
 
             if enable_logging and hasattr(solver, "logger") and solver.logger.enabled:
                 if descriptor.solver_id == "point_mass_3dof_boost" and isinstance(results, PointMassBoostResults):
-                    ground_alt = params.get(
+                    ground_alt = exec_params.get(
                         "ground_altitude_m", PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M
                     )
-                    stop_at_burnout = params.get(
+                    stop_at_burnout = exec_params.get(
                         "stop_at_burnout", PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT
                     )
                     if results.boost_samples is not None:
@@ -945,15 +1037,15 @@ class FlightDeckView(Container):
                     sweep_results = run_launch_angle_sweep(
                         self.active_vehicle,
                         angles_deg=sweep_angles,
-                        altitude_m=params.get(
+                        altitude_m=exec_params.get(
                             "altitude_m", PointMass3DOFBoostAnalysis.DEFAULT_ALTITUDE_M
                         ),
                         ground_altitude_m=ground_alt,
-                        fins_name=params.get("fins_name"),
-                        motor_name=params.get("motor_name"),
-                        body_name=params.get("body_name"),
+                        fins_name=exec_params.get("fins_name"),
+                        motor_name=exec_params.get("motor_name"),
+                        body_name=exec_params.get("body_name"),
                         stop_at_burnout=stop_at_burnout,
-                        t_max_s=params.get("t_max_s", PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S),
+                        t_max_s=exec_params.get("t_max_s", PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S),
                     )
                     sweep_fig = plot_launch_angle_sweep(sweep_results, ground_altitude_m=ground_alt)
                     solver.logger.save_figure(sweep_fig, "launch_angle_sweep.png", show=False)
@@ -987,18 +1079,26 @@ class FlightDeckView(Container):
             return None
 
     def action_quick_run(self) -> None:
-        """Execute the currently focused solver on the active vehicle."""
+        """Execute the currently focused solver or staged pipeline step on the active vehicle."""
+        if self._editing_stage_index is not None and 1 <= self._editing_stage_index <= len(self.pipeline):
+            stage = self.pipeline[self._editing_stage_index - 1]
+            self.run_solver(stage.descriptor, params=stage.params)
+            return
+
         try:
             store = self.query_one("#solvers-store-view", SolversStoreView)
             tile = store.get_focused_tile()
             if tile is not None:
-                self.run_solver(tile.descriptor)
+                self.run_solver(tile.descriptor, params=self._active_params)
+            elif self._current_highlighted_descriptor is not None:
+                self.run_solver(self._current_highlighted_descriptor, params=self._active_params)
             else:
                 self._notify(
                     "No solver selected. Click a solver to select it.", severity="warning"
                 )
         except NoMatches:
-            pass
+            if self._current_highlighted_descriptor is not None:
+                self.run_solver(self._current_highlighted_descriptor, params=self._active_params)
 
     def action_stage_solver(self) -> None:
         """Stage the currently focused solver to the pipeline."""
@@ -1017,8 +1117,10 @@ class FlightDeckView(Container):
     def action_clear_pipeline(self) -> None:
         """Clear all staged steps in the execution pipeline."""
         self.pipeline.clear()
+        self._editing_stage_index = None
         self._refresh_pipeline_ui()
         self.refresh_solvers_list()
+        self.action_show_inspector()
         self._notify("Pipeline cleared", severity="information")
 
     def action_run_pipeline(self) -> None:
@@ -1033,11 +1135,12 @@ class FlightDeckView(Container):
             return
 
         for stage in self.pipeline:
-            self.run_solver(stage.descriptor)
+            self.run_solver(stage.descriptor, params=stage.params)
 
     def action_show_inspector(self) -> None:
         """Switch results card back to inspector view for current highlighted solver."""
         self._selected_flightlog_path = None
+        self._editing_stage_index = None
         if self._current_highlighted_descriptor is not None:
             is_ready, msg = check_solver_compatibility(
                 self._current_highlighted_descriptor, self.active_vehicle
@@ -1052,7 +1155,10 @@ class FlightDeckView(Container):
     ) -> None:
         """Handle solver highlighted in catalog list."""
         self._selected_flightlog_path = None
-        self._current_highlighted_descriptor = event.descriptor
+        if self._current_highlighted_descriptor != event.descriptor:
+            self._current_highlighted_descriptor = event.descriptor
+            self._active_params = dict(event.descriptor.default_params)
+        self._editing_stage_index = None
         self._render_solver_inspector(event.descriptor, event.is_ready, event.message)
 
     @on(SolverTile.SolverSelected)
@@ -1077,6 +1183,48 @@ class FlightDeckView(Container):
             self._refresh_pipeline_ui()
             self.refresh_solvers_list()
             self._notify(f"Removed Stage {event.index + 1}: {removed.descriptor.name}")
+            self.action_show_inspector()
+
+    @on(SolverParamsForm.ParamChanged)
+    def _on_param_changed(self, event: SolverParamsForm.ParamChanged) -> None:
+        """Handle dynamic parameter adjustment from the form."""
+        if not event.is_valid:
+            return
+        if event.stage_index is not None and 1 <= event.stage_index <= len(self.pipeline):
+            stage = self.pipeline[event.stage_index - 1]
+            stage.params[event.name] = event.value
+            try:
+                pipeline_list = self.query_one("#flightdeck-pipeline-list", PipelineList)
+                is_ready, _ = check_solver_compatibility(stage.descriptor, self.active_vehicle)
+                status_tag = (
+                    "[bold #10b981][READY][/bold #10b981]"
+                    if is_ready
+                    else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+                )
+                param_specs = format_stage_param_specs(stage)
+                param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
+                label = f"Stage {event.stage_index}: [bold]{escape(stage.descriptor.name)}[/bold]{param_badge}  {status_tag}"
+                pipeline_list.replace_option_prompt_at_index(event.stage_index - 1, label)
+            except NoMatches:
+                pass
+        else:
+            self._active_params[event.name] = event.value
+
+    @on(OptionList.OptionHighlighted, "#flightdeck-pipeline-list")
+    def _on_pipeline_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        """Show parameter inspector for highlighted pipeline stage."""
+        if event.option_index is not None and 0 <= event.option_index < len(self.pipeline):
+            stage_idx = event.option_index + 1
+            stage = self.pipeline[event.option_index]
+            self._render_stage_params(stage_idx, stage)
+
+    @on(OptionList.OptionSelected, "#flightdeck-pipeline-list")
+    def _on_pipeline_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Handle selection of pipeline stage."""
+        if event.option_index is not None and 0 <= event.option_index < len(self.pipeline):
+            stage_idx = event.option_index + 1
+            stage = self.pipeline[event.option_index]
+            self._render_stage_params(stage_idx, stage)
 
     @on(FlightLogsTree.FlightLogHighlighted)
     def _on_flightlog_highlighted(
