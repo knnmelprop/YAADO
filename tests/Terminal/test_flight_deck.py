@@ -10,10 +10,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from textual import events
+from textual.widgets import TabbedContent
+
+from Terminal.app import YaadoApp
 from Terminal.screens.flight_deck import (
     REPAIRED_SOLVERS,
     AvailableSolversList,
     FlightDeckView,
+    SolversStoreView,
+    SolverTile,
     check_solver_compatibility,
     resolve_fins_name,
 )
@@ -165,27 +171,43 @@ def test_resolve_fins_name_candidates() -> None:
 
 
 def test_available_solvers_list_population_and_labels() -> None:
-    """Verify AvailableSolversList populates options without emojis."""
-    solvers_list = AvailableSolversList()
+    """Verify SolverTile and SolversStoreView render without emojis and reflect state."""
     harpoon_path = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
     vehicle = BaseVehicleConfig.from_toml(harpoon_path)
+    desc = REPAIRED_SOLVERS[0]
 
-    solvers_list.populate(REPAIRED_SOLVERS, vehicle)
-    assert solvers_list.option_count == len(REPAIRED_SOLVERS)
-
-    opt = solvers_list.get_option_at_index(0)
-    prompt_str = str(opt.prompt)
+    # Test SolverTile directly
+    tile = SolverTile(descriptor=desc)
+    tile.update_status(vehicle)
+    assert tile.is_ready is True
+    assert tile.is_staged is False
+    prompt_str = str(tile.render())
     assert "[L0]" in prompt_str
     assert "Point-Mass 3-DOF Boost" in prompt_str
     assert "[READY]" in prompt_str
+    assert "[STAGED]" not in prompt_str
     _assert_no_emojis(prompt_str)
 
     # Test with incompatible vehicle
-    solvers_list.populate(REPAIRED_SOLVERS, None)
-    opt_inapplicable = solvers_list.get_option_at_index(0)
-    prompt_inapplicable_str = str(opt_inapplicable.prompt)
+    tile.update_status(None)
+    assert tile.is_ready is False
+    prompt_inapplicable_str = str(tile.render())
     assert "[INAPPLICABLE]" in prompt_inapplicable_str
     _assert_no_emojis(prompt_inapplicable_str)
+
+    # Test with staged solver
+    tile.update_status(vehicle, staged_ids=["point_mass_3dof_boost"])
+    assert tile.is_staged is True
+    assert tile.has_class("-staged")
+    prompt_staged_str = str(tile.render())
+    assert "[STAGED]" in prompt_staged_str
+    _assert_no_emojis(prompt_staged_str)
+
+    # Test SolversStoreView alias and disciplines
+    assert SolversStoreView is AvailableSolversList
+    store = SolversStoreView(REPAIRED_SOLVERS, vehicle)
+    assert len(store.DISCIPLINES) > 0
+    assert "FLIGHT DYNAMICS" in store.DISCIPLINES
 
 
 def test_flight_deck_pipeline_staging_and_clear() -> None:
@@ -229,3 +251,72 @@ def test_number_formatting() -> None:
     assert FlightDeckView._format_number(285.456, "m/s") == "285.5"
     assert FlightDeckView._format_number(0.8734, "-") == "0.873"
     assert FlightDeckView._format_number("text") == "text"
+
+
+def test_flight_deck_interactive_navigation_and_staging() -> None:
+    """Verify interactive focus, 'a' key, Enter key, double-click, and styling via pilot."""
+    import asyncio
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(120, 36)) as pilot:
+            # Confirm startup tab is main
+            tabs = app.query_one(TabbedContent)
+            assert tabs.active == "main"
+
+            # Switch to Flight Deck tab via 'f' key
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            assert tabs.active == "flight-deck"
+
+            fd = app.query_one(FlightDeckView)
+            tile = app.query_one(SolverTile)
+            assert tile is not None
+
+            # Initially, tile is not focused and Enter does NOT stage
+            assert tile.has_focus is False
+            await pilot.press("enter")
+            await pilot.pause(0.1)
+            assert len(fd.pipeline) == 0
+
+            # Clicking the tile directly focuses it
+            await pilot.click(tile)
+            await pilot.pause(0.1)
+            assert tile.has_focus is True
+            assert "[L0]" in str(tile.render())
+            assert "Point-Mass 3-DOF Boost" in str(tile.render())
+            _assert_no_emojis(str(tile.render()))
+
+            # Key 'a' adds to pipeline
+            await pilot.press("a")
+            await pilot.pause(0.1)
+            assert len(fd.pipeline) == 1
+            assert tile.is_staged is True
+            assert tile.has_class("-staged")
+            assert "[STAGED]" in str(tile.render())
+            _assert_no_emojis(str(tile.render()))
+
+            # Key 'enter' adds to pipeline again
+            await pilot.press("enter")
+            await pilot.pause(0.1)
+            assert len(fd.pipeline) == 2
+
+            # Key 'c' clears pipeline
+            await pilot.press("c")
+            await pilot.pause(0.1)
+            assert len(fd.pipeline) == 0
+            assert tile.is_staged is False
+            assert not tile.has_class("-staged")
+            assert "[STAGED]" not in str(tile.render())
+
+            # Double-click event adds to pipeline
+            click_evt = events.Click(
+                tile, 0, 0, 0, 0, button=1, shift=False, meta=False, ctrl=False, chain=2
+            )
+            tile.on_click(click_evt)
+            await pilot.pause(0.1)
+            assert len(fd.pipeline) == 1
+            assert tile.is_staged is True
+            assert tile.has_class("-staged")
+
+    asyncio.run(_test())

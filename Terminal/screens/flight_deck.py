@@ -14,12 +14,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from rich.markup import escape
-from textual import on
+from rich.text import Text
+from textual import events, on
 from textual.binding import Binding, BindingType
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
-from textual.widgets import Button, OptionList, Static
+from textual.widget import Widget
+from textual.widgets import Button, Collapsible, OptionList, Static
 from textual.widgets.option_list import Option
 
 from Terminal.widgets import FlightLogsTree
@@ -178,16 +180,25 @@ FIDELITY_BADGES: dict[FidelityLevel, str] = {
 }
 
 
-class AvailableSolversList(OptionList):
-    """Catalog list of verified physics solvers with status and shortcut actions."""
+class SolverTile(Widget, can_focus=True):
+    """Interactive modular card representing a verified physics solver.
+
+    Attributes:
+        descriptor: Metadata descriptor for the solver.
+        is_ready: Whether the active vehicle satisfies prerequisites.
+        status_msg: Explanation message of vehicle compatibility.
+        is_staged: Whether this solver is currently staged in the pipeline.
+    """
+
+    ALLOW_SELECT: ClassVar[bool] = False
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("enter", "stage_selected", "Stage", show=True),
-        Binding("r", "run_selected", "Run", show=True),
+        Binding("a,enter", "add_to_pipeline", "Add to Pipeline", show=True),
+        Binding("r", "run_solver", "Run Solver", show=True),
     ]
 
     class SolverHighlighted(Message):
-        """Dispatched when a solver option is highlighted."""
+        """Dispatched when a solver tile gains focus (updates inspector)."""
 
         def __init__(
             self, descriptor: SolverDescriptor, is_ready: bool, message: str
@@ -198,7 +209,7 @@ class AvailableSolversList(OptionList):
             self.message = message
 
     class SolverSelected(Message):
-        """Dispatched when Enter is pressed on a solver option (stages to pipeline)."""
+        """Dispatched when a solver is confirmed for addition via double-click, 'a', or Enter."""
 
         def __init__(
             self, descriptor: SolverDescriptor, is_ready: bool, message: str
@@ -219,90 +230,234 @@ class AvailableSolversList(OptionList):
             self.is_ready = is_ready
             self.message = message
 
-    def __init__(self, **kwargs: Any) -> None:
-        """Initialize the available solvers list."""
+    def __init__(
+        self,
+        descriptor: SolverDescriptor,
+        is_ready: bool = False,
+        status_msg: str = "",
+        is_staged: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize the solver tile.
+
+        Args:
+            descriptor: Solver metadata descriptor.
+            is_ready: Compatibility status flag.
+            status_msg: Detailed status or prerequisite message.
+            is_staged: Whether solver is currently in pipeline.
+            **kwargs: Standard Textual widget keyword arguments.
+        """
         super().__init__(**kwargs)
-        self._descriptors: list[SolverDescriptor] = []
+        self.descriptor = descriptor
+        self.is_ready = is_ready
+        self.status_msg = status_msg
+        self.is_staged = is_staged
+        if is_staged:
+            self.add_class("-staged")
+
+    def update_status(
+        self,
+        vehicle: BaseVehicleConfig | None,
+        staged_ids: Sequence[str] = (),
+    ) -> None:
+        """Update solver compatibility and staged status against active vehicle.
+
+        Args:
+            vehicle: Currently active vehicle configuration.
+            staged_ids: Sequence of solver_ids staged in the pipeline.
+        """
+        self.is_ready, self.status_msg = check_solver_compatibility(
+            self.descriptor, vehicle
+        )
+        self.is_staged = self.descriptor.solver_id in staged_ids
+        self.set_class(self.is_staged, "-staged")
+        self.refresh()
+
+    def render(self) -> Text:
+        """Render two-line aerospace card with fidelity, name, status, and staged badge."""
+        fid_badge = FIDELITY_BADGES.get(self.descriptor.fidelity, "[L0]")
+        if self.descriptor.fidelity == FidelityLevel.LEVEL_0:
+            fid_markup = f"[bold #0284c7]{fid_badge}[/bold #0284c7]"
+        elif self.descriptor.fidelity == FidelityLevel.LEVEL_1:
+            fid_markup = f"[bold #10b981]{fid_badge}[/bold #10b981]"
+        elif self.descriptor.fidelity == FidelityLevel.LEVEL_2:
+            fid_markup = f"[bold #f59e0b]{fid_badge}[/bold #f59e0b]"
+        else:
+            fid_markup = f"[bold #ef4444]{fid_badge}[/bold #ef4444]"
+
+        if self.is_ready:
+            status_markup = "[bold #10b981][READY][/bold #10b981]"
+            name_markup = f"[bold]{escape(self.descriptor.name)}[/bold]"
+        else:
+            status_markup = "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+            name_markup = f"[dim]{escape(self.descriptor.name)}[/dim]"
+
+        staged_markup = "  [bold #38bdf8][STAGED][/bold #38bdf8]" if self.is_staged else ""
+        return Text.from_markup(f"{fid_markup}  {name_markup}\n{status_markup}{staged_markup}")
+
+    def action_add_to_pipeline(self) -> None:
+        """Add this solver to the execution pipeline."""
+        self.post_message(
+            self.SolverSelected(self.descriptor, self.is_ready, self.status_msg)
+        )
+
+    def action_run_solver(self) -> None:
+        """Run this solver immediately."""
+        self.post_message(
+            self.SolverRunRequested(self.descriptor, self.is_ready, self.status_msg)
+        )
+
+    def on_focus(self) -> None:
+        """Update inspector when tile gains focus."""
+        self.post_message(
+            self.SolverHighlighted(self.descriptor, self.is_ready, self.status_msg)
+        )
+
+    def on_click(self, event: events.Click) -> None:
+        """Handle mouse clicks: single click focuses, double click adds to pipeline."""
+        event.prevent_default()
+        event.stop()
+        if event.chain == 2:
+            self.action_add_to_pipeline()
+        else:
+            self.focus()
+            self.post_message(
+                self.SolverHighlighted(self.descriptor, self.is_ready, self.status_msg)
+            )
+
+
+class SolversStoreView(VerticalScroll):
+    """Scrollable container housing collapsible discipline categories and modular solver tiles."""
+
+    ALLOW_SELECT: ClassVar[bool] = False
+
+    DISCIPLINES: ClassVar[tuple[str, ...]] = (
+        "FLIGHT DYNAMICS",
+        "PROPULSION",
+        "AERODYNAMICS",
+        "STRUCTURES & MASS",
+    )
+
+    # Message aliases for backwards compatibility
+    SolverHighlighted = SolverTile.SolverHighlighted
+    SolverSelected = SolverTile.SolverSelected
+    SolverRunRequested = SolverTile.SolverRunRequested
+
+    def __init__(
+        self,
+        solvers: Sequence[SolverDescriptor] = REPAIRED_SOLVERS,
+        vehicle: BaseVehicleConfig | None = None,
+        staged_ids: Sequence[str] = (),
+        **kwargs: Any,
+    ) -> None:
+        """Initialize the solvers store container.
+
+        Args:
+            solvers: Sequence of available verified solvers.
+            vehicle: Currently active vehicle configuration.
+            staged_ids: Sequence of solver_ids staged in the pipeline.
+            **kwargs: Standard Textual widget keyword arguments.
+        """
+        super().__init__(**kwargs)
+        self._solvers: list[SolverDescriptor] = list(solvers)
+        self._vehicle: BaseVehicleConfig | None = vehicle
+        self._staged_ids: list[str] = list(staged_ids)
+
+    def compose(self) -> ComposeResult:
+        """Render collapsible discipline categories with verified solver tiles."""
+        disciplines_to_show: list[str] = []
+        for disc in self.DISCIPLINES:
+            if any(s.discipline == disc for s in self._solvers):
+                disciplines_to_show.append(disc)
+        for s in self._solvers:
+            if s.discipline not in disciplines_to_show:
+                disciplines_to_show.append(s.discipline)
+
+        for disc_title in disciplines_to_show:
+            solvers_in_disc = [s for s in self._solvers if s.discipline == disc_title]
+            cat_id = f"solvers-cat-{disc_title.lower().replace(' ', '-').replace('&', 'and')}"
+            with Collapsible(title=disc_title, collapsed=False, id=cat_id):
+                for desc in solvers_in_disc:
+                    is_ready, msg = check_solver_compatibility(desc, self._vehicle)
+                    is_staged = desc.solver_id in self._staged_ids
+                    yield SolverTile(
+                        descriptor=desc,
+                        is_ready=is_ready,
+                        status_msg=msg,
+                        is_staged=is_staged,
+                        id=f"tile-solver-{desc.solver_id}",
+                    )
+
+    def update_all_tiles(
+        self,
+        vehicle: BaseVehicleConfig | None,
+        staged_ids: Sequence[str] = (),
+    ) -> None:
+        """Update compatibility and staged statuses across all mounted solver tiles.
+
+        Args:
+            vehicle: Currently active vehicle configuration.
+            staged_ids: Sequence of solver_ids staged in the pipeline.
+        """
+        self._vehicle = vehicle
+        self._staged_ids = list(staged_ids)
+        for tile in self.query(SolverTile):
+            tile.update_status(vehicle, staged_ids)
 
     def populate(
         self,
         solvers: Sequence[SolverDescriptor],
         vehicle: BaseVehicleConfig | None,
+        staged_solver_ids: Sequence[str] = (),
     ) -> None:
-        """Populate the option list from verified solver descriptors.
+        """Populate or update store with solver descriptors.
 
         Args:
-            solvers: Sequence of available solver descriptors.
-            vehicle: Currently loaded vehicle configuration.
+            solvers: Sequence of solver descriptors.
+            vehicle: Vehicle configuration or None.
+            staged_solver_ids: Sequence of solver IDs staged in pipeline.
         """
-        self.clear_options()
-        self._descriptors = list(solvers)
+        self._solvers = list(solvers)
+        self._vehicle = vehicle
+        self._staged_ids = list(staged_solver_ids)
+        self.update_all_tiles(vehicle, staged_solver_ids)
 
-        for descriptor in solvers:
-            is_ready, _ = check_solver_compatibility(descriptor, vehicle)
-            fid_badge = FIDELITY_BADGES.get(descriptor.fidelity, "[L0]")
-            if descriptor.fidelity == FidelityLevel.LEVEL_0:
-                fid_markup = f"[bold #0284c7]{fid_badge}[/bold #0284c7]"
-            elif descriptor.fidelity == FidelityLevel.LEVEL_1:
-                fid_markup = f"[bold #10b981]{fid_badge}[/bold #10b981]"
-            elif descriptor.fidelity == FidelityLevel.LEVEL_2:
-                fid_markup = f"[bold #f59e0b]{fid_badge}[/bold #f59e0b]"
-            else:
-                fid_markup = f"[bold #ef4444]{fid_badge}[/bold #ef4444]"
+    def focus_first_solver(self) -> None:
+        """Focus the first available solver tile."""
+        tiles = self.query(SolverTile)
+        if tiles:
+            tiles.first().focus()
 
-            if is_ready:
-                status_badge = "[bold #10b981][READY][/bold #10b981]"
-                name_markup = f"[bold]{escape(descriptor.name)}[/bold]"
-            else:
-                status_badge = "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
-                name_markup = f"[dim]{escape(descriptor.name)}[/dim]"
-
-            label = f"{fid_markup}  {name_markup:<24}  {status_badge}"
-            self.add_option(Option(prompt=label, id=descriptor.solver_id))
-
-        if self._descriptors:
-            self.highlighted = 0
-
-    def _find_flight_deck_view(self) -> FlightDeckView | None:
-        """Locate ancestor FlightDeckView widget."""
-        node = self.parent
-        while node is not None:
-            if isinstance(node, FlightDeckView):
-                return node
-            node = node.parent
+    def get_focused_tile(self) -> SolverTile | None:
+        """Retrieve the currently focused solver tile, if any."""
+        for tile in self.query(SolverTile):
+            if tile.has_focus:
+                return tile
         return None
 
+    def get_focused_or_first_descriptor(self) -> SolverDescriptor | None:
+        """Retrieve descriptor of focused tile, or first tile if none focused."""
+        tile = self.get_focused_tile()
+        if tile is not None:
+            return tile.descriptor
+        tiles = list(self.query(SolverTile))
+        return tiles[0].descriptor if tiles else None
+
     def action_stage_selected(self) -> None:
-        """Stage highlighted solver to the execution pipeline."""
-        if self.highlighted is None or not (0 <= self.highlighted < len(self._descriptors)):
-            return
-        desc = self._descriptors[self.highlighted]
-        parent = self._find_flight_deck_view()
-        vehicle = parent.active_vehicle if parent else None
-        is_ready, msg = check_solver_compatibility(desc, vehicle)
-        self.post_message(self.SolverSelected(desc, is_ready, msg))
+        """Stage currently focused solver to pipeline."""
+        tile = self.get_focused_tile()
+        if tile is not None:
+            tile.action_add_to_pipeline()
 
     def action_run_selected(self) -> None:
-        """Request quick-run of the highlighted solver."""
-        if self.highlighted is None or not (0 <= self.highlighted < len(self._descriptors)):
-            return
-        desc = self._descriptors[self.highlighted]
-        parent = self._find_flight_deck_view()
-        vehicle = parent.active_vehicle if parent else None
-        is_ready, msg = check_solver_compatibility(desc, vehicle)
-        self.post_message(self.SolverRunRequested(desc, is_ready, msg))
+        """Run currently focused solver."""
+        tile = self.get_focused_tile()
+        if tile is not None:
+            tile.action_run_solver()
 
-    @on(OptionList.OptionHighlighted)
-    def _on_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
-        """Handle cursor movement and dispatch SolverHighlighted message."""
-        event.stop()
-        if event.option_index is None or not (0 <= event.option_index < len(self._descriptors)):
-            return
-        desc = self._descriptors[event.option_index]
-        parent = self._find_flight_deck_view()
-        vehicle = parent.active_vehicle if parent else None
-        is_ready, msg = check_solver_compatibility(desc, vehicle)
-        self.post_message(self.SolverHighlighted(desc, is_ready, msg))
+
+# Backwards compatibility alias
+AvailableSolversList = SolversStoreView
 
 
 class PipelineList(OptionList):
@@ -336,8 +491,6 @@ class FlightDeckView(Container):
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("r", "quick_run", "Run Solver", show=True),
-        Binding("enter", "stage_solver", "Stage", show=True),
         Binding("c", "clear_pipeline", "Clear Pipeline", show=True),
         Binding("x", "run_pipeline", "Run Pipeline", show=True),
         Binding("b", "show_inspector", "Back to Inspector", show=True),
@@ -380,12 +533,12 @@ class FlightDeckView(Container):
             # Left column: Available Solvers catalog
             solvers_card = Container(id="flightdeck-solvers-card", classes="cockpit-card")
             solvers_card.border_title = "Available Solvers"
-            solvers_card.border_subtitle = "↵ Stage  r Run"
+            solvers_card.border_subtitle = "\\[a]/↵ Add  r Run"
             with solvers_card:
-                yield AvailableSolversList(id="available-solvers-list")
+                yield SolversStoreView(id="solvers-store-view")
                 with Horizontal(classes="flightdeck-btn-row"):
                     btn_stage = Button(
-                        "Stage (↵)", id="solver-stage-btn", classes="flightdeck-action-btn"
+                        "+ Add (a)", id="solver-stage-btn", classes="flightdeck-action-btn"
                     )
                     btn_stage.can_focus = False
                     yield btn_stage
@@ -401,7 +554,7 @@ class FlightDeckView(Container):
                     id="flightdeck-results-card", classes="cockpit-card"
                 )
                 results_card.border_title = "Solver Inspector"
-                results_card.border_subtitle = "↵ Stage  r Run"
+                results_card.border_subtitle = "\\[a]/↵ Add  r Run"
                 with results_card:
                     yield Static("", id="flightdeck-results-content")
 
@@ -443,9 +596,11 @@ class FlightDeckView(Container):
             self.refresh_solvers_list()
             self._refresh_pipeline_ui()
 
+    def focus_first_solver(self) -> None:
+        """Focus the first available solver tile."""
         try:
-            solvers_list = self.query_one("#available-solvers-list", AvailableSolversList)
-            solvers_list.focus()
+            solvers_store = self.query_one("#solvers-store-view", SolversStoreView)
+            solvers_store.focus_first_solver()
         except NoMatches:
             pass
 
@@ -470,8 +625,9 @@ class FlightDeckView(Container):
     def refresh_solvers_list(self) -> None:
         """Re-render the available solvers list and update inspector."""
         try:
-            solvers_list = self.query_one("#available-solvers-list", AvailableSolversList)
-            solvers_list.populate(REPAIRED_SOLVERS, self.active_vehicle)
+            solvers_store = self.query_one("#solvers-store-view", SolversStoreView)
+            staged_ids = [s.descriptor.solver_id for s in self.pipeline]
+            solvers_store.update_all_tiles(self.active_vehicle, staged_ids=staged_ids)
             if self._current_highlighted_descriptor is not None:
                 is_ready, msg = check_solver_compatibility(
                     self._current_highlighted_descriptor, self.active_vehicle
@@ -500,7 +656,7 @@ class FlightDeckView(Container):
         try:
             results_card = self.query_one("#flightdeck-results-card", Container)
             results_card.border_title = "Solver Inspector"
-            results_card.border_subtitle = "↵ Stage  r Run"
+            results_card.border_subtitle = "\\[a]/↵ Add  r Run"
 
             fid_label = (
                 descriptor.fidelity.name.replace("_", " ").title()
@@ -530,6 +686,17 @@ class FlightDeckView(Container):
                     "[dim]Load a vehicle in Hangar to enable execution[/dim]"
                 )
 
+            stage_indices = [
+                str(idx)
+                for idx, s in enumerate(self.pipeline, start=1)
+                if s.descriptor.solver_id == descriptor.solver_id
+            ]
+            if stage_indices:
+                pipeline_status = f"[bold #38bdf8]Staged in Pipeline (Stage {', '.join(stage_indices)})[/bold #38bdf8]"
+            else:
+                pipeline_status = "[dim]Not staged in pipeline[/dim]"
+            lines.append(f"[bold]Pipeline Status:[/bold] {pipeline_status}")
+
             lines.append("")
             lines.append("[bold cyan]Description:[/bold cyan]")
             lines.append(f"  {descriptor.description}")
@@ -548,7 +715,7 @@ class FlightDeckView(Container):
                 lines.append(f"  • {f_label}{unit_str}")
             lines.append("")
             lines.append(
-                "[dim]Press [bold]r[/bold] to run solver • Press [bold]↵ Enter[/bold] to stage into pipeline[/dim]"
+                "[dim]Press [bold]r[/bold] to run solver • Press [bold]a[/bold] or [bold]↵ Enter[/bold] to stage into pipeline[/dim]"
             )
 
             content = self.query_one("#flightdeck-results-content", Static)
@@ -761,6 +928,7 @@ class FlightDeckView(Container):
         stage = PipelineStage(descriptor=descriptor, params=dict(descriptor.default_params))
         self.pipeline.append(stage)
         self._refresh_pipeline_ui()
+        self.refresh_solvers_list()
         self._notify(
             f"Staged {descriptor.name} (Stage {len(self.pipeline)})",
             severity="information",
@@ -884,31 +1052,38 @@ class FlightDeckView(Container):
         return {}
 
     def action_quick_run(self) -> None:
-        """Execute the currently highlighted solver on the active vehicle."""
-        if self._current_highlighted_descriptor is not None:
-            self.run_solver(self._current_highlighted_descriptor)
-        else:
-            try:
-                solvers_list = self.query_one("#available-solvers-list", AvailableSolversList)
-                solvers_list.action_run_selected()
-            except NoMatches:
-                pass
+        """Execute the currently focused solver on the active vehicle."""
+        try:
+            store = self.query_one("#solvers-store-view", SolversStoreView)
+            tile = store.get_focused_tile()
+            if tile is not None:
+                self.run_solver(tile.descriptor)
+            else:
+                self._notify(
+                    "No solver selected. Click a solver to select it.", severity="warning"
+                )
+        except NoMatches:
+            pass
 
     def action_stage_solver(self) -> None:
-        """Stage the currently highlighted solver to the pipeline."""
-        if self._current_highlighted_descriptor is not None:
-            self.stage_solver(self._current_highlighted_descriptor)
-        else:
-            try:
-                solvers_list = self.query_one("#available-solvers-list", AvailableSolversList)
-                solvers_list.action_stage_selected()
-            except NoMatches:
-                pass
+        """Stage the currently focused solver to the pipeline."""
+        try:
+            store = self.query_one("#solvers-store-view", SolversStoreView)
+            tile = store.get_focused_tile()
+            if tile is not None:
+                self.stage_solver(tile.descriptor)
+            else:
+                self._notify(
+                    "No solver selected. Click a solver to select it.", severity="warning"
+                )
+        except NoMatches:
+            pass
 
     def action_clear_pipeline(self) -> None:
         """Clear all staged steps in the execution pipeline."""
         self.pipeline.clear()
         self._refresh_pipeline_ui()
+        self.refresh_solvers_list()
         self._notify("Pipeline cleared", severity="information")
 
     def action_run_pipeline(self) -> None:
@@ -935,24 +1110,24 @@ class FlightDeckView(Container):
                 self._current_highlighted_descriptor, is_ready, msg
             )
 
-    @on(AvailableSolversList.SolverHighlighted)
+    @on(SolverTile.SolverHighlighted)
     def _on_solver_highlighted(
-        self, event: AvailableSolversList.SolverHighlighted
+        self, event: SolverTile.SolverHighlighted
     ) -> None:
         """Handle solver highlighted in catalog list."""
         self._current_highlighted_descriptor = event.descriptor
         self._render_solver_inspector(event.descriptor, event.is_ready, event.message)
 
-    @on(AvailableSolversList.SolverSelected)
+    @on(SolverTile.SolverSelected)
     def _on_solver_selected(
-        self, event: AvailableSolversList.SolverSelected
+        self, event: SolverTile.SolverSelected
     ) -> None:
-        """Handle Enter key on solver catalog (stages solver)."""
+        """Handle solver confirmation (via double-click, 'a', or Enter) to stage in pipeline."""
         self.stage_solver(event.descriptor)
 
-    @on(AvailableSolversList.SolverRunRequested)
+    @on(SolverTile.SolverRunRequested)
     def _on_solver_run_requested(
-        self, event: AvailableSolversList.SolverRunRequested
+        self, event: SolverTile.SolverRunRequested
     ) -> None:
         """Handle 'r' key on solver catalog (runs solver)."""
         self.run_solver(event.descriptor)
@@ -963,6 +1138,7 @@ class FlightDeckView(Container):
         if 0 <= event.index < len(self.pipeline):
             removed = self.pipeline.pop(event.index)
             self._refresh_pipeline_ui()
+            self.refresh_solvers_list()
             self._notify(f"Removed Stage {event.index + 1}: {removed.descriptor.name}")
 
     @on(FlightLogsTree.FlightLogHighlighted)

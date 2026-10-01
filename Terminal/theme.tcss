@@ -523,7 +523,17 @@ ComponentTile.-dragging {
 }
 
 #vehicle-components-list > .option-list--option-highlighted {
-    background: $yaado-primary;
+    background: transparent;
+    color: $yaado-text;
+}
+
+#vehicle-components-list > .option-list--option-hover {
+    background: #1e293b;
+    color: $yaado-text;
+}
+
+#vehicle-components-list:focus > .option-list--option-highlighted {
+    background: #1e3a8a;
     color: $yaado-text;
     text-style: bold;
 }
@@ -620,7 +630,75 @@ ComponentTile.-dragging {
     height: 1fr;
 }
 
-AvailableSolversList, #available-solvers-list, PipelineList, #flightdeck-pipeline-list {
+#solvers-store-view {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+#solvers-store-view Collapsible {
+    padding: 0;
+    margin-bottom: 0;
+    background: transparent;
+    border: none;
+    border-top: none;
+}
+
+#solvers-store-view Collapsible:ansi {
+    border: none;
+    border-top: none;
+    background: transparent;
+}
+
+#solvers-store-view CollapsibleTitle {
+    color: $yaado-text-muted;
+    background: transparent;
+    padding: 0 1;
+}
+
+#solvers-store-view CollapsibleTitle:hover {
+    color: $yaado-text;
+}
+
+#solvers-store-view CollapsibleTitle:focus {
+    color: $yaado-border-focus;
+    text-style: bold;
+}
+
+SolverTile {
+    width: 100%;
+    height: auto;
+    min-height: 4;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text;
+    padding: 0 1;
+    margin-bottom: 0;
+}
+
+SolverTile:hover {
+    border: round $yaado-text-disabled;
+    background: transparent;
+}
+
+SolverTile:focus {
+    border: round $yaado-border-focus;
+    background: transparent;
+    color: #60a5fa;
+}
+
+SolverTile.-staged {
+    border: round #0284c7;
+}
+
+SolverTile.-staged:focus {
+    border: round $yaado-border-focus;
+    color: #60a5fa;
+}
+
+PipelineList, #flightdeck-pipeline-list {
     background: transparent;
     border: none;
     padding: 0;
@@ -630,25 +708,32 @@ AvailableSolversList, #available-solvers-list, PipelineList, #flightdeck-pipelin
     height: 1fr;
 }
 
-AvailableSolversList:focus, #available-solvers-list:focus, PipelineList:focus, #flightdeck-pipeline-list:focus {
+PipelineList:focus, #flightdeck-pipeline-list:focus {
     background: transparent;
     border: none;
 }
 
-AvailableSolversList > .option-list--option-highlighted, #available-solvers-list > .option-list--option-highlighted,
 PipelineList > .option-list--option-highlighted, #flightdeck-pipeline-list > .option-list--option-highlighted {
-    background: $yaado-primary;
+    background: transparent;
+    color: $yaado-text;
+}
+
+PipelineList > .option-list--option-hover, #flightdeck-pipeline-list > .option-list--option-hover {
+    background: #1e293b;
+    color: $yaado-text;
+}
+
+PipelineList:focus > .option-list--option-highlighted, #flightdeck-pipeline-list:focus > .option-list--option-highlighted {
+    background: #1e3a8a;
     color: $yaado-text;
     text-style: bold;
 }
 
-AvailableSolversList > .option-list--option-disabled, #available-solvers-list > .option-list--option-disabled,
 PipelineList > .option-list--option-disabled, #flightdeck-pipeline-list > .option-list--option-disabled {
     color: $yaado-text-muted;
     background: transparent;
 }
 
-AvailableSolversList > .option-list--option, #available-solvers-list > .option-list--option,
 PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--option {
     padding: 0 1;
 }
