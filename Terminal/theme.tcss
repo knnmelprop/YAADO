@@ -620,12 +620,78 @@ ComponentTile.-dragging {
     height: 1fr;
 }
 
-#flightdeck-runs-content {
+AvailableSolversList, #available-solvers-list, PipelineList, #flightdeck-pipeline-list {
+    background: transparent;
+    border: none;
+    padding: 0;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+AvailableSolversList:focus, #available-solvers-list:focus, PipelineList:focus, #flightdeck-pipeline-list:focus {
+    background: transparent;
+    border: none;
+}
+
+AvailableSolversList > .option-list--option-highlighted, #available-solvers-list > .option-list--option-highlighted,
+PipelineList > .option-list--option-highlighted, #flightdeck-pipeline-list > .option-list--option-highlighted {
+    background: $yaado-primary;
+    color: $yaado-text;
+    text-style: bold;
+}
+
+AvailableSolversList > .option-list--option-disabled, #available-solvers-list > .option-list--option-disabled,
+PipelineList > .option-list--option-disabled, #flightdeck-pipeline-list > .option-list--option-disabled {
+    color: $yaado-text-muted;
+    background: transparent;
+}
+
+AvailableSolversList > .option-list--option, #available-solvers-list > .option-list--option,
+PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--option {
+    padding: 0 1;
+}
+
+#flightdeck-results-content {
     width: 100%;
     height: 100%;
-    content-align: center middle;
-    text-align: center;
+    padding: 0 1;
+    color: $yaado-text;
+    overflow-y: auto;
+}
+
+.flightdeck-btn-row {
+    width: 100%;
+    height: 3;
+    margin-top: 1;
+}
+
+.flightdeck-action-btn {
+    width: 1fr;
+    height: 3;
+    min-width: 8;
+    background: transparent;
+    border: round $yaado-border-subtle;
     color: $yaado-text-muted;
+    text-style: bold;
+    margin-right: 1;
+}
+
+.flightdeck-action-btn:hover {
+    background: transparent;
+    border: round $yaado-accent;
+    color: $yaado-accent;
+}
+
+.flightdeck-action-btn:focus {
+    background: transparent;
+    border: round $yaado-border-focus;
+    color: $yaado-text;
+}
+
+.flightdeck-action-btn.-last {
+    margin-right: 0;
 }
 
 #maximize-warning {

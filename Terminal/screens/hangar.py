@@ -500,6 +500,13 @@ class HangarView(Container):
         if isinstance(self.app, YaadoApp):
             self.app.active_vehicle = self.active_vehicle
             self.app.active_vehicle_path = self.active_vehicle_path
+            try:
+                from Terminal.screens.flight_deck import FlightDeckView
+
+                fd = self.app.query_one(FlightDeckView)
+                fd.set_active_vehicle(self.active_vehicle, self.active_vehicle_path)
+            except NoMatches:
+                pass
 
         try:
             tree = self.query_one("#hangar-library-tree", VehicleTree)
@@ -776,9 +783,13 @@ class HangarView(Container):
             return
 
         effective_path = target_path
-        if effective_path is None and tree.cursor_node is not None:
-            if isinstance(tree.cursor_node.data, Path) and tree.cursor_node.data.is_file():
-                effective_path = tree.cursor_node.data
+        if (
+            effective_path is None
+            and tree.cursor_node is not None
+            and isinstance(tree.cursor_node.data, Path)
+            and tree.cursor_node.data.is_file()
+        ):
+            effective_path = tree.cursor_node.data
 
         if effective_path is not None and isinstance(effective_path, Path) and effective_path.is_file():
             hangar_card.border_subtitle = "↵ Load  c  r  d"

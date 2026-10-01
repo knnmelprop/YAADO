@@ -70,6 +70,12 @@ class YaadoApp(App[None]):
         except NoMatches:
             pass
 
+        try:
+            flight_deck_view = self.query_one(FlightDeckView)
+            flight_deck_view.set_active_vehicle(self.active_vehicle, self.active_vehicle_path)
+        except NoMatches:
+            pass
+
     BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
         ("d", "toggle_dark", "Toggle Dark/Light Mode"),
@@ -165,5 +171,11 @@ class YaadoApp(App[None]):
         self._active_tab = tab_id
         tabs = self.query_one(TabbedContent)
         tabs.active = tab_id
+        if tab_id == "flight-deck":
+            try:
+                fd = self.query_one(FlightDeckView)
+                fd.set_active_vehicle(self.active_vehicle, self.active_vehicle_path)
+            except NoMatches:
+                pass
         self.set_focus(None)
         self.refresh_bindings()

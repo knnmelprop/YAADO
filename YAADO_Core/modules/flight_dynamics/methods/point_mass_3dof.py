@@ -16,6 +16,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
@@ -397,6 +399,7 @@ def resolve_booster_params_from_vehicle(
     propulsion = vehicle.find_single_component(BOOSTER_COMPONENTS, name=motor_name)
     body = vehicle.find_single_component(BODY_COMPONENTS, name=body_name)
 
+    fins: BaseModel | None
     if fins_name is not None:
         fins = vehicle.get_component(fins_name, expected_type=AERO_COMPONENTS)
     else:
@@ -584,8 +587,8 @@ def _ground_impact_event(t_s: float, state: np.ndarray, params: BoosterParams) -
     return state[1] - params.ground_altitude_m
 
 
-_ground_impact_event.terminal = True
-_ground_impact_event.direction = -1.0
+setattr(_ground_impact_event, "terminal", True)  # noqa: B010
+setattr(_ground_impact_event, "direction", -1.0)  # noqa: B010
 
 
 def integrate_boost_phase(params: BoosterParams) -> OptimizeResult:
