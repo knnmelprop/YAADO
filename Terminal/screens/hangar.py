@@ -25,7 +25,9 @@ from Terminal.Assembly.template_generator import VehicleTemplateGenerator
 from Terminal.widgets import (
     ComponentStoreView,
     ComponentTile,
+    ConfirmModal,
     DynamicSchemaForm,
+    InputModal,
     VehicleTree,
 )
 from YAADO_Core.ComponentStore import (
@@ -215,15 +217,24 @@ class HangarView(Container):
 
                     hangar_card = Container(id="hangar-library-card", classes="cockpit-card")
                     hangar_card.border_title = "Hangar"
+                    hangar_card.border_subtitle = "↵ Load  c  r  d"
                     with hangar_card:
                         yield VehicleTree(id="hangar-library-tree")
-                        with Horizontal(id="hangar-library-buttons"):
-                            btn_new = Button("+ New", id="hangar-new-vehicle-btn")
-                            btn_new.can_focus = False
-                            yield btn_new
-                            btn_fork = Button("Fork", id="hangar-fork-btn")
-                            btn_fork.can_focus = False
-                            yield btn_fork
+                        with Vertical(id="hangar-library-buttons"):
+                            with Horizontal(classes="hangar-btn-row"):
+                                btn_new = Button("+ New", id="hangar-new-btn", classes="hangar-action-btn")
+                                btn_new.can_focus = False
+                                yield btn_new
+                                btn_copy = Button("Copy", id="hangar-copy-btn", classes="hangar-action-btn -last")
+                                btn_copy.can_focus = False
+                                yield btn_copy
+                            with Horizontal(classes="hangar-btn-row"):
+                                btn_rename = Button("Rename", id="hangar-rename-btn", classes="hangar-action-btn")
+                                btn_rename.can_focus = False
+                                yield btn_rename
+                                btn_del = Button("Delete", id="hangar-delete-btn", classes="hangar-action-btn hangar-btn-danger -last")
+                                btn_del.can_focus = False
+                                yield btn_del
 
                 # Right column bottom: Component parameters
                 component_stat_card = Container(id="component-preview-card", classes="cockpit-card")
@@ -244,6 +255,7 @@ class HangarView(Container):
                 self.load_vehicle(path=first_path)
             else:
                 self._refresh_workspace()
+        self._update_hangar_border_subtitle()
 
     def _pretty_component_name(self, name: str) -> str:
         """Format PascalCase component class name into clean spaced words.
@@ -489,7 +501,16 @@ class HangarView(Container):
             self.app.active_vehicle = self.active_vehicle
             self.app.active_vehicle_path = self.active_vehicle_path
 
+        try:
+            tree = self.query_one("#hangar-library-tree", VehicleTree)
+            if self.active_vehicle_path is not None:
+                tree.select_by_path(self.active_vehicle_path)
+        except NoMatches:
+            # Tree may not yet be mounted during initial load
+            pass
+
         self._refresh_workspace()
+        self._update_hangar_border_subtitle()
 
     def _generate_unique_component_key(self, base: str, existing: dict[str, Any]) -> str:
         """Generate a unique key within the vehicle subsystem dictionary.
@@ -742,6 +763,28 @@ class HangarView(Container):
         else:
             preview_card.border_subtitle = ""
 
+    def _update_hangar_border_subtitle(self, target_path: Path | None = None) -> None:
+        """Update subtitle hint when a vehicle is targeted or cursor changes in the library.
+
+        Args:
+            target_path: Optional explicit vehicle path from hover or highlight event.
+        """
+        try:
+            hangar_card = self.query_one("#hangar-library-card", Container)
+            tree = self.query_one("#hangar-library-tree", VehicleTree)
+        except NoMatches:
+            return
+
+        effective_path = target_path
+        if effective_path is None and tree.cursor_node is not None:
+            if isinstance(tree.cursor_node.data, Path) and tree.cursor_node.data.is_file():
+                effective_path = tree.cursor_node.data
+
+        if effective_path is not None and isinstance(effective_path, Path) and effective_path.is_file():
+            hangar_card.border_subtitle = "↵ Load  c  r  d"
+        else:
+            hangar_card.border_subtitle = "n  c  r  d"
+
     @on(VehicleTree.VehicleHighlighted, "#hangar-library-tree")
     def on_hangar_library_node_highlighted(self, event: VehicleTree.VehicleHighlighted) -> None:
         """Update subtitle hint when a vehicle is highlighted in the library.
@@ -749,11 +792,7 @@ class HangarView(Container):
         Args:
             event: Vehicle highlighted event containing vehicle path.
         """
-        hangar_card = self.query_one("#hangar-library-card", Container)
-        if event.path is not None:
-            hangar_card.border_subtitle = "↵ Load to Workspace"
-        else:
-            hangar_card.border_subtitle = ""
+        self._update_hangar_border_subtitle(event.path)
 
     @on(VehicleTree.VehicleSelected, "#hangar-library-tree")
     def on_hangar_library_vehicle_selected(self, event: VehicleTree.VehicleSelected) -> None:
@@ -764,45 +803,303 @@ class HangarView(Container):
         """
         self.load_vehicle(path=event.path)
 
-    @on(Button.Pressed, "#hangar-new-vehicle-btn")
-    def on_new_vehicle_btn_pressed(self) -> None:
-        """Create a new blank vehicle and mount it in the workspace."""
+    def create_new_vehicle_interactive(self) -> None:
+        """Prompt user for a name and create a new blank vehicle."""
         idx = 1
         while (self.hangar_root / f"Vehicle_{idx}").exists():
             idx += 1
-        name = f"Vehicle_{idx}"
-        new_vehicle = BaseVehicleConfig(name=name)
-        new_path = self.hangar_root / name / f"{name}.toml"
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-        new_vehicle.to_toml(new_path)
-        self.load_vehicle(config=new_vehicle, path=new_path)
-        tree = self.query_one("#hangar-library-tree", VehicleTree)
-        tree.populate()
-        self.notify(f"Created new vehicle {name}", severity="information")
+        suggested = f"Vehicle_{idx}"
 
-    @on(Button.Pressed, "#hangar-fork-btn")
-    def on_fork_vehicle_btn_pressed(self) -> None:
-        """Fork the currently highlighted reference example into a new user vehicle."""
-        tree = self.query_one("#hangar-library-tree", VehicleTree)
-        if tree.cursor_node is None or not isinstance(tree.cursor_node.data, Path):
-            self.notify("Select a reference example in the tree first.", severity="warning")
-            return
-        src_path = tree.cursor_node.data
-        if not src_path.resolve().is_relative_to(self.examples_root.resolve()):
-            self.notify("Only reference examples can be forked.", severity="warning")
+        def on_name_submitted(name: str | None) -> None:
+            if not name:
+                return
+            clean_name = re.sub(r"[^\w\-\.]", "_", name.strip())
+            if not clean_name:
+                self.notify("Vehicle name cannot be empty.", severity="error")
+                return
+            target_dir = self.hangar_root / clean_name
+            if target_dir.exists():
+                self.notify(f"A vehicle named '{clean_name}' already exists in Hangar/.", severity="error")
+                return
+            target_dir.mkdir(parents=True, exist_ok=True)
+            new_path = target_dir / f"{clean_name}.toml"
+            new_vehicle = BaseVehicleConfig(name=clean_name)
+            new_vehicle.to_toml(new_path)
+            tree = self.query_one("#hangar-library-tree", VehicleTree)
+            tree.populate(select_path=new_path)
+            self.load_vehicle(config=new_vehicle, path=new_path)
+            self.notify(f"Created new vehicle '{clean_name}'", severity="information")
+
+        self.app.push_screen(
+            InputModal(title="New Vehicle", prompt="Enter vehicle name:", default_value=suggested),
+            callback=on_name_submitted,
+        )
+
+    def copy_vehicle_interactive(self, target_path: Path | None = None) -> None:
+        """Prompt user for a new name and duplicate the selected or active vehicle.
+
+        Args:
+            target_path: Optional explicit file path of the vehicle to copy.
+        """
+        if target_path is None:
+            tree = self.query_one("#hangar-library-tree", VehicleTree)
+            if tree.cursor_node is not None and isinstance(tree.cursor_node.data, Path) and tree.cursor_node.data.is_file():
+                target_path = tree.cursor_node.data
+            elif self.active_vehicle_path is not None and self.active_vehicle_path.is_file():
+                target_path = self.active_vehicle_path
+
+        if target_path is None or not target_path.is_file():
+            self.notify("Select a vehicle in the library or workspace to copy.", severity="warning")
             return
 
-        example_name = src_path.parent.name
+        src_name = target_path.stem
+        suggested = f"{src_name}_copy"
         idx = 1
-        target_name = f"{example_name}_custom"
-        while (self.hangar_root / target_name).exists():
+        while (self.hangar_root / suggested).exists():
             idx += 1
-            target_name = f"{example_name}_custom_{idx}"
+            suggested = f"{src_name}_copy_{idx}"
 
-        dest_path = self.fork_reference_example(example_name, target_name)
-        tree.populate()
-        self.load_vehicle(path=dest_path)
-        self.notify(f"Forked {example_name} to {target_name}", severity="information")
+        def on_copy_name_submitted(new_name: str | None) -> None:
+            if not new_name:
+                return
+            clean_name = re.sub(r"[^\w\-\.]", "_", new_name.strip())
+            if not clean_name:
+                self.notify("Vehicle name cannot be empty.", severity="error")
+                return
+            dest_dir = self.hangar_root / clean_name
+            if dest_dir.exists():
+                self.notify(f"A vehicle named '{clean_name}' already exists in Hangar/.", severity="error")
+                return
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / f"{clean_name}.toml"
+
+            # Copy auxiliary files if present in source folder
+            src_dir = target_path.parent
+            if (
+                src_dir.is_dir()
+                and src_dir.resolve() != self.hangar_root.resolve()
+                and src_dir.resolve() != self.examples_root.resolve()
+            ):
+                for item in src_dir.iterdir():
+                    if item.is_file() and item.name != target_path.name:
+                        shutil.copy2(item, dest_dir / item.name)
+
+            shutil.copy2(target_path, dest_path)
+            try:
+                cfg = BaseVehicleConfig.from_toml(dest_path)
+                cfg.name = clean_name
+                cfg.to_toml(dest_path)
+            except (OSError, ValueError, KeyError):
+                pass
+
+            tree = self.query_one("#hangar-library-tree", VehicleTree)
+            tree.populate(select_path=dest_path)
+            self.load_vehicle(path=dest_path)
+            self.notify(f"Copied '{src_name}' to '{clean_name}'", severity="information")
+
+        self.app.push_screen(
+            InputModal(title="Copy Vehicle", prompt=f"Enter name for copy of '{src_name}':", default_value=suggested),
+            callback=on_copy_name_submitted,
+        )
+
+    def rename_vehicle_interactive(self, target_path: Path | None = None) -> None:
+        """Prompt user for a new name and rename the target vehicle on disk and in workspace.
+
+        Args:
+            target_path: Optional explicit file path of the vehicle to rename.
+        """
+        if target_path is None:
+            tree = self.query_one("#hangar-library-tree", VehicleTree)
+            if tree.cursor_node is not None and isinstance(tree.cursor_node.data, Path) and tree.cursor_node.data.is_file():
+                target_path = tree.cursor_node.data
+            elif self.active_vehicle_path is not None and self.active_vehicle_path.is_file():
+                target_path = self.active_vehicle_path
+
+        if target_path is None or not target_path.is_file():
+            self.notify("Select a vehicle to rename first.", severity="warning")
+            return
+
+        if target_path.resolve().is_relative_to(self.examples_root.resolve()):
+            self.notify(
+                "Reference examples in Hangar/examples/ are read-only and cannot be renamed. Use 'Copy' instead.",
+                severity="warning",
+            )
+            return
+
+        old_name = target_path.stem
+
+        def on_rename_submitted(new_name: str | None) -> None:
+            if not new_name or new_name.strip() == old_name:
+                return
+            clean_name = re.sub(r"[^\w\-\.]", "_", new_name.strip())
+            if not clean_name:
+                self.notify("Vehicle name cannot be empty.", severity="error")
+                return
+            dest_dir = self.hangar_root / clean_name
+            if dest_dir.exists():
+                self.notify(f"A vehicle named '{clean_name}' already exists in Hangar/.", severity="error")
+                return
+
+            old_dir = target_path.parent
+            was_active = (
+                self.active_vehicle_path == target_path
+                or (self.active_vehicle is not None and self.active_vehicle.name == old_name)
+            )
+
+            try:
+                if old_dir.name == old_name and old_dir.resolve() != self.hangar_root.resolve():
+                    old_dir.rename(dest_dir)
+                    new_path = dest_dir / f"{clean_name}.toml"
+                    old_file_in_new = dest_dir / target_path.name
+                    if old_file_in_new.exists() and old_file_in_new != new_path:
+                        old_file_in_new.rename(new_path)
+                else:
+                    new_path = old_dir / f"{clean_name}.toml"
+                    target_path.rename(new_path)
+
+                cfg = BaseVehicleConfig.from_toml(new_path)
+                cfg.name = clean_name
+                cfg.to_toml(new_path)
+
+                if was_active:
+                    self.active_vehicle = cfg
+                    self.active_vehicle_path = new_path
+                    from Terminal.app import YaadoApp
+                    if isinstance(self.app, YaadoApp):
+                        self.app.active_vehicle = cfg
+                        self.app.active_vehicle_path = new_path
+                    self._refresh_workspace()
+
+                tree = self.query_one("#hangar-library-tree", VehicleTree)
+                tree.populate(select_path=new_path)
+                self.notify(f"Renamed vehicle to '{clean_name}'", severity="information")
+            except OSError as exc:
+                self.notify(f"Failed to rename vehicle: {exc}", severity="error")
+
+        self.app.push_screen(
+            InputModal(title="Rename Vehicle", prompt=f"Enter new name for '{old_name}':", default_value=old_name),
+            callback=on_rename_submitted,
+        )
+
+    def delete_vehicle_interactive(self, target_path: Path | None = None) -> None:
+        """Prompt user for confirmation and delete the target user vehicle.
+
+        Args:
+            target_path: Optional explicit file path of the vehicle to delete.
+        """
+        if target_path is None:
+            tree = self.query_one("#hangar-library-tree", VehicleTree)
+            if tree.cursor_node is not None and isinstance(tree.cursor_node.data, Path) and tree.cursor_node.data.is_file():
+                target_path = tree.cursor_node.data
+            elif self.active_vehicle_path is not None and self.active_vehicle_path.is_file():
+                target_path = self.active_vehicle_path
+
+        if target_path is None or not target_path.is_file():
+            self.notify("Select a vehicle to delete first.", severity="warning")
+            return
+
+        if target_path.resolve().is_relative_to(self.examples_root.resolve()):
+            self.notify(
+                "Reference examples in Hangar/examples/ are read-only and cannot be deleted.",
+                severity="warning",
+            )
+            return
+
+        target_name = target_path.stem
+
+        def on_confirmed(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+
+            was_active = (
+                self.active_vehicle_path == target_path
+                or (self.active_vehicle is not None and self.active_vehicle.name == target_name)
+            )
+
+            parent_dir = target_path.parent
+            try:
+                if parent_dir.name == target_name and parent_dir.resolve() != self.hangar_root.resolve():
+                    shutil.rmtree(parent_dir, ignore_errors=True)
+                else:
+                    target_path.unlink(missing_ok=True)
+
+                if was_active:
+                    self.active_vehicle = None
+                    self.active_vehicle_path = None
+                    from Terminal.app import YaadoApp
+                    if isinstance(self.app, YaadoApp):
+                        self.app.active_vehicle = None
+                        self.app.active_vehicle_path = None
+
+                tree = self.query_one("#hangar-library-tree", VehicleTree)
+                tree.populate()
+
+                if was_active:
+                    first = tree.select_first_vehicle()
+                    if first:
+                        self.load_vehicle(path=first)
+                    else:
+                        self._refresh_workspace()
+
+                self.notify(f"Deleted vehicle '{target_name}'", severity="information")
+            except OSError as exc:
+                self.notify(f"Failed to delete vehicle: {exc}", severity="error")
+
+        self.app.push_screen(
+            ConfirmModal(
+                title="Delete Vehicle",
+                message=f"Are you sure you want to permanently delete '{target_name}'?\nThis will remove its directory from Hangar/.",
+                confirm_label="Delete",
+                is_destructive=True,
+            ),
+            callback=on_confirmed,
+        )
+
+    @on(Button.Pressed, "#hangar-new-btn, #hangar-new-vehicle-btn")
+    def on_new_vehicle_btn_pressed(self) -> None:
+        """Handle New Vehicle button click."""
+        self.create_new_vehicle_interactive()
+
+    @on(Button.Pressed, "#hangar-copy-btn, #hangar-fork-btn")
+    def on_copy_vehicle_btn_pressed(self) -> None:
+        """Handle Copy/Fork Vehicle button click."""
+        self.copy_vehicle_interactive()
+
+    @on(Button.Pressed, "#hangar-rename-btn")
+    def on_rename_vehicle_btn_pressed(self) -> None:
+        """Handle Rename Vehicle button click."""
+        self.rename_vehicle_interactive()
+
+    @on(Button.Pressed, "#hangar-delete-btn")
+    def on_delete_vehicle_btn_pressed(self) -> None:
+        """Handle Delete Vehicle button click."""
+        self.delete_vehicle_interactive()
+
+    @on(VehicleTree.NewVehicleRequested)
+    def on_tree_new_vehicle(self) -> None:
+        """Handle 'n' key pressed inside vehicle tree."""
+        self.create_new_vehicle_interactive()
+
+    @on(VehicleTree.CopyVehicleRequested)
+    def on_tree_copy_vehicle(self, event: VehicleTree.CopyVehicleRequested) -> None:
+        """Handle 'c' key pressed inside vehicle tree."""
+        self.copy_vehicle_interactive(event.path)
+
+    @on(VehicleTree.RenameVehicleRequested)
+    def on_tree_rename_vehicle(self, event: VehicleTree.RenameVehicleRequested) -> None:
+        """Handle 'r' key pressed inside vehicle tree."""
+        self.rename_vehicle_interactive(event.path)
+
+    @on(VehicleTree.DeleteVehicleRequested)
+    def on_tree_delete_vehicle(self, event: VehicleTree.DeleteVehicleRequested) -> None:
+        """Handle 'd' or Delete key pressed inside vehicle tree."""
+        self.delete_vehicle_interactive(event.path)
+
+    @on(events.Click, "#workspace-header")
+    def on_workspace_header_clicked(self) -> None:
+        """Allow renaming active vehicle by clicking its title header."""
+        if self.active_vehicle is not None:
+            self.rename_vehicle_interactive(self.active_vehicle_path)
 
     @on(events.Click)
     def on_click(self, event: events.Click) -> None:

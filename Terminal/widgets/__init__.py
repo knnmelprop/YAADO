@@ -7,15 +7,19 @@ from Terminal.widgets.dynamic_form import DynamicSchemaForm
 from Terminal.widgets.flightlogs_tree import FlightLogsTree
 from Terminal.widgets.image_preview import FigurePreview
 from Terminal.widgets.log_drawer import LogDrawer
+from Terminal.widgets.modals import ConfirmModal, InputModal
 from Terminal.widgets.spatial_canvas import SpatialCanvas
 from Terminal.widgets.vehicle_tree import VehicleTree
 
 __all__ = [
     "ComponentStoreView",
     "ComponentTile",
+    "ConfirmModal",
     "DynamicSchemaForm",
     "FigurePreview",
     "FlightLogsTree",
+    "InputModal",
+    
     "LogDrawer",
     "SpatialCanvas",
     "VehicleTree",

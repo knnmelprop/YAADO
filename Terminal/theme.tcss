@@ -536,34 +536,52 @@ ComponentTile.-dragging {
 
 #hangar-library-buttons {
     width: 100%;
-    height: 3;
+    height: auto;
     margin-top: 1;
 }
 
-#hangar-new-vehicle-btn, #hangar-fork-btn {
-    width: 1fr;
-    height: 3;
-    background: transparent;
-    border: round $yaado-border-subtle;
-    color: $yaado-text-muted;
-    text-style: bold;
-    margin-right: 1;
+.hangar-btn-row {
+    width: 100%;
+    height: 1;
+    margin-bottom: 0;
 }
 
-#hangar-fork-btn {
+.hangar-btn-row .hangar-action-btn {
+    width: 1fr;
+    min-width: 0;
+    height: 1;
+    min-height: 1;
+    border: none;
+    background: transparent;
+    color: $yaado-text-muted;
+    text-style: bold;
+    padding: 0 1;
+    margin-right: 1;
+    text-align: center;
+}
+
+.hangar-btn-row .hangar-action-btn.-last {
     margin-right: 0;
 }
 
-#hangar-new-vehicle-btn:hover, #hangar-fork-btn:hover {
+.hangar-btn-row .hangar-action-btn:hover {
     background: transparent;
-    border: round $yaado-accent;
     color: $yaado-accent;
 }
 
-#hangar-new-vehicle-btn:focus, #hangar-fork-btn:focus {
+.hangar-btn-row .hangar-action-btn:focus {
     background: transparent;
-    border: round $yaado-border-focus;
     color: $yaado-text;
+}
+
+.hangar-btn-row .hangar-action-btn.-active {
+    background: transparent;
+    color: $yaado-accent-hover;
+}
+
+.hangar-btn-row .hangar-btn-danger:hover {
+    background: transparent;
+    color: $yaado-error;
 }
 
 
@@ -619,4 +637,104 @@ ComponentTile.-dragging {
     background: transparent;
     color: $yaado-accent;
     text-style: bold;
+}
+
+/* ==========================================================================
+   Modal Dialogs
+   ========================================================================== */
+
+InputModal, ConfirmModal {
+    align: center middle;
+}
+
+.modal-dialog {
+    width: 52;
+    height: auto;
+    padding: 1 2;
+    background: ansi_default;
+    border: round $yaado-accent;
+}
+
+.modal-title {
+    width: 100%;
+    text-align: center;
+    text-style: bold;
+    color: $yaado-accent;
+    margin-bottom: 1;
+}
+
+.modal-prompt, .modal-message {
+    width: 100%;
+    color: $yaado-text;
+    margin-bottom: 1;
+}
+
+.modal-input {
+    width: 100%;
+    margin-bottom: 1;
+    border: round $yaado-border-subtle;
+    background: transparent;
+    color: $yaado-text;
+}
+
+.modal-input:focus {
+    border: round $yaado-accent;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+.modal-input > .input--selection {
+    background: $yaado-border-subtle;
+    color: $yaado-text;
+}
+
+.modal-input > .input--cursor {
+    background: $yaado-accent;
+    color: #0b0f17;
+}
+
+.modal-error {
+    width: 100%;
+    color: $yaado-error;
+    height: 1;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.modal-buttons {
+    width: 100%;
+    height: 3;
+    align: right middle;
+}
+
+.modal-buttons Button {
+    margin-left: 1;
+    height: 3;
+    border: round $yaado-border-subtle;
+    background: transparent;
+    color: $yaado-text-muted;
+}
+
+.modal-buttons Button:hover {
+    border: round $yaado-accent;
+    color: $yaado-accent;
+    background: transparent;
+}
+
+.modal-buttons Button:focus {
+    border: round $yaado-accent;
+    color: $yaado-text;
+    background: transparent;
+}
+
+.modal-buttons Button.modal-btn-danger:hover {
+    border: round $yaado-error;
+    color: $yaado-error;
+    background: transparent;
+}
+
+.modal-buttons Button.modal-btn-danger:focus {
+    border: round $yaado-error;
+    color: $yaado-error;
+    background: transparent;
 }

@@ -19,7 +19,11 @@ class VehicleTree(Tree[Path | None]):
     """Unified tree widget for browsing and selecting YAADO vehicle configurations."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("enter", "select_vehicle", "Select Vehicle", show=True),
+        Binding("enter", "select_vehicle", "Select", show=True),
+        Binding("n", "new_vehicle", "New", show=True),
+        Binding("c", "copy_vehicle", "Copy", show=True),
+        Binding("r", "rename_vehicle", "Rename", show=True),
+        Binding("delete,d", "delete_vehicle", "Delete", show=True),
     ]
 
     class VehicleSelected(Message):
@@ -48,6 +52,57 @@ class VehicleTree(Tree[Path | None]):
             """Target control widget for Textual selector matching."""
             return self.tree
 
+    class NewVehicleRequested(Message):
+        """Dispatched when creating a new vehicle is requested."""
+
+        def __init__(self, tree: VehicleTree) -> None:
+            super().__init__()
+            self.tree = tree
+
+        @property
+        def control(self) -> VehicleTree:
+            """Target control widget."""
+            return self.tree
+
+    class CopyVehicleRequested(Message):
+        """Dispatched when copying the targeted vehicle is requested."""
+
+        def __init__(self, tree: VehicleTree, path: Path | None) -> None:
+            super().__init__()
+            self.tree = tree
+            self.path = path
+
+        @property
+        def control(self) -> VehicleTree:
+            """Target control widget."""
+            return self.tree
+
+    class RenameVehicleRequested(Message):
+        """Dispatched when renaming the targeted vehicle is requested."""
+
+        def __init__(self, tree: VehicleTree, path: Path | None) -> None:
+            super().__init__()
+            self.tree = tree
+            self.path = path
+
+        @property
+        def control(self) -> VehicleTree:
+            """Target control widget."""
+            return self.tree
+
+    class DeleteVehicleRequested(Message):
+        """Dispatched when deleting the targeted vehicle is requested."""
+
+        def __init__(self, tree: VehicleTree, path: Path | None) -> None:
+            super().__init__()
+            self.tree = tree
+            self.path = path
+
+        @property
+        def control(self) -> VehicleTree:
+            """Target control widget."""
+            return self.tree
+
     def __init__(
         self,
         label: str = "Vehicles",
@@ -74,16 +129,23 @@ class VehicleTree(Tree[Path | None]):
         """Populate the tree structure upon widget mount."""
         self.populate()
 
-    def populate(self) -> None:
-        """Scan the filesystem and populate reference examples and user vehicles."""
+    def populate(self, select_path: Path | None = None) -> None:
+        """Scan the filesystem and populate reference examples and user vehicles.
+
+        Args:
+            select_path: Optional path to automatically highlight and select after population.
+        """
         self.clear()
+        selected_leaf = None
 
         # 1. Reference examples
         examples_node = self.root.add("[bold]Reference Examples[/bold]", expand=True)
         if self.examples_root.is_dir():
             for toml_path in sorted(self.examples_root.rglob("*.toml")):
                 vehicle_name = toml_path.stem.replace("_", " ")
-                examples_node.add_leaf(vehicle_name, data=toml_path)
+                leaf = examples_node.add_leaf(vehicle_name, data=toml_path)
+                if select_path is not None and toml_path.resolve() == select_path.resolve():
+                    selected_leaf = leaf
 
         # 2. User projects
         user_node = self.root.add("[bold]User Vehicles[/bold]", expand=True)
@@ -95,9 +157,35 @@ class VehicleTree(Tree[Path | None]):
 
         if user_tomls:
             for toml_path in user_tomls:
-                user_node.add_leaf(toml_path.stem.replace("_", " "), data=toml_path)
+                leaf = user_node.add_leaf(toml_path.stem.replace("_", " "), data=toml_path)
+                if select_path is not None and toml_path.resolve() == select_path.resolve():
+                    selected_leaf = leaf
         else:
             user_node.add_leaf("[dim](No user vehicles)[/dim]", data=None)
+
+        if selected_leaf is not None:
+            self.select_node(selected_leaf)
+
+    def select_by_path(self, path: Path) -> bool:
+        """Find and select the tree leaf corresponding to the specified file path.
+
+        Args:
+            path: Path to the target vehicle TOML file.
+
+        Returns:
+            True if matching node was found and selected, False otherwise.
+        """
+        target = path.resolve()
+        for group in self.root.children:
+            for leaf in group.children:
+                if (
+                    leaf.data is not None
+                    and isinstance(leaf.data, Path)
+                    and leaf.data.resolve() == target
+                ):
+                    self.select_node(leaf)
+                    return True
+        return False
 
     def select_first_vehicle(self) -> Path | None:
         """Select the first available vehicle leaf in the tree.
@@ -120,6 +208,25 @@ class VehicleTree(Tree[Path | None]):
             and self.cursor_node.data.is_file()
         ):
             self.post_message(self.VehicleSelected(self, self.cursor_node.data))
+
+    def action_new_vehicle(self) -> None:
+        """Handle 'n' key action to request creating a new vehicle."""
+        self.post_message(self.NewVehicleRequested(self))
+
+    def action_copy_vehicle(self) -> None:
+        """Handle 'c' key action to request copying the currently highlighted vehicle."""
+        path = self.cursor_node.data if self.cursor_node and isinstance(self.cursor_node.data, Path) else None
+        self.post_message(self.CopyVehicleRequested(self, path))
+
+    def action_rename_vehicle(self) -> None:
+        """Handle 'r' key action to request renaming the currently highlighted vehicle."""
+        path = self.cursor_node.data if self.cursor_node and isinstance(self.cursor_node.data, Path) else None
+        self.post_message(self.RenameVehicleRequested(self, path))
+
+    def action_delete_vehicle(self) -> None:
+        """Handle 'd' or Delete key action to request deleting the currently highlighted vehicle."""
+        path = self.cursor_node.data if self.cursor_node and isinstance(self.cursor_node.data, Path) else None
+        self.post_message(self.DeleteVehicleRequested(self, path))
 
     def on_click(self, event: events.Click) -> None:
         """Handle mouse clicks: double-click confirms selection."""
