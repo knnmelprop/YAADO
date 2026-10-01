@@ -185,7 +185,6 @@ class ComponentTile(Widget, can_focus=True):
                         "panel-and-hangar",
                         "workspace-card",
                         "vehicle-components-list",
-                        "workspace-schematic",
                         "workspace-header",
                         "component-preview-card",
                         "component-form",

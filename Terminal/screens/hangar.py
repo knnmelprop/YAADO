@@ -124,7 +124,6 @@ class HangarView(Container):
                     workspace_card.border_subtitle = "\\[d] Delete"
                     with workspace_card:
                         yield Static("", id="workspace-header")
-                        yield Static("", id="workspace-schematic")
                         yield VehicleComponentList(id="vehicle-components-list")
 
                     hangar_card = Container(id="hangar-library-card", classes="cockpit-card")
@@ -253,39 +252,73 @@ class HangarView(Container):
 
         return "\n".join(lines)
 
-    def _generate_ascii_schematic(self, vehicle: BaseVehicleConfig) -> str:
-        """Generate longitudinal schematic representation of the vehicle assembly.
+    def _format_headline_specs(self, comp: BaseModel) -> str:
+        """Format declared headline fields and units for component row display.
 
         Args:
-            vehicle: BaseVehicleConfig instance to summarize.
+            comp: Pydantic component model instance.
 
         Returns:
-            Single-line ASCII schematic of the assembled components.
+            Comma-separated headline specs string.
         """
-        stages: list[str] = ["◄ NOSE"]
-        for name in vehicle.bodies:
-            stages.append(f"\\[{name}]")
-        for name in vehicle.aero_surfaces:
-            stages.append(f"\\[{name}]")
-        for name in vehicle.propulsion:
-            stages.append(f"\\[{name}]")
-        if vehicle.mass_properties is not None:
-            stages.append("\\[⌖ CG]")
-        stages.append("EXHAUST ►")
-        return " ══ ".join(stages)
+        units: dict[str, str] = getattr(comp, "UNITS", {})
+        headline: tuple[str, ...] = getattr(comp, "HEADLINE_FIELDS", ())
+        parts: list[str] = []
+        for f in headline:
+            if f == "name":
+                continue
+            val = getattr(comp, f, None)
+            if val is None:
+                continue
+            unit = units.get(f, "")
+            unit_str = f" {unit}" if unit and unit != "-" else ""
+            if isinstance(val, float):
+                val_str = f"{val:.4g}" if (0.01 <= abs(val) < 100000 or val == 0.0) else f"{val:.2e}"
+                parts.append(f"{f}: {val_str}{unit_str}")
+            else:
+                parts.append(f"{f}: {val}{unit_str}")
+        return ", ".join(parts)
+
+    def _format_component_option_prompt(
+        self, category: str, name: str, comp: BaseModel
+    ) -> str:
+        """Format an OptionList row with aligned columns for category, name, class, and headline specs.
+
+        Args:
+            category: Subsystem category string ('BODY', 'AERO', 'PROP', 'MASS').
+            name: Component identifier string.
+            comp: Pydantic component model instance.
+
+        Returns:
+            Rich-formatted string aligned into neat columns.
+        """
+        badge_colors = {
+            "BODY": "#3b82f6",
+            "AERO": "#0284c7",
+            "PROP": "#f59e0b",
+            "MASS": "#94a3b8",
+        }
+        color = badge_colors.get(category, "#94a3b8")
+        cls_name = comp.__class__.__name__
+        specs = self._format_headline_specs(comp)
+        specs_str = f"  [#64748b]│[/#64748b]  [#94a3b8]{specs}[/#94a3b8]" if specs else ""
+        return (
+            f"[bold {color}]\\[{category}][/bold {color}]  "
+            f"[bold]{name:<18}[/bold]  "
+            f"[dim]{cls_name:<16}[/dim]"
+            f"{specs_str}"
+        )
 
     def _refresh_workspace(self) -> None:
-        """Refresh workspace header, ASCII schematic, and component list."""
+        """Refresh workspace header and component list."""
         workspace_card = self.query_one("#workspace-card", Container)
         workspace_header = self.query_one("#workspace-header", Static)
-        workspace_schematic = self.query_one("#workspace-schematic", Static)
         comp_list = self.query_one("#vehicle-components-list", VehicleComponentList)
 
         if self.active_vehicle is None:
             workspace_card.border_title = "Vehicle Workspace"
             workspace_card.border_subtitle = "No Vehicle Loaded"
             workspace_header.update("[dim]No vehicle loaded. Select from library or click '+ New'.[/dim]")
-            workspace_schematic.update("")
             comp_list.clear_options()
             comp_list.add_option(Option("[dim]No components loaded.[/dim]", disabled=True))
             return
@@ -313,29 +346,28 @@ class HangarView(Container):
             f"[bold #f59e0b]{n_prop} Prop[/bold #f59e0b]"
         )
         workspace_header.update(header_text)
-        workspace_schematic.update(self._generate_ascii_schematic(vehicle))
 
         comp_list.clear_options()
         has_items = False
 
         for name, body_comp in vehicle.bodies.items():
             has_items = True
-            prompt = f"[bold #3b82f6][BODY][/bold #3b82f6]  [bold]{name}[/bold]  [dim]({body_comp.__class__.__name__})[/dim]"
+            prompt = self._format_component_option_prompt("BODY", name, body_comp)
             comp_list.add_option(Option(prompt, id=f"comp:BODY:{name}"))
 
         for name, aero_comp in vehicle.aero_surfaces.items():
             has_items = True
-            prompt = f"[bold #0284c7][AERO][/bold #0284c7]  [bold]{name}[/bold]  [dim]({aero_comp.__class__.__name__})[/dim]"
+            prompt = self._format_component_option_prompt("AERO", name, aero_comp)
             comp_list.add_option(Option(prompt, id=f"comp:AERO:{name}"))
 
         for name, prop_comp in vehicle.propulsion.items():
             has_items = True
-            prompt = f"[bold #f59e0b][PROP][/bold #f59e0b]  [bold]{name}[/bold]  [dim]({prop_comp.__class__.__name__})[/dim]"
+            prompt = self._format_component_option_prompt("PROP", name, prop_comp)
             comp_list.add_option(Option(prompt, id=f"comp:PROP:{name}"))
 
         if vehicle.mass_properties is not None:
             has_items = True
-            prompt = "[bold #94a3b8][MASS][/bold #94a3b8]  [bold]mass_properties[/bold]  [dim](MassProperties)[/dim]"
+            prompt = self._format_component_option_prompt("MASS", "mass_properties", vehicle.mass_properties)
             comp_list.add_option(Option(prompt, id="comp:MASS:mass_properties"))
 
         if not has_items:
@@ -588,9 +620,19 @@ class HangarView(Container):
         # Auto-save to TOML on disk
         saved = self._save_active_vehicle_if_writable()
 
-        # Update workspace header and longitudinal schematic without resetting options list
+        # Update option prompt in list to reflect live edits
+        comp_list = self.query_one("#vehicle-components-list", VehicleComponentList)
+        opt_id = f"comp:{event.category}:{event.name}"
+        try:
+            new_prompt = self._format_component_option_prompt(
+                event.category, event.name, event.validated_instance
+            )
+            comp_list.replace_option_prompt(opt_id, new_prompt)
+        except (KeyError, IndexError, ValueError):
+            pass
+
+        # Update workspace header without resetting options list
         workspace_header = self.query_one("#workspace-header", Static)
-        workspace_schematic = self.query_one("#workspace-schematic", Static)
         mass_str = (
             f"  [dim]•[/dim]  [bold #94a3b8]{self.active_vehicle.total_mass:.1f} kg[/bold #94a3b8]"
             if self.active_vehicle.total_mass is not None
@@ -607,7 +649,6 @@ class HangarView(Container):
             f"[bold #f59e0b]{n_prop} Prop[/bold #f59e0b]"
         )
         workspace_header.update(header_text)
-        workspace_schematic.update(self._generate_ascii_schematic(self.active_vehicle))
 
         if saved:
             preview_card.border_subtitle = "[green]● Auto-saved[/green]"

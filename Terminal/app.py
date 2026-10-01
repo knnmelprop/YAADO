@@ -11,10 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar
 
-from textual import on
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
-from textual.widgets import Footer, TabbedContent, TabPane
+from textual.css.query import NoMatches
+from textual.widgets import Footer, Static, TabbedContent, TabPane
 
 from Terminal.screens.flight_deck import FlightDeckView
 from Terminal.screens.hangar import HangarView
@@ -28,6 +29,9 @@ class YaadoApp(App[None]):
     TITLE = "YAADO"
     CSS_PATH = "theme.tcss"
     ALLOW_SELECT = False
+
+    MIN_WIDTH: ClassVar[int] = 110
+    MIN_HEIGHT: ClassVar[int] = 28
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(ansi_color=True, **kwargs)
@@ -60,8 +64,6 @@ class YaadoApp(App[None]):
             self.active_vehicle = None
             self.active_vehicle_path = None
 
-        from textual.css.query import NoMatches
-
         try:
             hangar_view = self.query_one(HangarView)
             hangar_view.load_vehicle(self.active_vehicle, self.active_vehicle_path)
@@ -77,7 +79,7 @@ class YaadoApp(App[None]):
     ]
 
     def compose(self) -> ComposeResult:
-        """Mount header, three primary tab panes, and footer.
+        """Mount header, three primary tab panes, footer, and resize warning overlay.
 
         Yields:
             Core application layout widgets.
@@ -90,10 +92,41 @@ class YaadoApp(App[None]):
             with TabPane("Flight Deck", id="flight-deck"):
                 yield FlightDeckView(id="flight-deck-view")
         yield Footer()
+        yield Static(
+            "Please maximize the terminal to make sure our UI doesn't break :)",
+            id="maximize-warning",
+        )
 
     def on_mount(self) -> None:
         """Configure application-level settings on mount."""
         type(self.screen).ALLOW_SELECT = False
+        self._check_terminal_size(self.size.width, self.size.height)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Check terminal dimensions and toggle maximize warning.
+
+        Args:
+            event: Terminal resize event containing updated dimensions.
+        """
+        self._check_terminal_size(event.size.width, event.size.height)
+
+    def _check_terminal_size(self, width: int, height: int) -> None:
+        """Toggle main UI visibility based on minimum terminal dimensions.
+
+        Args:
+            width: Current terminal width in characters.
+            height: Current terminal height in rows.
+        """
+        too_small = width < self.MIN_WIDTH or height < self.MIN_HEIGHT
+        try:
+            main_tabs = self.query_one("#main-tabs", TabbedContent)
+            footer = self.query_one(Footer)
+            warning = self.query_one("#maximize-warning", Static)
+            main_tabs.display = not too_small
+            footer.display = not too_small
+            warning.display = too_small
+        except NoMatches:
+            pass
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Dynamically enable or hide actions in the footer.

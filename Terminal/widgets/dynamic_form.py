@@ -214,21 +214,32 @@ class DynamicSchemaForm(VerticalScroll):
             else:
                 str_val = "" if current_val is None else str(current_val)
                 placeholder_val = "None" if is_optional else ""
+                is_str_field = (
+                    ann is str
+                    or (is_optional and str in args)
+                    or isinstance(current_val, str)
+                )
+                input_classes = "form-input form-input-wide" if is_str_field else "form-input"
                 input_widget = Input(
                     value=str_val,
                     placeholder=placeholder_val,
                     id=f"input-{field_name}",
-                    classes="form-input",
+                    classes=input_classes,
                 )
 
             self._field_inputs[field_name] = input_widget
             self._field_types[field_name] = ann
 
+            unit_widget = (
+                Static(unit_str, classes="form-unit")
+                if unit_str
+                else Static("", classes="form-unit form-unit-empty")
+            )
             rows_to_mount.append(
                 Horizontal(
                     Static(label_text, classes="form-label"),
                     input_widget,
-                    Static(unit_str, classes="form-unit"),
+                    unit_widget,
                     Static(hint_str, classes="form-hint"),
                     classes="form-row",
                 )
