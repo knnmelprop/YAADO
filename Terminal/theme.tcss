@@ -257,13 +257,14 @@ Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
 }
 
 #workspace-card {
-    width: 2fr;
+    width: 3fr;
     height: 1fr;
     margin-right: 1;
 }
 
 #hangar-library-card {
     width: 1fr;
+    min-width: 24;
     height: 1fr;
 }
 
@@ -282,7 +283,7 @@ Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
 
 #component-store-view Collapsible {
     padding: 0;
-    margin-bottom: 1;
+    margin-bottom: 0;
     background: transparent;
     border: none;
     border-top: none;
@@ -327,7 +328,7 @@ ComponentTile {
     border: round $yaado-border-subtle;
     color: $yaado-text;
     padding: 0 1;
-    margin-bottom: 1;
+    margin-bottom: 0;
     text-align: center;
     content-align: center middle;
 }
@@ -355,14 +356,19 @@ ComponentTile.-dragging {
     height: 100%;
     background: transparent;
     padding: 0 1;
-    scrollbar-size: 0 0;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 0;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
 }
 
 #component-form .form-row {
     width: 100%;
-    height: 1;
+    height: auto;
+    min-height: 1;
     margin-bottom: 0;
-    align: left middle;
+    align: left top;
 }
 
 #component-form .form-label {
@@ -468,11 +474,10 @@ ComponentTile.-dragging {
 
 #component-form .form-hint {
     width: 1fr;
-    height: 1;
+    height: auto;
     color: #94a3b8;
     padding-left: 1;
-    text-wrap: nowrap;
-    text-overflow: ellipsis;
+    text-wrap: wrap;
 }
 
 #component-form #form-validation-status {

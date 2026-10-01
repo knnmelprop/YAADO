@@ -156,6 +156,7 @@ class DynamicSchemaForm(VerticalScroll):
                     placeholder="None",
                     id="input-mass_total_mass",
                     classes="form-input",
+                    tooltip="Component total mass in kilograms",
                 )
                 self._field_inputs["mass_total_mass"] = inp_mass
                 self._field_types["mass_total_mass"] = float
@@ -174,6 +175,7 @@ class DynamicSchemaForm(VerticalScroll):
                     placeholder="None",
                     id="input-mass_cg_from_nose",
                     classes="form-input",
+                    tooltip="Longitudinal CG distance from nose in meters",
                 )
                 self._field_inputs["mass_cg_from_nose"] = inp_cg
                 self._field_types["mass_cg_from_nose"] = float
@@ -190,6 +192,8 @@ class DynamicSchemaForm(VerticalScroll):
 
             label_text = field_name.replace("_", " ").title()
             unit_str = units.get(field_name, "")
+            if not unit_str and field_name != "name":
+                unit_str = "-"
             hint_str = escape(f_info.description or "") if f_info.description else ""
 
             input_widget: Input | Select[str]
@@ -226,6 +230,9 @@ class DynamicSchemaForm(VerticalScroll):
                     id=f"input-{field_name}",
                     classes=input_classes,
                 )
+
+            if f_info.description:
+                input_widget.tooltip = f_info.description
 
             self._field_inputs[field_name] = input_widget
             self._field_types[field_name] = ann

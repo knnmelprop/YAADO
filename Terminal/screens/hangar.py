@@ -57,6 +57,93 @@ class VehicleComponentList(OptionList):
             parent.delete_selected_component()
 
 
+FIELD_SYMBOLS: dict[str, str] = {
+    # General & Identifiers
+    "name": "name",
+    # Geometry
+    "length": "L",
+    "diameter": "D",
+    "span": "b",
+    "aspect_ratio": "AR",
+    "taper_ratio": "λ",
+    "sweep": "Λ",
+    "dihedral": "Γ",
+    "root_chord": "cr",
+    "tip_chord": "ct",
+    "area": "S",
+    "count": "n",
+    # Mass & CG
+    "total_mass": "m",
+    "dry_mass": "m_dry",
+    "propellant_mass": "m_prop",
+    "cg_from_nose": "x_cg",
+    # Propulsion & Aero
+    "thrust": "T",
+    "thrust_mean": "T",
+    "thrust_max": "T_max",
+    "burn_time": "tb",
+    "isp_sl": "Isp",
+    "specific_impulse": "Isp",
+    "sfc": "SFC",
+    "design_mach": "M",
+    "combustor_temp": "T_comb",
+    "fuel_type": "fuel",
+}
+
+
+def _abbreviate_field(field_name: str) -> str:
+    """Return compact aerospace symbol or standard abbreviation for a schema field name."""
+    if field_name in FIELD_SYMBOLS:
+        return FIELD_SYMBOLS[field_name]
+    parts = field_name.split("_")
+    if len(parts) > 1:
+        initials = "".join(p[0] for p in parts if p).upper()
+        if 2 <= len(initials) <= 4:
+            return initials
+    return field_name[:4]
+
+
+def _format_compact_value_and_unit(val: object, unit: str) -> tuple[str, str]:
+    """Format numeric or string parameter value and SI unit into compact display representation."""
+    if not isinstance(val, (int, float)) or isinstance(val, bool):
+        return str(val), unit if unit and unit != "-" else ""
+
+    num = float(val)
+    if num == 0.0:
+        return "0", unit if unit and unit != "-" else ""
+
+    if unit == "deg":
+        if abs(num) >= 100 or num.is_integer():
+            return f"{num:.0f}", "°"
+        return f"{num:.1f}".rstrip("0").rstrip("."), "°"
+
+    if unit == "N":
+        if abs(num) >= 1e6:
+            return f"{num / 1e6:.2f}".rstrip("0").rstrip("."), "MN"
+        if abs(num) >= 1000:
+            return f"{num / 1000:.2f}".rstrip("0").rstrip("."), "kN"
+        return f"{num:.1f}".rstrip("0").rstrip("."), "N"
+
+    if unit == "Pa":
+        if abs(num) >= 1e6:
+            return f"{num / 1e6:.2f}".rstrip("0").rstrip("."), "MPa"
+        if abs(num) >= 1000:
+            return f"{num / 1000:.2f}".rstrip("0").rstrip("."), "kPa"
+        return f"{num:.1f}".rstrip("0").rstrip("."), "Pa"
+
+    unit_str = unit if unit and unit != "-" else ""
+    if abs(num) < 0.0001 or abs(num) >= 1e6:
+        val_str = f"{num:.2e}"
+    elif abs(num) >= 1000:
+        val_str = f"{num:.0f}"
+    elif abs(num) >= 10:
+        val_str = f"{num:.1f}".rstrip("0").rstrip(".")
+    else:
+        val_str = f"{num:.3f}".rstrip("0").rstrip(".")
+
+    return val_str, unit_str
+
+
 class HangarView(Container):
     """Unified vehicle manager and construction workspace.
 
@@ -253,13 +340,13 @@ class HangarView(Container):
         return "\n".join(lines)
 
     def _format_headline_specs(self, comp: BaseModel) -> str:
-        """Format declared headline fields and units for component row display.
+        """Format declared headline fields and units into compact aerospace badges.
 
         Args:
             comp: Pydantic component model instance.
 
         Returns:
-            Comma-separated headline specs string.
+            Space-separated compact headline specs string.
         """
         units: dict[str, str] = getattr(comp, "UNITS", {})
         headline: tuple[str, ...] = getattr(comp, "HEADLINE_FIELDS", ())
@@ -270,14 +357,11 @@ class HangarView(Container):
             val = getattr(comp, f, None)
             if val is None:
                 continue
+            sym = _abbreviate_field(f)
             unit = units.get(f, "")
-            unit_str = f" {unit}" if unit and unit != "-" else ""
-            if isinstance(val, float):
-                val_str = f"{val:.4g}" if (0.01 <= abs(val) < 100000 or val == 0.0) else f"{val:.2e}"
-                parts.append(f"{f}: {val_str}{unit_str}")
-            else:
-                parts.append(f"{f}: {val}{unit_str}")
-        return ", ".join(parts)
+            val_str, unit_str = _format_compact_value_and_unit(val, unit)
+            parts.append(f"{sym}={val_str}{unit_str}")
+        return "  ".join(parts)
 
     def _format_component_option_prompt(
         self, category: str, name: str, comp: BaseModel
