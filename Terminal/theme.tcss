@@ -1,0 +1,1045 @@
+$yaado-background: #0b0f17;      /* Deep Midnight - Root Canvas */
+$yaado-surface: #111827;         /* Charcoal Panel - Primary Containers */
+$yaado-panel: #1b2436;           /* Elevated Slate - Cards, Modals, Popovers */
+$yaado-border-subtle: #25334a;   /* Subtle Border - Structural Lines */
+$yaado-border-focus: #3b82f6;    /* Avionics Blue - Focus Ring */
+$yaado-accent: #f59e0b;          /* Propulsion Amber - Highlights, Tab Underline, CTA */
+$yaado-accent-hover: #d97706;    /* Amber Hover State */
+$yaado-primary: #1d4ed8;         /* Deep Cobalt - Selection Fill & Cursor */
+$yaado-secondary: #0284c7;       /* Avionics Cyan - Secondary Tags & Badges */
+$yaado-success: #10b981;         /* Converged Green - Solver Success, Valid Input */
+$yaado-warning: #f59e0b;         /* Advisory Amber - Non-fatal Warnings */
+$yaado-error: #ef4444;           /* Abort Red - Failure, Solver Divergence */
+$yaado-text: #f8fafc;            /* Telemetry White - Data Values & Headings */
+$yaado-text-muted: #94a3b8;      /* Silver Slate - Units, Labels, Keys */
+$yaado-text-disabled: #475569;   /* Muted Slate - Passive Framing & Timestamps */
+
+/* ==========================================================================
+   Root Layout & Chrome
+   ========================================================================== */
+
+App, Screen {
+    background: ansi_default;
+    color: $yaado-text;
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: ansi_default;
+    color: $yaado-text-muted;
+}
+
+FooterKey {
+    background: transparent;
+}
+
+FooterKey .footer-key--key {
+    background: transparent;
+    color: $yaado-accent;
+}
+
+FooterKey .footer-key--description {
+    background: transparent;
+    color: $yaado-text-muted;
+}
+
+FooterKey:hover {
+    background: transparent;
+}
+
+FooterKey:hover .footer-key--key {
+    background: transparent;
+    color: $yaado-accent-hover;
+}
+
+FooterKey:hover .footer-key--description {
+    background: transparent;
+    color: $yaado-text;
+}
+
+FooterLabel {
+    background: transparent;
+    color: $yaado-text-muted;
+}
+
+/* ==========================================================================
+   Navigation & Tabs (Clean 1-Row Minimalist Style)
+   ========================================================================== */
+
+/* Hide Textual's default sliding underline bar */
+Underline {
+    display: none;
+}
+
+TabbedContent {
+    background: transparent;
+    height: 1fr;
+}
+
+Tabs {
+    background: transparent;
+    dock: top;
+    height: 1;
+    margin: 0 1;
+}
+
+/* Inactive Tab: Subtle silver text, no border, no background box */
+Tab {
+    background: transparent;
+    border: none;
+    color: $yaado-text-muted;
+    height: 1;
+    padding: 0 2;
+    margin-right: 1;
+    text-style: none;
+}
+
+/* Hover: Crisp white */
+Tab:hover {
+    color: $yaado-text;
+}
+
+/* Active Tab: Bright Propulsion Amber text in bold */
+Tab.-active, Tabs:focus Tab.-active {
+    background: transparent;
+    border: none;
+    color: $yaado-accent;
+    text-style: bold;
+}
+
+TabPane {
+    padding: 1;
+    background: transparent;
+}
+
+/* ==========================================================================
+   Main Cockpit Layout
+   ========================================================================== */
+
+#main-layout {
+    height: 1fr;
+    width: 1fr;
+}
+
+#left-column {
+    width: 1fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#right-column {
+    width: 2fr;
+    height: 1fr;
+}
+
+.cockpit-card {
+    border: round $yaado-border-subtle;
+    border-title-color: $yaado-accent;
+    border-title-style: bold;
+    border-title-align: left;
+    border-title-background: transparent;
+    border-subtitle-color: $yaado-text-muted;
+    border-subtitle-align: right;
+    border-subtitle-background: transparent;
+    background: transparent;
+    padding: 1;
+    height: 1fr;
+}
+
+#hangar-card {
+    margin-bottom: 1;
+    padding-left: 1;
+    padding-top: 1;
+    padding-right: 1;
+    padding-bottom: 0;
+}
+
+#flightlogs-card {
+    padding-left: 1;
+    padding-top: 1;
+    padding-right: 1;
+    padding-bottom: 0;
+}
+
+.cockpit-card:focus-within {
+    border: round $yaado-border-focus;
+    border-subtitle-color: $yaado-accent;
+}
+
+VehicleTree, FlightLogsTree, #hangar-tree, #flightlogs-tree, #hangar-library-tree {
+    background: transparent;
+    padding: 0;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+VehicleTree:focus, FlightLogsTree:focus, #hangar-tree:focus, #flightlogs-tree:focus, #hangar-library-tree:focus {
+    background: transparent;
+}
+
+VehicleTree > .tree--cursor, FlightLogsTree > .tree--cursor, #hangar-tree > .tree--cursor, #flightlogs-tree > .tree--cursor, #hangar-library-tree > .tree--cursor {
+    background: $yaado-primary;
+    color: $yaado-text;
+    text-style: bold;
+}
+
+VehicleTree > .tree--guides, FlightLogsTree > .tree--guides, #hangar-tree > .tree--guides, #flightlogs-tree > .tree--guides, #hangar-library-tree > .tree--guides {
+    color: $yaado-border-subtle;
+}
+
+VehicleTree > .tree--guides-hover, FlightLogsTree > .tree--guides-hover, #hangar-tree > .tree--guides-hover, #flightlogs-tree > .tree--guides-hover, #hangar-library-tree > .tree--guides-hover {
+    color: $yaado-accent;
+}
+
+VehicleTree > .tree--highlight-line, FlightLogsTree > .tree--highlight-line, #hangar-tree > .tree--highlight-line, #flightlogs-tree > .tree--highlight-line, #hangar-library-tree > .tree--highlight-line {
+    background: transparent;
+}
+
+Button#new-vehicle-btn, Button#new-analysis-btn {
+    width: 100%;
+    height: 3;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text-muted;
+    text-style: bold;
+}
+
+Button#new-vehicle-btn:hover, Button#new-analysis-btn:hover {
+    background: transparent;
+    border: round $yaado-accent;
+    color: $yaado-accent;
+}
+
+Button#new-vehicle-btn:focus, Button#new-analysis-btn:focus {
+    background: transparent;
+    border: round $yaado-border-focus;
+    color: $yaado-text;
+}
+
+#preview-scroll {
+    width: 100%;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 1;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+}
+
+#preview-content {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    color: $yaado-text;
+}
+
+#preview-content.-wide-table {
+    width: auto;
+    min-width: 100%;
+}
+
+#preview-content:focus {
+    background: transparent;
+}
+
+/* ==========================================================================
+   Hangar Workspace Layout
+   ========================================================================== */
+
+#hangar-layout {
+    height: 1fr;
+    width: 1fr;
+}
+
+#componentstore-card {
+    width: 1fr;
+    min-width: 26;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#hangar-right-column {
+    width: 3fr;
+    height: 1fr;
+}
+
+#panel-and-hangar {
+    height: 1.5fr;
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+#workspace-card {
+    width: 3fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#hangar-library-card {
+    width: 1fr;
+    min-width: 24;
+    height: 1fr;
+}
+
+#component-preview-card {
+    height: 1fr;
+    width: 1fr;
+}
+
+#component-store-view {
+    background: transparent;
+    border: none;
+    padding: 0;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+#component-store-view Collapsible {
+    padding: 0;
+    margin-bottom: 0;
+    background: transparent;
+    border: none;
+    border-top: none;
+}
+
+#component-store-view Collapsible:ansi {
+    border: none;
+    border-top: none;
+    background: transparent;
+}
+
+#component-store-view CollapsibleTitle {
+    color: $yaado-text-muted;
+    background: transparent;
+    padding: 0 1;
+}
+
+#component-store-view CollapsibleTitle:hover {
+    color: $yaado-text;
+}
+
+#component-store-view CollapsibleTitle:focus {
+    color: $yaado-border-focus;
+    text-style: bold;
+}
+
+DragGhost {
+    position: absolute;
+    width: auto;
+    height: 1;
+    background: $yaado-panel;
+    color: $yaado-accent;
+    text-style: bold;
+    padding: 0 1;
+    border: none;
+}
+
+ComponentTile {
+    width: 100%;
+    height: 3;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text;
+    padding: 0 1;
+    margin-bottom: 0;
+    text-align: center;
+    content-align: center middle;
+}
+
+ComponentTile:hover {
+    border: round $yaado-text-disabled;
+    background: transparent;
+}
+
+ComponentTile:focus {
+    border: round $yaado-border-focus;
+    background: transparent;
+    color: #60a5fa;
+}
+
+ComponentTile.-dragging {
+    opacity: 50%;
+    border: dashed $yaado-border-focus;
+    background: transparent;
+}
+
+
+#component-form {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    padding: 0 1;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 0;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+}
+
+#component-form .form-row {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    margin-bottom: 0;
+    align: left top;
+}
+
+#component-form .form-label {
+    width: 16;
+    height: 1;
+    color: $yaado-text-muted;
+    text-style: bold;
+}
+
+#component-form .form-input {
+    width: 14;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0 1;
+    color: $yaado-text;
+}
+
+#component-form .form-input-wide {
+    width: 36;
+    max-width: 48;
+}
+
+#component-form .form-input:focus {
+    border: none;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+#component-form .form-input-wide:focus {
+    width: 48;
+}
+
+#component-form .form-input > .input--selection {
+    background: #25334a;
+    color: $yaado-text;
+}
+
+#component-form .form-input > .input--cursor {
+    background: $yaado-accent;
+    color: #0b0f17;
+}
+
+#component-form .form-input.-invalid {
+    border: none;
+    background: transparent;
+    color: $yaado-error;
+    text-style: bold;
+}
+
+#component-form .form-select {
+    width: 15;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+#component-form .form-select SelectCurrent {
+    border: none;
+    height: 1;
+    padding: 0 1;
+    background: transparent;
+    color: $yaado-text;
+}
+
+#component-form .form-select:focus SelectCurrent {
+    border: none;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+#component-form .form-select SelectOverlay {
+    background: #111827;
+    border: round $yaado-border-subtle;
+    color: $yaado-text;
+}
+
+#component-form .form-select SelectOverlay:focus {
+    border: round $yaado-border-focus;
+}
+
+#component-form .form-select SelectOverlay > .option-list--option.-highlighted {
+    background: $yaado-panel;
+    color: $yaado-accent;
+    text-style: bold;
+}
+
+#component-form .form-unit {
+    width: 6;
+    height: 1;
+    color: $yaado-text-muted;
+    padding-left: 1;
+    text-style: bold;
+}
+
+#component-form .form-unit-empty {
+    width: 0;
+    padding: 0;
+    display: none;
+}
+
+#component-form .form-hint {
+    width: 1fr;
+    height: auto;
+    color: #94a3b8;
+    padding-left: 1;
+    text-wrap: wrap;
+}
+
+#component-form #form-validation-status {
+    width: 100%;
+    height: 1;
+    margin-top: 1;
+    color: $yaado-error;
+    text-style: bold;
+}
+
+#component-form #form-empty-label {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    text-align: center;
+    color: $yaado-text-disabled;
+}
+
+#workspace-header {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+#vehicle-components-list {
+    background: transparent;
+    border: none;
+    padding: 0;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 0;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+    height: 1fr;
+}
+
+#vehicle-components-list:focus {
+    background: transparent;
+    border: none;
+}
+
+#vehicle-components-list > .option-list--option-highlighted {
+    background: transparent;
+    color: $yaado-text;
+}
+
+#vehicle-components-list > .option-list--option-hover {
+    background: #1e293b;
+    color: $yaado-text;
+}
+
+#vehicle-components-list:focus > .option-list--option-highlighted {
+    background: #1e3a8a;
+    color: $yaado-text;
+    text-style: bold;
+}
+
+#vehicle-components-list > .option-list--option-disabled {
+    color: $yaado-text-muted;
+    text-style: bold;
+    background: transparent;
+}
+
+#hangar-library-buttons {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+}
+
+.hangar-btn-row {
+    width: 100%;
+    height: 1;
+    margin-bottom: 0;
+}
+
+.hangar-btn-row .hangar-action-btn {
+    width: 1fr;
+    min-width: 0;
+    height: 1;
+    min-height: 1;
+    border: none;
+    background: transparent;
+    color: $yaado-text-muted;
+    text-style: bold;
+    padding: 0 1;
+    margin-right: 1;
+    text-align: center;
+}
+
+.hangar-btn-row .hangar-action-btn.-last {
+    margin-right: 0;
+}
+
+.hangar-btn-row .hangar-action-btn:hover {
+    background: transparent;
+    color: $yaado-accent;
+}
+
+.hangar-btn-row .hangar-action-btn:focus {
+    background: transparent;
+    color: $yaado-text;
+}
+
+.hangar-btn-row .hangar-action-btn.-active {
+    background: transparent;
+    color: $yaado-accent-hover;
+}
+
+.hangar-btn-row .hangar-btn-danger:hover {
+    background: transparent;
+    color: $yaado-error;
+}
+
+
+/* ==========================================================================
+   Flight Deck Workspace Layout
+   ========================================================================== */
+
+#flightdeck-layout {
+    height: 1fr;
+    width: 1fr;
+}
+
+#flightdeck-solvers-card {
+    width: 1fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#flightdeck-middle-column {
+    width: 2fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#flightdeck-pipeline-card {
+    height: 1fr;
+}
+
+#flightdeck-results-card {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#flightdeck-runs-card {
+    width: 1fr;
+    height: 1fr;
+}
+
+#solvers-store-view {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+#solvers-store-view Collapsible {
+    padding: 0;
+    margin-bottom: 0;
+    background: transparent;
+    border: none;
+    border-top: none;
+}
+
+#solvers-store-view Collapsible:ansi {
+    border: none;
+    border-top: none;
+    background: transparent;
+}
+
+#solvers-store-view CollapsibleTitle {
+    color: $yaado-text-muted;
+    background: transparent;
+    padding: 0 1;
+}
+
+#solvers-store-view CollapsibleTitle:hover {
+    color: $yaado-text;
+}
+
+#solvers-store-view CollapsibleTitle:focus {
+    color: $yaado-border-focus;
+    text-style: bold;
+}
+
+SolverTile {
+    width: 100%;
+    height: auto;
+    min-height: 4;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text;
+    padding: 0 1;
+    margin-bottom: 0;
+}
+
+SolverTile:hover {
+    border: round $yaado-text-disabled;
+    background: transparent;
+}
+
+SolverTile:focus {
+    border: round $yaado-border-focus;
+    background: transparent;
+    color: #60a5fa;
+}
+
+SolverTile.-staged {
+    border: round #0284c7;
+}
+
+SolverTile.-staged:focus {
+    border: round $yaado-border-focus;
+    color: #60a5fa;
+}
+
+PipelineList, #flightdeck-pipeline-list {
+    background: transparent;
+    border: none;
+    padding: 0;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    scrollbar-size: 0 0;
+    height: 1fr;
+}
+
+PipelineList:focus, #flightdeck-pipeline-list:focus {
+    background: transparent;
+    border: none;
+}
+
+PipelineList > .option-list--option-highlighted, #flightdeck-pipeline-list > .option-list--option-highlighted {
+    background: transparent;
+    color: $yaado-text;
+}
+
+PipelineList > .option-list--option-hover, #flightdeck-pipeline-list > .option-list--option-hover {
+    background: #1e293b;
+    color: $yaado-text;
+}
+
+PipelineList:focus > .option-list--option-highlighted, #flightdeck-pipeline-list:focus > .option-list--option-highlighted {
+    background: #1e3a8a;
+    color: $yaado-text;
+    text-style: bold;
+}
+
+PipelineList > .option-list--option-disabled, #flightdeck-pipeline-list > .option-list--option-disabled {
+    color: $yaado-text-muted;
+    background: transparent;
+}
+
+PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--option {
+    padding: 0 1;
+}
+
+#flightdeck-results-scroll {
+    width: 100%;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 1;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+}
+
+#flightdeck-results-content {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    color: $yaado-text;
+}
+
+#flightdeck-results-content.-wide-table {
+    width: auto;
+    min-width: 100%;
+}
+
+#flightdeck-params-form {
+    width: 100%;
+    height: 1fr;
+    padding: 0 1;
+    overflow-y: scroll;
+    scrollbar-size-vertical: 1;
+    scrollbar-color: $yaado-border-subtle;
+    scrollbar-color-hover: $yaado-accent;
+    scrollbar-color-active: $yaado-accent;
+}
+
+#flightdeck-params-form:focus {
+    border: none;
+}
+
+#flightdeck-params-form.-hidden {
+    display: none;
+}
+
+.solver-form-header {
+    width: 100%;
+    height: auto;
+    color: $yaado-text;
+    margin-bottom: 1;
+}
+
+.solver-form-footer {
+    width: 100%;
+    height: auto;
+    color: $yaado-text;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#flightdeck-results-scroll.-hidden {
+    display: none;
+}
+
+#flightdeck-params-form .form-row {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    margin-bottom: 0;
+    align: left top;
+}
+
+#flightdeck-params-form .form-label {
+    width: 28;
+    height: 1;
+    color: $yaado-text-muted;
+    text-style: bold;
+}
+
+#flightdeck-params-form .form-input {
+    width: 14;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0 1;
+    color: $yaado-text;
+}
+
+#flightdeck-params-form .form-input:focus {
+    border: none;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+#flightdeck-params-form .form-input > .input--selection {
+    background: #25334a;
+    color: $yaado-text;
+}
+
+#flightdeck-params-form .form-input > .input--cursor {
+    background: $yaado-accent;
+    color: #0b0f17;
+}
+
+#flightdeck-params-form .form-input.-invalid {
+    border: none;
+    background: transparent;
+    color: $yaado-error;
+    text-style: bold;
+}
+
+#flightdeck-params-form .form-select {
+    width: 14;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+#flightdeck-params-form .form-select SelectCurrent {
+    border: none;
+    height: 1;
+    padding: 0 1;
+    background: transparent;
+    color: $yaado-text;
+}
+
+#flightdeck-params-form .form-unit {
+    width: 6;
+    height: 1;
+    color: $yaado-text-disabled;
+    padding-left: 1;
+}
+
+#flightdeck-params-form .form-hint {
+    height: 1;
+    color: $yaado-text-disabled;
+    padding-left: 1;
+}
+
+#flightdeck-params-form .form-error {
+    width: 100%;
+    height: auto;
+    color: $yaado-error;
+    margin-bottom: 0;
+}
+
+#flightdeck-params-form .form-error.-hidden {
+    display: none;
+}
+
+.flightdeck-btn-row {
+    width: 100%;
+    height: 3;
+    margin-top: 1;
+}
+
+.flightdeck-action-btn {
+    width: 1fr;
+    height: 3;
+    min-width: 8;
+    background: transparent;
+    border: round $yaado-border-subtle;
+    color: $yaado-text-muted;
+    text-style: bold;
+    margin-right: 1;
+}
+
+.flightdeck-action-btn:hover {
+    background: transparent;
+    border: round $yaado-accent;
+    color: $yaado-accent;
+}
+
+.flightdeck-action-btn:focus {
+    background: transparent;
+    border: round $yaado-border-focus;
+    color: $yaado-text;
+}
+
+.flightdeck-action-btn.-last {
+    margin-right: 0;
+}
+
+#maximize-warning {
+    display: none;
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    text-align: center;
+    background: transparent;
+    color: $yaado-accent;
+    text-style: bold;
+}
+
+/* ==========================================================================
+   Modal Dialogs
+   ========================================================================== */
+
+InputModal, ConfirmModal {
+    align: center middle;
+}
+
+.modal-dialog {
+    width: 52;
+    height: auto;
+    padding: 1 2;
+    background: ansi_default;
+    border: round $yaado-accent;
+}
+
+.modal-title {
+    width: 100%;
+    text-align: center;
+    text-style: bold;
+    color: $yaado-accent;
+    margin-bottom: 1;
+}
+
+.modal-prompt, .modal-message {
+    width: 100%;
+    color: $yaado-text;
+    margin-bottom: 1;
+}
+
+.modal-input {
+    width: 100%;
+    margin-bottom: 1;
+    border: round $yaado-border-subtle;
+    background: transparent;
+    color: $yaado-text;
+}
+
+.modal-input:focus {
+    border: round $yaado-accent;
+    background: transparent;
+    color: $yaado-accent;
+}
+
+.modal-input > .input--selection {
+    background: $yaado-border-subtle;
+    color: $yaado-text;
+}
+
+.modal-input > .input--cursor {
+    background: $yaado-accent;
+    color: #0b0f17;
+}
+
+.modal-error {
+    width: 100%;
+    color: $yaado-error;
+    height: 1;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.modal-buttons {
+    width: 100%;
+    height: 3;
+    align: right middle;
+}
+
+.modal-buttons Button {
+    margin-left: 1;
+    height: 3;
+    border: round $yaado-border-subtle;
+    background: transparent;
+    color: $yaado-text-muted;
+}
+
+.modal-buttons Button:hover {
+    border: round $yaado-accent;
+    color: $yaado-accent;
+    background: transparent;
+}
+
+.modal-buttons Button:focus {
+    border: round $yaado-accent;
+    color: $yaado-text;
+    background: transparent;
+}
+
+.modal-buttons Button.modal-btn-danger:hover {
+    border: round $yaado-error;
+    color: $yaado-error;
+    background: transparent;
+}
+
+.modal-buttons Button.modal-btn-danger:focus {
+    border: round $yaado-error;
+    color: $yaado-error;
+    background: transparent;
+}

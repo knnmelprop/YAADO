@@ -20,6 +20,7 @@ git clone https://github.com/knnmelprop/YAADO.git
 cd YAADO
 uv sync
 ./external/bootstrap_submodules.sh
+uv pip install -e .
 ```
 
 ### 2. Workspace Layout
@@ -29,12 +30,11 @@ To make everything work, you only need to interact with two main directories:
 └── FlightLogs/              # User workspace: Output data, logs, and custom study scripts
 ```
 
-> You will also be able to pick fidelity levels and more, but this is in development as of now
-
-### 3. Running an Analysis
-> Note: Execution scripts are currently being finalized by the development team. Check back soon for exact CLI commands!
-
----
+### 3. Running YAADO
+To launch an app you simply type
+```bash
+yaado
+```
 
 ## Acknowledgments
 

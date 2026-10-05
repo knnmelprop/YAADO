@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from YAADO_Core.ComponentStore import SolidMotor
+from YAADO_Core.ComponentStore.propulsion import SolidMotor
 from YAADO_Core.Foundation.flight_logger import YaadoJSONEncoder
 from YAADO_Core.Foundation.mission_builder import (
     BoostSegment,

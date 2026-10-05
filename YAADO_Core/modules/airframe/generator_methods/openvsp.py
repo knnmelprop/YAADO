@@ -64,7 +64,8 @@ from typing import TYPE_CHECKING, Any
 if __name__ in ("__main__",) and __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from YAADO_Core.ComponentStore import AxisymmetricBody, Fins  # noqa: E402
+from YAADO_Core.ComponentStore.aero_surfaces import Fins  # noqa: E402
+from YAADO_Core.ComponentStore.body import AxisymmetricBody  # noqa: E402
 from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
 
 if TYPE_CHECKING:

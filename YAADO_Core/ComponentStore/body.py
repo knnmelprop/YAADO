@@ -38,6 +38,7 @@ class AxisymmetricBody(BaseModel):
         "total_length": "m",
         "max_diameter": "m",
     }
+    HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("length", "diameter")
 
     type: Literal["axisymmetric_body"] = Field(default="axisymmetric_body", frozen=True)
 

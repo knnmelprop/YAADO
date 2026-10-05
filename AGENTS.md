@@ -42,7 +42,7 @@ While the repository currently contains reference configurations in `Hangar/exam
 
 ## Obligatory Coding Principles (Mandatory)
 
-These are necessary to keep the repository scalabale and maintainable.
+These are necessary to keep the repository scalable and maintainable.
 
 * **Kill untyped dictionaries; use typed containers**:
   * Do not use untyped dictionaries for internal state or multi-variable returns. Use typed, frozen dataclasses (e.g. `TrajectorySamples`, `TrajectoryMetrics`).
