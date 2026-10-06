@@ -1,8 +1,6 @@
 # How to join the YAADO team
 
-Welcome! To join the development team, pick an issue you want to work on, complete the onboarding steps below, and open a Pull Request (PR). Once your first PR is merged, you can pick a subteam and officially join the development!
-
----
+Welcome! To join the development team, pick an issue you want to work on (simply drop a comment there and it will be assigned to you), complete the onboarding steps below, and open a Pull Request (PR). Once your first PR is merged, you can pick a subteam and officially join the development!
 
 ## 1. Prerequisites
 
