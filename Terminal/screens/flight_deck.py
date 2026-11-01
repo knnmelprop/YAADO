@@ -43,7 +43,10 @@ from YAADO_Core.ComponentStore import (
 )
 from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
+from YAADO_Core.modules.flight_dynamics.containers import (
+    LaunchAngleSweepPoint,
+    PointMassBoostResults,
+)
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     PointMass3DOFBoostAnalysis,
     format_sweep_csv,
@@ -1034,7 +1037,7 @@ class FlightDeckView(Container):
                         solver.logger.save_figure(fig_full, "full_flight.png", show=False)
 
                     sweep_angles = PointMass3DOFBoostAnalysis.DEFAULT_SWEEP_ANGLES_DEG
-                    sweep_results = run_launch_angle_sweep(
+                    sweep_results: list[LaunchAngleSweepPoint] = run_launch_angle_sweep(
                         self.active_vehicle,
                         angles_deg=sweep_angles,
                         altitude_m=exec_params.get(

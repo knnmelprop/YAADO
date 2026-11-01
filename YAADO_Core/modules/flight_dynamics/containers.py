@@ -12,6 +12,7 @@ import numpy as np
 
 from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults
 from YAADO_Core.Foundation.units import (
+    Degrees,
     Dimensionless,
     Meters,
     MetersPerSecond,
@@ -34,6 +35,24 @@ class TrajectorySamples:
     apogee_idx: int
     burn_time_s: float
     ground_altitude_m: float = 0.0
+
+
+@dataclass(frozen=True)
+class LaunchAngleSweepPoint:
+    """Typed metrics for one launch-angle sweep point.
+
+    Full-flight metrics are None when the sweep stops at motor burnout.
+    """
+
+    launch_angle_deg: Degrees
+    burnout_mach: Dimensionless
+    burnout_altitude: Meters
+    burnout_range: Meters
+    q_max: Pascals
+    ground_impact_flag: bool
+    apogee_altitude: Meters | None
+    flight_time: Seconds | None
+    flight_range: Meters | None
 
 
 @dataclass(frozen=True)
