@@ -175,10 +175,21 @@ def build_vspscript(config: Any) -> str:
     body = config.body
     fins = config.fins
 
-    if body.diameter_m <= 0.0:
-        raise ValueError("body.diameter_m must be > 0")
-    if fins.span_m <= 0.0:
-        raise ValueError("fins.span_m must be > 0")
+    body_length_m = body.length
+    body_total_length_m = body.total_length or body_length_m
+    body_diameter_m = body.diameter
+    nose_length_m = body.nose_length or 0.0
+    nose_diameter_m = body.nose_diameter or body_diameter_m
+
+    fin_span_m = fins.span
+    fin_chord_root_m = fins.chord_root or fin_span_m
+    fin_chord_tip_m = fins.chord_tip or fin_chord_root_m
+    fin_sweep_deg = fins.sweep
+
+    if body_diameter_m <= 0.0:
+        raise ValueError("body.diameter must be > 0")
+    if fin_span_m <= 0.0:
+        raise ValueError("fins.span must be > 0")
     if body.nose_type != "conical":
         # TODO_PHYSICAL_PARAM [geometry_data]: ogive/hemispherical nose
         # cross-section profiles are not yet encoded as AngelScript
@@ -189,17 +200,10 @@ def build_vspscript(config: Any) -> str:
             "exporter (only 'conical' is implemented)"
         )
 
-    total_length_m = body.total_length_m or body.length_m
-    nose_length_m = body.nose_length_m or 0.0
-    nose_diameter_m = body.nose_diameter_m or body.diameter_m
-    body_diameter_m = body.diameter_m
-    cylinder_length_m = body.length_m
+    total_length_m = body_total_length_m
+    cylinder_length_m = body_length_m
 
     fin_count = fins.count
-    fin_span_m = fins.span_m
-    fin_chord_root_m = fins.chord_root_m or fin_span_m
-    fin_chord_tip_m = fins.chord_tip_m or fin_chord_root_m
-    fin_sweep_deg = fins.sweep_deg
 
     lines: list[str] = [
         f"// YAADO vehicle -- OpenVSP AngelScript export (vehicle={config.name!r})",
@@ -275,22 +279,31 @@ def build_manifest(config: Any, script_path: Path) -> dict[str, Any]:
     """
     body = config.body
     fins = config.fins
+    body_total_length_m = body.total_length or body.length
+    body_diameter_m = body.diameter
+    nose_length_m = body.nose_length or 0.0
+    nose_diameter_m = body.nose_diameter or body_diameter_m
+    fin_span_m = fins.span
+    fin_chord_root_m = fins.chord_root or fin_span_m
+    fin_chord_tip_m = fins.chord_tip or fin_chord_root_m
+    fin_sweep_deg = fins.sweep
+
     return {
         "script_path": str(script_path),
         "vehicle_name": config.name,
         "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "geometry_m": {
-            "body_total_length_m": body.total_length_m or body.length_m,
-            "body_length_m": body.length_m,
-            "body_diameter_m": body.diameter_m,
-            "body_nose_length_m": body.nose_length_m,
-            "body_nose_diameter_m": body.nose_diameter_m,
+            "body_total_length_m": body_total_length_m,
+            "body_length_m": body.length,
+            "body_diameter_m": body_diameter_m,
+            "body_nose_length_m": nose_length_m,
+            "body_nose_diameter_m": nose_diameter_m,
             "body_nose_type": body.nose_type,
             "fin_count": fins.count,
-            "fin_span_m": fins.span_m,
-            "fin_chord_root_m": fins.chord_root_m,
-            "fin_chord_tip_m": fins.chord_tip_m,
-            "fin_sweep_deg": fins.sweep_deg,
+            "fin_span_m": fin_span_m,
+            "fin_chord_root_m": fin_chord_root_m,
+            "fin_chord_tip_m": fin_chord_tip_m,
+            "fin_sweep_deg": fin_sweep_deg,
         },
         "human_review": {
             "HR-1": HR1_FIN_SPAN_NOTE,
