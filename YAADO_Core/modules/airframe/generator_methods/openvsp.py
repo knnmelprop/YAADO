@@ -312,7 +312,7 @@ def build_manifest(config: Any, script_path: Path) -> dict[str, Any]:
         "human_review": {
             "HR-1": HR1_FIN_SPAN_NOTE,
             "field": "fins.span_m",
-            "value_m": fins.span_m,
+            "value_m": fin_span_m,
         },
         "to_run": f"vsp -script {script_path.name}",
         "note": (
