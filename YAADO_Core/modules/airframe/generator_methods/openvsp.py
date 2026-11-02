@@ -66,7 +66,7 @@ if __name__ in ("__main__",) and __package__ in (None, ""):
 
 from YAADO_Core.ComponentStore.aero_surfaces import Fins  # noqa: E402
 from YAADO_Core.ComponentStore.body import AxisymmetricBody  # noqa: E402
-from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, BaseAnalysisResults, FidelityLevel  # noqa: E402
 
 if TYPE_CHECKING:
     from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
@@ -354,6 +354,20 @@ def write_openvsp_export(
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     return script_path, manifest_path
+
+
+
+
+@dataclass(frozen=True)
+class AnalysisResults(BaseAnalysisResults):
+    """Result container for generated OpenVSP export artifacts."""
+
+    data: dict[str, float]
+    metadata: dict[str, Any]
+
+    def scalars(self) -> dict[str, float]:
+        """Return the numeric export metrics."""
+        return {key: float(value) for key, value in self.data.items()}
 
 
 class OpenVSPExporter(BaseAnalysis):
