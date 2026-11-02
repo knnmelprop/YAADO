@@ -66,7 +66,11 @@ if __name__ in ("__main__",) and __package__ in (None, ""):
 
 from YAADO_Core.ComponentStore.aero_surfaces import Fins  # noqa: E402
 from YAADO_Core.ComponentStore.body import AxisymmetricBody  # noqa: E402
-from YAADO_Core.Foundation.analysis_base import BaseAnalysis, BaseAnalysisResults, FidelityLevel  # noqa: E402
+from YAADO_Core.Foundation.analysis_base import (  # noqa: E402
+    BaseAnalysis,
+    BaseAnalysisResults,
+    FidelityLevel,
+)
 
 if TYPE_CHECKING:
     from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
