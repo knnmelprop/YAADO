@@ -70,7 +70,7 @@ class ClimbSegment(BaseMissionSegment):
 
     Attributes:
         name: Unique segment identifier.
-        target_altitude: Target termination altitude in meters.
+        target_altitude: Target altitude at segment completion in meters.
         target_mach: Optional target Mach number at segment end.
         target_velocity: Optional target true airspeed in m/s at segment end.
         climb_rate: Optional target vertical climb speed in m/s.
@@ -89,17 +89,17 @@ class ClimbSegment(BaseMissionSegment):
     type: Literal["climb"] = Field(default="climb", frozen=True)
     target_altitude: float = Field(
         ge=0.0,
-        description="Target termination altitude in meters.",
+        description="Target altitude at segment completion in meters.",
     )
     target_mach: float | None = Field(
         default=None,
         gt=0.0,
-        description="Target Mach number at segment termination.",
+        description="Target Mach number at segment completion.",
     )
     target_velocity: float | None = Field(
         default=None,
         gt=0.0,
-        description="Target true airspeed in m/s at segment termination.",
+        description="Target true airspeed in m/s at segment completion.",
     )
     climb_rate: float | None = Field(
         default=None,
@@ -204,11 +204,11 @@ class CruiseSegment(BaseMissionSegment):
 
 
 class DescentSegment(BaseMissionSegment):
-    """Descent, terminal dive, or glide phase.
+    """Controlled descent, approach, or glide phase.
 
     Attributes:
         name: Unique segment identifier.
-        target_altitude: Target termination altitude in meters.
+        target_altitude: Target altitude at segment completion in meters.
         target_mach: Optional target Mach number.
         target_velocity: Optional target true airspeed in m/s.
         descent_rate: Optional vertical descent speed in m/s.
@@ -227,7 +227,7 @@ class DescentSegment(BaseMissionSegment):
     type: Literal["descent"] = Field(default="descent", frozen=True)
     target_altitude: float = Field(
         ge=0.0,
-        description="Target termination altitude in meters.",
+        description="Target altitude at segment completion in meters.",
     )
     target_mach: float | None = Field(
         default=None,
@@ -312,7 +312,7 @@ class MissionProfile:
     Attributes:
         name: Unique mission profile name.
         segments: Ordered sequence of validated mission segments.
-        vehicle_name: Optional target vehicle name.
+        vehicle_name: Optional associated vehicle name.
     """
 
     name: str
@@ -356,14 +356,14 @@ class MissionBuilder:
     """Fluent builder producing an ordered, validated :class:`MissionProfile`.
 
     Example:
-        builder = MissionBuilder("harpoon_sea_skim", vehicle=vehicle)
+        builder = MissionBuilder("high_altitude_research", vehicle=vehicle)
         profile = (
             builder
-            .add_segment(BoostSegment(name="launch", launch_angle=83.0, active_propulsion="launch_booster"))
+            .add_segment(BoostSegment(name="launch", launch_angle=80.0, active_propulsion="launch_booster"))
             .add_segment(StagingSegment(name="booster_sep", duration=0.5, jettison_component="launch_booster"))
-            .add_segment(ClimbSegment(name="ingress", target_altitude=300.0, target_mach=0.8, active_propulsion="sustainer"))
-            .add_segment(CruiseSegment(name="sea_skim", altitude=15.0, mach=0.85, distance=120000.0, active_propulsion="sustainer"))
-            .add_segment(DescentSegment(name="terminal", target_altitude=0.0, target_mach=0.85))
+            .add_segment(ClimbSegment(name="ascent", target_altitude=3000.0, target_mach=0.8, active_propulsion="sustainer"))
+            .add_segment(CruiseSegment(name="level_cruise", altitude=3000.0, mach=0.85, distance=50000.0, active_propulsion="sustainer"))
+            .add_segment(DescentSegment(name="recovery_descent", target_altitude=0.0, descent_rate=15.0))
             .build()
         )
     """
