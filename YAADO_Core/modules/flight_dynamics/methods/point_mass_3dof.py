@@ -38,6 +38,7 @@ from YAADO_Core.Foundation.analysis_base import (
 from YAADO_Core.Foundation.atmosphere import isa_atmosphere, isa_atmosphere_array
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import (
+    LaunchAngleSweepPoint,
     PointMassBoostResults,
     TrajectorySamples,
 )
@@ -990,7 +991,7 @@ def run_launch_angle_sweep(
     body_name: str | None = None,
     stop_at_burnout: bool = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT,
     t_max_s: float = PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S,
-) -> list[dict[str, Any]]:
+) -> list[LaunchAngleSweepPoint]:
     """Sweep the fixed launch angle and report burnout/impact metrics per angle.
 
     For each angle, the trajectory is integrated from ignition with
@@ -1010,12 +1011,8 @@ def run_launch_angle_sweep(
         t_max_s: Maximum simulation time [s]. Defaults to :attr:`PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S`.
 
     Returns:
-        A list of per-angle result dicts, one per swept angle, each with
-        keys ``launch_angle_deg``, ``burnout_mach``, ``burnout_altitude``,
-        ``burnout_range``, ``q_max``, and ``ground_impact_flag`` (bool,
-        ``True`` if altitude reached ``<= 0 m`` before nominal burnout).
-        If ``stop_at_burnout=False``, also includes ``apogee_altitude``,
-        ``flight_time``, and ``flight_range``.
+        One typed result per launch angle. Full-flight metrics are None
+        when stop_at_burnout is True.
 
     Raises:
         TypeError: If ``vehicle`` is not a BaseVehicleConfig instance.
@@ -1025,7 +1022,7 @@ def run_launch_angle_sweep(
             f"vehicle must be a BaseVehicleConfig instance, got {type(vehicle).__name__}"
         )
 
-    sweep_results: list[dict[str, Any]] = []
+    sweep_results: list[LaunchAngleSweepPoint] = []
     base_params = resolve_booster_params_from_vehicle(
         vehicle,
         altitude_m=altitude_m,
@@ -1045,24 +1042,24 @@ def run_launch_angle_sweep(
         )
         sol = integrate_boost_phase(params)
         metrics, _, _ = derive_trajectory_metrics(sol, params)
-        entry = {
-            "launch_angle_deg": angle_float,
-            "burnout_mach": metrics.burnout_mach,
-            "burnout_altitude": metrics.burnout_altitude,
-            "burnout_range": metrics.range_at_burnout,
-            "q_max": metrics.q_max,
-            "ground_impact_flag": metrics.ground_impact_before_burnout,
-        }
-        if not stop_at_burnout:
-            entry["apogee_altitude"] = metrics.apogee_altitude
-            entry["flight_time"] = metrics.t_end_s
-            entry["flight_range"] = metrics.final_x
-        sweep_results.append(entry)
+        sweep_results.append(
+            LaunchAngleSweepPoint(
+                launch_angle_deg=angle_float,
+                burnout_mach=metrics.burnout_mach,
+                burnout_altitude=metrics.burnout_altitude,
+                burnout_range=metrics.range_at_burnout,
+                q_max=metrics.q_max,
+                ground_impact_flag=metrics.ground_impact_before_burnout,
+                apogee_altitude=metrics.apogee_altitude if not stop_at_burnout else None,
+                flight_time=metrics.t_end_s if not stop_at_burnout else None,
+                flight_range=metrics.final_x if not stop_at_burnout else None,
+            )
+        )
     return sweep_results
 
 
-def format_sweep_csv(sweep_results: list[dict[str, Any]]) -> str:
-    """Format the launch-angle sweep results as a CSV string.
+def format_sweep_csv(sweep_results: list[LaunchAngleSweepPoint]) -> str:
+    """Format typed launch-angle sweep results using the established CSV columns.
 
     Args:
         sweep_results: Output of :func:`run_launch_angle_sweep`.
@@ -1072,16 +1069,26 @@ def format_sweep_csv(sweep_results: list[dict[str, Any]]) -> str:
     """
     if not sweep_results:
         return ""
-    fieldnames = list(sweep_results[0].keys())
+    fieldnames = [
+        "launch_angle_deg",
+        "burnout_mach",
+        "burnout_altitude",
+        "burnout_range",
+        "q_max",
+        "ground_impact_flag",
+    ]
+    if sweep_results[0].apogee_altitude is not None:
+        fieldnames.extend(("apogee_altitude", "flight_time", "flight_range"))
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(sweep_results)
+    writer = csv.writer(buf)
+    writer.writerow(fieldnames)
+    for point in sweep_results:
+        writer.writerow(getattr(point, name) for name in fieldnames)
     return buf.getvalue()
 
 
 def plot_launch_angle_sweep(
-    sweep_results: list[dict[str, Any]],
+    sweep_results: list[LaunchAngleSweepPoint],
     *,
     ground_altitude_m: float = PointMass3DOFBoostAnalysis.DEFAULT_GROUND_ALTITUDE_M,
 ) -> Figure:
@@ -1102,10 +1109,10 @@ def plot_launch_angle_sweep(
         fig, _ = plt.subplots(figsize=(6, 4))
         return fig
 
-    angles_deg = [entry["launch_angle_deg"] for entry in sweep_results]
-    mach_vals = [entry["burnout_mach"] for entry in sweep_results]
-    alt_vals = [entry["burnout_altitude"] for entry in sweep_results]
-    has_apogee = "apogee_altitude" in sweep_results[0]
+    angles_deg = [point.launch_angle_deg for point in sweep_results]
+    mach_vals = [point.burnout_mach for point in sweep_results]
+    alt_vals = [point.burnout_altitude for point in sweep_results]
+    has_apogee = any(point.apogee_altitude is not None for point in sweep_results)
 
     n_cols = 3 if has_apogee else 2
     fig, axes = plt.subplots(1, n_cols, figsize=(5 * n_cols, 4))
@@ -1132,16 +1139,22 @@ def plot_launch_angle_sweep(
     # 3. Apogee altitude vs launch angle (if full flight simulated)
     if has_apogee:
         ax_apogee = axes[2]
-        apogee_vals = [entry["apogee_altitude"] for entry in sweep_results]
+        apogee_points = [
+            (point.launch_angle_deg, point.apogee_altitude)
+            for point in sweep_results
+            if point.apogee_altitude is not None
+        ]
         ax_apogee.plot(
-            angles_deg,
-            apogee_vals,
+            [angle for angle, _ in apogee_points],
+            [altitude for _, altitude in apogee_points],
             marker="^",
             color="tab:olive",
             linestyle="--",
         )
         ax_apogee.axhline(ground_altitude_m, color="k", linewidth=0.8, linestyle="--")
-        min_apogee = min(apogee_vals) if apogee_vals else ground_altitude_m
+        min_apogee = min(
+            (altitude for _, altitude in apogee_points), default=ground_altitude_m
+        )
         ax_apogee.set_ylim(bottom=min(ground_altitude_m, min_apogee))
         ax_apogee.set_xlabel("Launch angle [deg]")
         ax_apogee.set_ylabel("Apogee altitude [m]")

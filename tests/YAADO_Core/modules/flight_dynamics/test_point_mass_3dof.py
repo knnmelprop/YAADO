@@ -13,7 +13,10 @@ from YAADO_Core.ComponentStore.propulsion import SolidMotor
 from YAADO_Core.Foundation.analysis_base import FidelityLevel
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig, ComponentNotFoundError
-from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
+from YAADO_Core.modules.flight_dynamics.containers import (
+    LaunchAngleSweepPoint,
+    PointMassBoostResults,
+)
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     PointMass3DOFBoostAnalysis,
     resolve_booster_params_from_vehicle,
@@ -545,10 +548,12 @@ def test_sweep_results_standardized_q_max(
     )
 
     sweep = run_launch_angle_sweep(vehicle, angles_deg=[80.0, 85.0])
-    for entry in sweep:
-        assert "q_max" in entry
-        assert "max_q" not in entry
-        assert entry["q_max"] > 0.0
+    for point in sweep:
+        assert isinstance(point, LaunchAngleSweepPoint)
+        assert point.q_max > 0.0
+        assert point.apogee_altitude is None
+        assert point.flight_time is None
+        assert point.flight_range is None
 
 
 def test_validate_results_supports_below_sea_level(
@@ -608,8 +613,8 @@ def test_plots_clip_y_axis_to_zero_and_ground() -> None:
     plt.close(fig_full)
 
     sweep_results = [
-        {"launch_angle_deg": 10.0, "burnout_mach": 1.2, "burnout_altitude": 200.0, "q_max": 20000.0},
-        {"launch_angle_deg": 20.0, "burnout_mach": 1.3, "burnout_altitude": 400.0, "q_max": 22000.0},
+        LaunchAngleSweepPoint(10.0, 1.2, 200.0, 150.0, 20000.0, False, None, None, None),
+        LaunchAngleSweepPoint(20.0, 1.3, 400.0, 300.0, 22000.0, False, None, None, None),
     ]
     fig_sweep = plot_launch_angle_sweep(sweep_results, ground_altitude_m=0.0)
     assert len(fig_sweep.axes) == 2
@@ -617,20 +622,8 @@ def test_plots_clip_y_axis_to_zero_and_ground() -> None:
     plt.close(fig_sweep)
 
     sweep_results_full = [
-        {
-            "launch_angle_deg": 10.0,
-            "burnout_mach": 1.2,
-            "burnout_altitude": 200.0,
-            "apogee_altitude": 5000.0,
-            "q_max": 20000.0,
-        },
-        {
-            "launch_angle_deg": 20.0,
-            "burnout_mach": 1.3,
-            "burnout_altitude": 400.0,
-            "apogee_altitude": 8000.0,
-            "q_max": 22000.0,
-        },
+        LaunchAngleSweepPoint(10.0, 1.2, 200.0, 150.0, 20000.0, False, 5000.0, 30.0, 1000.0),
+        LaunchAngleSweepPoint(20.0, 1.3, 400.0, 300.0, 22000.0, False, 8000.0, 35.0, 1200.0),
     ]
     fig_sweep_full = plot_launch_angle_sweep(sweep_results_full, ground_altitude_m=0.0)
     assert len(fig_sweep_full.axes) == 3
@@ -660,3 +653,46 @@ def test_run_boost_study_with_explicit_kwargs(
     assert results.burnout_altitude > 100.0
     assert results.apogee_altitude is not None
     assert results.apogee_altitude > results.burnout_altitude
+
+
+def test_full_flight_sweep_populates_typed_optional_metrics(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """Full-flight sweeps populate all optional trajectory metrics."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        run_launch_angle_sweep,
+    )
+
+    points = run_launch_angle_sweep(
+        vehicle, angles_deg=[80.0, 85.0], stop_at_burnout=False
+    )
+    assert all(point.apogee_altitude is not None for point in points)
+    assert all(point.flight_time is not None for point in points)
+    assert all(point.flight_range is not None for point in points)
+
+
+def test_format_sweep_csv_preserves_columns_for_both_modes(
+    vehicle: BaseVehicleConfig,
+) -> None:
+    """CSV headers remain the same for burnout-only and full-flight sweeps."""
+    from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
+        format_sweep_csv,
+        run_launch_angle_sweep,
+    )
+
+    burnout_csv = format_sweep_csv(
+        run_launch_angle_sweep(vehicle, angles_deg=[80.0, 85.0])
+    )
+    full_flight_csv = format_sweep_csv(
+        run_launch_angle_sweep(
+            vehicle, angles_deg=[80.0, 85.0], stop_at_burnout=False
+        )
+    )
+
+    assert burnout_csv.splitlines()[0] == (
+        "launch_angle_deg,burnout_mach,burnout_altitude,burnout_range,q_max,ground_impact_flag"
+    )
+    assert full_flight_csv.splitlines()[0] == (
+        "launch_angle_deg,burnout_mach,burnout_altitude,burnout_range,q_max,"
+        "ground_impact_flag,apogee_altitude,flight_time,flight_range"
+    )
