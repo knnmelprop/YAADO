@@ -36,3 +36,8 @@ pythonpath = ["."]
 python_version = "3.11"
 ignore_missing_imports = true
 explicit_package_bases = true
+
+[tool.ruff.lint.per-file-ignores]
+# Package directories follow the project's CamelCase layout (Terminal, YAADO_Core,
+# ComponentStore, ...); module files themselves must still be snake_case.
+"**/__init__.py" = ["N999"]
