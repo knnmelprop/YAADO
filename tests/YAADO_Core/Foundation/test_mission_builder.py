@@ -32,9 +32,9 @@ def test_mission_builder_standalone() -> None:
         builder
         .add_segment(BoostSegment(name="rail_launch", launch_angle=85.0, azimuth=45.0, rail_length=5.0))
         .add_segment(StagingSegment(name="booster_sep", duration=0.8))
-        .add_segment(ClimbSegment(name="ingress_climb", target_altitude=5000.0, target_mach=0.75, climb_rate=30.0))
+        .add_segment(ClimbSegment(name="ascent_climb", target_altitude=5000.0, target_mach=0.75, climb_rate=30.0))
         .add_segment(CruiseSegment(name="cruise_outbound", altitude=5000.0, mach=0.8, distance=150000.0))
-        .add_segment(DescentSegment(name="terminal_dive", target_altitude=0.0, descent_rate=40.0))
+        .add_segment(DescentSegment(name="approach_descent", target_altitude=0.0, descent_rate=40.0))
         .build()
     )
 
@@ -94,19 +94,19 @@ def test_mission_profile_immutability() -> None:
 
 
 def test_mission_builder_with_vehicle_validation() -> None:
-    """Build a profile bound to a real vehicle configuration (AGM-84 Harpoon)."""
-    assert HARPOON_TOML.is_file(), f"Harpoon TOML not found at {HARPOON_TOML}"
+    """Build a profile bound to a real vehicle configuration."""
+    assert HARPOON_TOML.is_file(), f"Example TOML not found at {HARPOON_TOML}"
     vehicle = BaseVehicleConfig.from_toml(HARPOON_TOML)
 
-    builder = MissionBuilder("harpoon_sea_skim", vehicle=vehicle)
+    builder = MissionBuilder("high_altitude_research", vehicle=vehicle)
 
     profile = (
         builder
-        .add_segment(BoostSegment(name="booster_fire", launch_angle=83.0, active_propulsion="launch_booster"))
+        .add_segment(BoostSegment(name="booster_burn", launch_angle=80.0, active_propulsion="launch_booster"))
         .add_segment(StagingSegment(name="booster_jettison", duration=0.5, jettison_component="launch_booster"))
-        .add_segment(ClimbSegment(name="sea_skim_transition", target_altitude=15.0, target_mach=0.8, active_propulsion="sustainer"))
-        .add_segment(CruiseSegment(name="sea_skim_dash", altitude=15.0, mach=0.85, distance=120000.0, active_propulsion="sustainer"))
-        .add_segment(DescentSegment(name="terminal_dive", target_altitude=0.0, target_mach=0.85, active_propulsion="sustainer"))
+        .add_segment(ClimbSegment(name="ascent_phase", target_altitude=3000.0, target_mach=0.8, active_propulsion="sustainer"))
+        .add_segment(CruiseSegment(name="cruise_phase", altitude=3000.0, mach=0.85, distance=50000.0, active_propulsion="sustainer"))
+        .add_segment(DescentSegment(name="recovery_descent", target_altitude=0.0, target_mach=0.85, active_propulsion="sustainer"))
         .build()
     )
 
@@ -151,7 +151,7 @@ def test_vehicle_component_validation_errors() -> None:
         propellant_density=1700.0,
     )
     vehicle = BaseVehicleConfig(
-        name="test_missile",
+        name="test_vehicle",
         propulsion={"booster": booster},
     )
 

@@ -93,14 +93,14 @@ Segment schemas are validated via Pydantic v2 models with strict canonical SI un
 `MissionBuilder` accepts pre-validated segment models directly via `.add_segment(...)`, enforces segment name uniqueness across the profile, and cross-validates subsystem references (`active_propulsion`, `jettison_component`) against the vehicle before producing an immutable `MissionProfile`. Segments are accessed directly via the strongly-typed `profile.segments` tuple:
 
 ```python
-builder = MissionBuilder("harpoon_sea_skim", vehicle=vehicle)
+builder = MissionBuilder("high_altitude_research", vehicle=vehicle)
 profile = (
     builder
-    .add_segment(BoostSegment(name="launch", launch_angle=83.0, active_propulsion="launch_booster"))
+    .add_segment(BoostSegment(name="launch", launch_angle=80.0, active_propulsion="launch_booster"))
     .add_segment(StagingSegment(name="booster_sep", duration=0.5, jettison_component="launch_booster"))
-    .add_segment(ClimbSegment(name="ingress", target_altitude=300.0, target_mach=0.8, active_propulsion="sustainer"))
-    .add_segment(CruiseSegment(name="sea_skim", altitude=15.0, mach=0.85, distance=120000.0, active_propulsion="sustainer"))
-    .add_segment(DescentSegment(name="terminal", target_altitude=0.0, target_mach=0.85))
+    .add_segment(ClimbSegment(name="ascent", target_altitude=3000.0, target_mach=0.8, active_propulsion="sustainer"))
+    .add_segment(CruiseSegment(name="level_cruise", altitude=3000.0, mach=0.85, distance=50000.0, active_propulsion="sustainer"))
+    .add_segment(DescentSegment(name="recovery_descent", target_altitude=0.0, descent_rate=15.0))
     .build()
 )
 
