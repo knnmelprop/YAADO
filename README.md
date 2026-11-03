@@ -40,7 +40,7 @@ To run a solver as a one-liner without the interactive UI (for scripts and batch
 ```bash
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boost
 ```
-See [`Terminal/README.md`](Terminal/README.md#bare-mode--b) for all bare-mode options.
+See [`Terminal/GUIDE.md`](Terminal/GUIDE.md#bare-mode--b) for all bare-mode options.
 
 ## Acknowledgments
 
