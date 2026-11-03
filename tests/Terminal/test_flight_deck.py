@@ -16,11 +16,13 @@ from textual.widgets import TabbedContent
 
 from Terminal.app import YaadoApp
 from Terminal.screens.flight_deck import (
-    REPAIRED_SOLVERS,
     FlightDeckView,
-    PipelineStage,
     SolversStoreView,
     SolverTile,
+)
+from Terminal.solvers import (
+    REPAIRED_SOLVERS,
+    PipelineStage,
     check_solver_compatibility,
     resolve_fins_name,
 )

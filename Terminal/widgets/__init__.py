@@ -8,10 +8,7 @@ from Terminal.widgets.dynamic_form import DynamicSchemaForm
 from Terminal.widgets.flightlog_preview import render_flightlog_preview
 from Terminal.widgets.flightlogs_tree import FlightLogsTree
 from Terminal.widgets.modals import ConfirmModal, InputModal
-from Terminal.widgets.solver_params_form import (
-    SolverParam,
-    SolverParamsForm,
-)
+from Terminal.widgets.solver_params_form import SolverParamsForm
 from Terminal.widgets.vehicle_tree import VehicleTree
 
 __all__ = [
@@ -22,7 +19,6 @@ __all__ = [
     "DynamicSchemaForm",
     "FlightLogsTree",
     "InputModal",
-    "SolverParam",
     "SolverParamsForm",
     "VehicleTree",
     "format_stage_param_specs",
