@@ -2,7 +2,7 @@
 
 This file provides critical context, repository architecture, and mandatory rules for all AI agents operating in the YAADO (Yet Another Aerospace Design Optimizer) repository.
 
-> 🧭 **New agent session?** First, read `CONTRIBUTING.md` and `ONBOARDING.md`. They contain the full handoff: data-status discipline, branching rules, and conventions.
+> 🧭 **New agent session?** First, read `CONTRIBUTING.md` and `ONBOARDING.md`. They contain the general rules: data-status discipline, branching rules, and conventions.
 
 ## Project Scope (Crucial Context)
 YAADO is a **general, vehicle-agnostic preliminary design and MDO framework** intended for use by Polish Science Clubs. It acts as a strict, user-friendly superstructure over complex physics engines (SUAVE, SU2, pyCycle). 
@@ -43,6 +43,8 @@ While the repository currently contains reference configurations in `Hangar/exam
 ## Obligatory Coding Principles (Mandatory)
 
 These are necessary to keep the repository scalable and maintainable.
+
+Code should be readable with clear spacing and comments, but AVOID overly long doc-strings. Commit as you go to keep the codebase traceable.
 
 * **Kill untyped dictionaries; use typed containers**:
   * Do not use untyped dictionaries for internal state or multi-variable returns. Use typed, frozen dataclasses (e.g. `TrajectorySamples`, `TrajectoryMetrics`).
