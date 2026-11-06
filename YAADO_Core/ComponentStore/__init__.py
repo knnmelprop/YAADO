@@ -9,6 +9,7 @@ from .mass import MassProperties
 from .propulsion import (
     AnyBoosterComponent,
     AnyPropulsionComponent,
+    AnyRamjetComponent,
     RamjetEngine,
     SolidMotor,
     TurbojetEngine,
@@ -24,6 +25,7 @@ AERO_COMPONENTS = (Fins, Wings)
 BODY_COMPONENTS = (AxisymmetricBody,)
 PROPULSION_COMPONENTS = (SolidMotor, RamjetEngine, TurbojetEngine)
 BOOSTER_COMPONENTS = (SolidMotor,)
+RAMJET_COMPONENTS = (RamjetEngine,)
 ALL_COMPONENTS = (MassProperties,) + AERO_COMPONENTS + BODY_COMPONENTS + PROPULSION_COMPONENTS
 
 __all__ = [
@@ -32,10 +34,12 @@ __all__ = [
     "BODY_COMPONENTS",
     "BOOSTER_COMPONENTS",
     "PROPULSION_COMPONENTS",
+    "RAMJET_COMPONENTS",
     "AnyAeroComponent",
     "AnyBodyComponent",
     "AnyBoosterComponent",
     "AnyComponent",
     "AnyPropulsionComponent",
+    "AnyRamjetComponent",
     "MassProperties",
 ]

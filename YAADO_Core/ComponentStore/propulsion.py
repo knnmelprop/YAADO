@@ -374,3 +374,5 @@ AnyPropulsionComponent = Annotated[
 ]
 
 AnyBoosterComponent = SolidMotor
+
+AnyRamjetComponent = RamjetEngine
