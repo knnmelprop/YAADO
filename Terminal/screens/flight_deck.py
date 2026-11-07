@@ -1,6 +1,6 @@
 """Flight Deck view (Tab 3) for solver execution, pipelines, sweeps, and log inspection.
 
-Provides interfaces to configure verified physics solvers (currently Point-Mass 3-DOF),
+Provides interfaces to configure verified physics solvers (see ``REPAIRED_SOLVERS``),
 construct sequential computational pipelines, execute batch parameter sweeps,
 and interactively review historical runs stored in FlightLogs.
 """
@@ -40,8 +40,14 @@ from YAADO_Core.ComponentStore import (
     AERO_COMPONENTS,
     BODY_COMPONENTS,
     BOOSTER_COMPONENTS,
+    RAMJET_COMPONENTS,
 )
-from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.analysis_base import (
+    BaseAnalysis,
+    BaseAnalysisResults,
+    FidelityLevel,
+)
+from YAADO_Core.Foundation.constants import LHV_KEROSENE
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import (
     LaunchAngleSweepPoint,
@@ -54,6 +60,9 @@ from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     plot_full_flight,
     plot_launch_angle_sweep,
     run_launch_angle_sweep,
+)
+from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
+    HeiserPrattCycleAnalysis,
 )
 
 if TYPE_CHECKING:
@@ -181,6 +190,148 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
             ),
         ),
     ),
+    SolverDescriptor(
+        solver_id="heiser_pratt_cycle",
+        name="Heiser & Pratt Ramjet Cycle",
+        discipline="PROPULSION",
+        fidelity=HeiserPrattCycleAnalysis.fidelity,
+        solver_cls=HeiserPrattCycleAnalysis,
+        description=(
+            "Evaluates a 1-D two-gas ramjet station cycle at one flight condition: inlet recovery, "
+            "combustor heat addition, and expansion through the finite nozzle area ratio. "
+            "Loss factors are placeholders until set for the vehicle."
+        ),
+        required_components_desc=(
+            "One ramjet (RamjetEngine) with nozzle_throat_diameter, or an air mass flow set below."
+        ),
+        headline_outputs=(
+            ("thrust_real", "N", "Net Thrust"),
+            ("thrust_ideal", "N", "Ideal Thrust"),
+            ("mdot_air", "kg/s", "Air Mass Flow"),
+            ("fuel_air_ratio", "-", "Fuel-Air Ratio"),
+            ("capture_area", "m^2", "Required Capture Area"),
+            ("mach_exit", "-", "Exit Mach"),
+            ("v_exit", "m/s", "Exit Velocity"),
+            ("p_exit_over_p0", "-", "Exit Pressure Ratio p_e/p0"),
+            ("a_throat", "m^2", "Throat Area"),
+            ("a_exit", "m^2", "Exit Area"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Flight Mach",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Flight Mach number (> 1). Blank uses design_mach",
+                min_value=1.0,
+                placeholder="design_mach",
+            ),
+            SolverParam(
+                name="altitude_m",
+                label="Flight Altitude",
+                symbol="h",
+                unit="m",
+                param_type=float,
+                default=HeiserPrattCycleAnalysis.DEFAULT_ALTITUDE_M,
+                description="ISA flight altitude above MSL",
+                min_value=0.0,
+                max_value=80000.0,
+            ),
+            SolverParam(
+                name="tt4",
+                label="Combustor Exit Temp",
+                symbol="Tt₄",
+                unit="K",
+                param_type=float,
+                default=None,
+                description="Combustor-exit total temperature. Blank uses combustor_temp",
+                min_value=0.0,
+                placeholder="combustor_temp",
+            ),
+            SolverParam(
+                name="mdot_air",
+                label="Air Mass Flow",
+                symbol="ṁ_air",
+                unit="kg/s",
+                param_type=float,
+                default=None,
+                description="Blank derives the flow from the choked nozzle throat",
+                min_value=0.0,
+                placeholder="nozzle throat",
+            ),
+            SolverParam(
+                name="eta_inlet",
+                label="Inlet Recovery",
+                symbol="η_i",
+                unit="-",
+                param_type=float,
+                default=HeiserPrattCycleAnalysis.DEFAULT_ETA_INLET,
+                description="Inlet total-pressure recovery pt2/pt0 (placeholder default)",
+                min_value=0.0,
+                max_value=1.0,
+            ),
+            SolverParam(
+                name="pi_cc",
+                label="Combustor Pressure Ratio",
+                symbol="π_cc",
+                unit="-",
+                param_type=float,
+                default=HeiserPrattCycleAnalysis.DEFAULT_PI_CC,
+                description="Combustor total-pressure ratio pt4/pt2 (placeholder default)",
+                min_value=0.0,
+                max_value=1.0,
+            ),
+            SolverParam(
+                name="pi_nozzle",
+                label="Nozzle Pressure Ratio",
+                symbol="π_n",
+                unit="-",
+                param_type=float,
+                default=HeiserPrattCycleAnalysis.DEFAULT_PI_NOZZLE,
+                description="Nozzle total-pressure ratio (placeholder default)",
+                min_value=0.0,
+                max_value=1.0,
+            ),
+            SolverParam(
+                name="eta_b",
+                label="Combustion Efficiency",
+                symbol="η_b",
+                unit="-",
+                param_type=float,
+                default=HeiserPrattCycleAnalysis.DEFAULT_ETA_B,
+                description="Fraction of fuel energy released (placeholder default)",
+                min_value=0.0,
+                max_value=1.0,
+            ),
+            SolverParam(
+                name="gamma_hot",
+                label="Products Gamma",
+                symbol="γ_h",
+                unit="-",
+                param_type=float,
+                default=None,
+                description=(
+                    f"Blank uses {HeiserPrattCycleAnalysis.DEFAULT_GAMMA_HOT} for kerosene. "
+                    "Required for other fuels"
+                ),
+                min_value=1.0,
+                placeholder="kerosene",
+            ),
+            SolverParam(
+                name="fuel_lhv",
+                label="Fuel Heating Value",
+                symbol="LHV",
+                unit="J/kg",
+                param_type=float,
+                default=None,
+                description=f"Blank uses {LHV_KEROSENE:.3g} for kerosene. Required for other fuels",
+                min_value=0.0,
+                placeholder="kerosene",
+            ),
+        ),
+    ),
 )
 
 
@@ -221,6 +372,18 @@ def check_solver_compatibility(
         booster_name = next(iter(boosters.keys()))
         body_name = next(iter(bodies.keys()))
         return True, f"Ready ({booster_name}, {body_name}, {vehicle.total_mass:.1f} kg)"
+
+    if descriptor.solver_id == "heiser_pratt_cycle":
+        ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
+        if not ramjets:
+            return False, "Missing ramjet propulsion (RamjetEngine)"
+        if len(ramjets) > 1:
+            return False, f"Flight Deck runs one ramjet at a time; found {sorted(ramjets)}"
+
+        ramjet_name, ramjet = next(iter(ramjets.items()))
+        if ramjet.nozzle_throat_diameter is None:
+            return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
+        return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
     return False, "Unknown solver compatibility rule"
 
@@ -828,6 +991,8 @@ class FlightDeckView(Container):
                             extra_str = f" ({val / 1000:.2f} km)"
                         elif f_unit == "Pa" and abs(val) >= 1000:
                             extra_str = f" ({val / 1000:.2f} kPa)"
+                        elif f_unit == "N" and abs(val) >= 1000:
+                            extra_str = f" ({val / 1000:.2f} kN)"
                         unit_str = f" {f_unit}" if f_unit and f_unit != "-" else ""
                         lines.append(f"  • [bold]{f_label}:[/bold] {val_str}{unit_str}{extra_str}")
                     else:
@@ -903,7 +1068,29 @@ class FlightDeckView(Container):
             return f"{num:.3e}"
         if abs(num) >= 100:
             return f"{num:.1f}"
+        if abs(num) < 0.1:
+            return f"{num:.4f}".rstrip("0").rstrip(".")
         return f"{num:.3f}".rstrip("0").rstrip(".")
+
+    def _stage_label(self, stage_idx: int, stage: PipelineStage) -> str:
+        """Build a pipeline row, with the status ahead of parameters that may be truncated.
+
+        Args:
+            stage_idx: 1-based index of stage in pipeline.
+            stage: PipelineStage instance to label.
+
+        Returns:
+            Rich markup label for the option list.
+        """
+        is_ready, _ = check_solver_compatibility(stage.descriptor, self.active_vehicle)
+        status_tag = (
+            "[bold #10b981][READY][/bold #10b981]"
+            if is_ready
+            else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+        )
+        param_specs = format_stage_param_specs(stage)
+        param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
+        return f"Stage {stage_idx}: [bold]{escape(stage.descriptor.name)}[/bold]  {status_tag}{param_badge}"
 
     def _refresh_pipeline_ui(self) -> None:
         """Update the pipeline option list."""
@@ -921,16 +1108,9 @@ class FlightDeckView(Container):
                 return
 
             for idx, stage in enumerate(self.pipeline, start=1):
-                is_ready, _ = check_solver_compatibility(stage.descriptor, self.active_vehicle)
-                status_tag = (
-                    "[bold #10b981][READY][/bold #10b981]"
-                    if is_ready
-                    else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+                pipeline_list.add_option(
+                    Option(prompt=self._stage_label(idx, stage), id=f"stage_{idx}")
                 )
-                param_specs = format_stage_param_specs(stage)
-                param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
-                label = f"Stage {idx}: [bold]{escape(stage.descriptor.name)}[/bold]{param_badge}  {status_tag}"
-                pipeline_list.add_option(Option(prompt=label, id=f"stage_{idx}"))
         except NoMatches:
             pass
 
@@ -974,7 +1154,7 @@ class FlightDeckView(Container):
         descriptor: SolverDescriptor,
         enable_logging: bool = True,
         params: dict[str, Any] | None = None,
-    ) -> PointMassBoostResults | None:
+    ) -> BaseAnalysisResults | None:
         """Run a single solver on the active vehicle.
 
         Args:
@@ -1063,11 +1243,7 @@ class FlightDeckView(Container):
                 else None
             )
             self._render_run_results(descriptor, results, output_dir)
-            burnout_mach = getattr(results, "burnout_mach", 0.0)
-            self._notify(
-                f"Completed {descriptor.name} (Mach {burnout_mach:.2f})",
-                severity="information",
-            )
+            self._notify(self._completion_message(descriptor, results), severity="information")
 
             # Refresh flight logs tree
             try:
@@ -1080,6 +1256,23 @@ class FlightDeckView(Container):
         except (RuntimeError, ValueError, KeyError, OSError, TypeError) as exc:
             self._notify(f"Execution error: {exc}", severity="error")
             return None
+
+    def _completion_message(
+        self, descriptor: SolverDescriptor, results: BaseAnalysisResults
+    ) -> str:
+        """Build the run notification from the solver's first headline output.
+
+        Args:
+            descriptor: Executed solver descriptor.
+            results: Results returned by the solver.
+
+        Returns:
+            Notification text naming the solver and its leading metric.
+        """
+        field_name, unit, label = descriptor.headline_outputs[0]
+        value = self._format_number(getattr(results, field_name), unit)
+        unit_str = f" {unit}" if unit != "-" else ""
+        return f"Completed {descriptor.name} ({label}: {value}{unit_str})"
 
     def action_quick_run(self) -> None:
         """Execute the currently focused solver or staged pipeline step on the active vehicle."""
@@ -1198,16 +1391,9 @@ class FlightDeckView(Container):
             stage.params[event.name] = event.value
             try:
                 pipeline_list = self.query_one("#flightdeck-pipeline-list", PipelineList)
-                is_ready, _ = check_solver_compatibility(stage.descriptor, self.active_vehicle)
-                status_tag = (
-                    "[bold #10b981][READY][/bold #10b981]"
-                    if is_ready
-                    else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+                pipeline_list.replace_option_prompt_at_index(
+                    event.stage_index - 1, self._stage_label(event.stage_index, stage)
                 )
-                param_specs = format_stage_param_specs(stage)
-                param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
-                label = f"Stage {event.stage_index}: [bold]{escape(stage.descriptor.name)}[/bold]{param_badge}  {status_tag}"
-                pipeline_list.replace_option_prompt_at_index(event.stage_index - 1, label)
             except NoMatches:
                 pass
         else:

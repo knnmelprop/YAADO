@@ -7,6 +7,8 @@ viewer launchers, and confirms zero emojis are generated anywhere in the preview
 
 from __future__ import annotations
 
+import io
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -533,3 +535,38 @@ def test_flightdeck_csv_preview_has_horizontal_scrolling() -> None:
 
     asyncio.run(_test())
 
+
+def test_ramjet_run_is_named_and_summarized_in_flightlogs(tmp_path: Path) -> None:
+    """A ramjet run gets a display name, a thrust summary and readable small values."""
+    from rich.console import Console
+
+    from Terminal.widgets.flightlog_preview import format_number, pretty_analysis_title
+
+    assert pretty_analysis_title("heiser_pratt_cycle") == "Heiser & Pratt Ramjet Cycle"
+    assert FlightLogsTree.pretty_analysis_name("heiser_pratt_cycle") == "Ramjet Cycle"
+    assert format_number(0.0603, "-") == "0.0603"
+    assert format_number(0.0491, "m^2") == "0.0491"
+    assert format_number(2.225, "-") == "2.23"
+
+    vehicle_dir = tmp_path / "FlightLogs" / "ALVRJ"
+    run_dir = vehicle_dir / "heiser_pratt_cycle_2026-11-07_100000"
+    run_dir.mkdir(parents=True)
+    (run_dir / "results.json").write_text(
+        json.dumps(
+            {
+                "analysis_name": "heiser_pratt_cycle",
+                "headline_metrics": ["thrust_real"],
+                "data": {"thrust_real": 14483.9},
+                "units": {"thrust_real": "N"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    console = Console(record=True, width=100, file=io.StringIO())
+    console.print(render_flightlog_preview(run_dir))
+    console.print(render_flightlog_preview(vehicle_dir))
+    text = console.export_text()
+    assert "HEISER & PRATT RAMJET CYCLE" in text
+    assert "(14.48 kN)" in text
+    assert "Thrust 14.48 kN" in text

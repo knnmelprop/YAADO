@@ -34,10 +34,12 @@ class SolverParam:
         symbol: Compact aerospace symbol (e.g. γ₀, h₀, M, α).
         unit: Canonical SI unit string (e.g. deg, m, s).
         param_type: Python type (float, int, bool, str).
-        default: Default value in canonical SI units.
+        default: Default value in canonical SI units. ``None`` makes the parameter
+            optional: its input may be left blank and the solver resolves the value.
         description: Informative parameter explanation tooltip/hint.
         min_value: Optional minimum numerical bound.
         max_value: Optional maximum numerical bound.
+        placeholder: Input hint shown while an optional parameter is blank.
     """
 
     name: str
@@ -49,7 +51,24 @@ class SolverParam:
     description: str = ""
     min_value: float | None = None
     max_value: float | None = None
+    placeholder: str = ""
 
+
+def _input_text(value: Any) -> str:
+    """Render a parameter value as input text, with ``None`` as a blank input."""
+    return "" if value is None else str(value)
+
+
+@dataclass(frozen=True)
+class _FormLoad:
+    """A requested form population, see :meth:`SolverParamsForm.load_solver`."""
+
+    descriptor: SolverDescriptor
+    params: dict[str, Any]
+    stage_index: int | None
+    is_ready: bool
+    compatibility_msg: str
+    vehicle_name: str | None
 
 
 class SolverParamsForm(VerticalScroll):
@@ -85,6 +104,8 @@ class SolverParamsForm(VerticalScroll):
         self._param_defs: dict[str, SolverParam] = {}
         self._is_populating: bool = False
         self._widgets_mounted: bool = False
+        self._pending_load: _FormLoad | None = None
+        self._is_loading: bool = False
 
     def compose(self) -> ComposeResult:
         """Compose initial placeholder."""
@@ -194,8 +215,8 @@ class SolverParamsForm(VerticalScroll):
                         sel.value = str(val)
                 else:
                     inp = self.query_one(f"#param-inp-{param.name}", Input)
-                    if inp.value != str(val):
-                        inp.value = str(val)
+                    if inp.value != _input_text(val):
+                        inp.value = _input_text(val)
                 err = self.query_one(f"#param-err-{param.name}", Static)
                 err.update("")
                 err.add_class("-hidden")
@@ -205,8 +226,7 @@ class SolverParamsForm(VerticalScroll):
         except NoMatches:
             pass
 
-    @work(exclusive=True, group="solver_form")
-    async def load_solver(
+    def load_solver(
         self,
         descriptor: SolverDescriptor,
         params: dict[str, Any],
@@ -217,6 +237,9 @@ class SolverParamsForm(VerticalScroll):
     ) -> None:
         """Populate the form controls for a solver descriptor and its active parameters.
 
+        Loads run one at a time and only the latest request is kept. Cancelling a load
+        part-way through a remount would leave the form empty.
+
         Args:
             descriptor: Solver metadata descriptor.
             params: Dictionary of parameter values to prefill.
@@ -225,9 +248,35 @@ class SolverParamsForm(VerticalScroll):
             compatibility_msg: Compatibility or failure explanation.
             vehicle_name: Active vehicle name, if loaded.
         """
+        self._pending_load = _FormLoad(
+            descriptor, dict(params), stage_index, is_ready, compatibility_msg, vehicle_name
+        )
+        if not self._is_loading:
+            self._is_loading = True
+            self._drain_pending_loads()
+
+    @work(group="solver_form")
+    async def _drain_pending_loads(self) -> None:
+        """Apply queued load requests until none remain."""
+        try:
+            while self._pending_load is not None:
+                load = self._pending_load
+                self._pending_load = None
+                await self._apply_load(load)
+        finally:
+            self._is_loading = False
+
+    async def _apply_load(self, load: _FormLoad) -> None:
+        """Update the form in place, or remount it for a different solver."""
+        descriptor = load.descriptor
+        stage_index = load.stage_index
+        is_ready = load.is_ready
+        compatibility_msg = load.compatibility_msg
+        vehicle_name = load.vehicle_name
+
         self._is_populating = True
         self.stage_index = stage_index
-        self.current_params = dict(params)
+        self.current_params = load.params
 
         if self.descriptor == descriptor and self._widgets_mounted:
             self._update_in_place(
@@ -267,7 +316,8 @@ class SolverParamsForm(VerticalScroll):
                 )
             else:
                 input_widget = Input(
-                    value=str(val),
+                    value=_input_text(val),
+                    placeholder=param.placeholder,
                     id=f"param-inp-{param.name}",
                     classes="form-input",
                 )
@@ -313,6 +363,16 @@ class SolverParamsForm(VerticalScroll):
 
         val_str = event.value.strip()
         error_widget = self.query_one(f"#param-err-{param_name}", Static)
+
+        if not val_str and param_def.default is None:
+            event.input.remove_class("-invalid")
+            error_widget.update("")
+            error_widget.add_class("-hidden")
+            self.current_params[param_name] = None
+            self.post_message(
+                self.ParamChanged(self, param_name, None, is_valid=True, stage_index=self.stage_index)
+            )
+            return
 
         try:
             if param_def.param_type is int:

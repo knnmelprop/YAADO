@@ -386,7 +386,7 @@ class MainView(Container):
             "Launch physics solvers and multi-stage pipelines from the Flight Deck:\n\n"
             "  • [bold]Point Mass 3-DOF Trajectory[/bold] (Ascent, boost, coast, and ballistic descent)\n"
             "  • [bold]Aerodynamic Polars[/bold] (Barrowman, AVL vortex lattice, empirical DATCOM)\n"
-            "  • [bold]Propulsion & Cycle Analysis[/bold] (pyCycle thermodynamic engine models)"
+            "  • [bold]Propulsion & Cycle Analysis[/bold] (Heiser & Pratt ramjet station cycle)"
         )
         self.query_one("#preview-card", Container).border_subtitle = "↵ Launch Flight Deck"
 

@@ -70,6 +70,7 @@ class FlightLogsTree(Tree[Path | None]):
     ANALYSIS_NAMES: ClassVar[dict[str, str]] = {
         "point_mass_3dof_boost": "3-DOF Boost",
         "point_mass_3dof": "Point Mass 3-DOF",
+        "heiser_pratt_cycle": "Ramjet Cycle",
         "aero_polar": "Aero Polars",
         "mass_estimation": "Mass & Inertia",
     }
