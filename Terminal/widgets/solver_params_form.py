@@ -18,41 +18,12 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Input, Select, Static
 
+from Terminal.solvers import SolverParam
+
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
-    from Terminal.screens.flight_deck import SolverDescriptor
-
-
-@dataclass(frozen=True)
-class SolverParam:
-    """Metadata and validation rules for a tunable solver parameter.
-
-    Attributes:
-        name: Internal parameter keyword name passed to solver.setup().
-        label: Human-readable form label.
-        symbol: Compact aerospace symbol (e.g. γ₀, h₀, M, α).
-        unit: Canonical SI unit string (e.g. deg, m, s).
-        param_type: Python type (float, int, bool, str).
-        default: Default value in canonical SI units. ``None`` makes the parameter
-            optional: its input may be left blank and the solver resolves the value.
-        description: Informative parameter explanation tooltip/hint.
-        min_value: Optional minimum numerical bound.
-        max_value: Optional maximum numerical bound.
-        placeholder: Input hint shown while an optional parameter is blank.
-    """
-
-    name: str
-    label: str
-    symbol: str
-    unit: str
-    param_type: type
-    default: Any
-    description: str = ""
-    min_value: float | None = None
-    max_value: float | None = None
-    placeholder: str = ""
-
+    from Terminal.solvers import SolverDescriptor
 
 def _input_text(value: Any) -> str:
     """Render a parameter value as input text, with ``None`` as a blank input."""
@@ -364,27 +335,8 @@ class SolverParamsForm(VerticalScroll):
         val_str = event.value.strip()
         error_widget = self.query_one(f"#param-err-{param_name}", Static)
 
-        if not val_str and param_def.default is None:
-            event.input.remove_class("-invalid")
-            error_widget.update("")
-            error_widget.add_class("-hidden")
-            self.current_params[param_name] = None
-            self.post_message(
-                self.ParamChanged(self, param_name, None, is_valid=True, stage_index=self.stage_index)
-            )
-            return
-
         try:
-            if param_def.param_type is int:
-                parsed_val: Any = int(val_str)
-            else:
-                parsed_val = float(val_str)
-
-            if param_def.min_value is not None and parsed_val < param_def.min_value:
-                raise ValueError(f"Value must be >= {param_def.min_value}")
-            if param_def.max_value is not None and parsed_val > param_def.max_value:
-                raise ValueError(f"Value must be <= {param_def.max_value}")
-
+            parsed_val = param_def.parse(val_str)
             event.input.remove_class("-invalid")
             error_widget.update("")
             error_widget.add_class("-hidden")

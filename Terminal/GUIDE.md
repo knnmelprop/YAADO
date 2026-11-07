@@ -1,0 +1,57 @@
+# YAADO Terminal Guide
+
+YAADO runs from the terminal in two ways: an interactive cockpit for building vehicles and exploring results, and a one-line bare mode for scripts and batch jobs.
+
+## Interactive Cockpit
+
+Run from the repository root:
+
+```bash
+uv run yaado
+```
+
+(or plain `yaado` with the project's virtual environment activated).
+
+> [!IMPORTANT]
+> Saved vehicles and solver outputs are written to `Hangar/` and `FlightLogs/` relative to the current directory, so launch from the repository root to keep them where the cockpit lists them.
+
+> [!TIP]
+> The cockpit needs a terminal of at least 110 columns by 28 rows; below that it hides the UI and asks you to maximize the window.
+
+The cockpit has three tabs, and the footer always shows the keys available in the focused panel:
+
+- **Main**: landing dashboard with solver readiness, the active vehicle and recent FlightLogs runs.
+- **Hangar**: browse vehicles in `Hangar/`, fork the read-only references in `Hangar/examples/`, and assemble or edit vehicles from the Component Store.
+- **Flight Deck**: tune solver parameters, stage and run pipelines, and review past runs in `FlightLogs/`.
+
+## Bare Mode (`-b`)
+
+`yaado -b` runs a single solver in one line, with no prompts and no UI. Results and FlightLogs artifacts are identical to a Flight Deck run.
+
+```bash
+# List solvers, their parameters, defaults and units
+yaado -b --list-solvers
+
+# Run a solver; prints headline outputs and the FlightLogs run directory
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boost
+
+# Override parameters and print machine-readable JSON instead
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boost \
+         --set launch_angle_deg=45 --set stop_at_burnout=false --json
+
+# Ramjet cycle: Mach, combustor temperature and mass flow come from the vehicle unless set
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle \
+         --set altitude_m=12000 --set eta_inlet=0.8
+```
+
+| Option | Effect |
+|---|---|
+| `--vehicle TOML` | Vehicle configuration file to analyze. |
+| `--solver ID` | Solver to run (see `--list-solvers`). |
+| `--set NAME=VALUE` | Override a solver parameter, in the unit listed by `--list-solvers`. Repeatable. Defaults in `<angle brackets>` come from the vehicle or fuel. |
+| `--json` | Print all scalar results, units, parameters and the run directory as JSON. |
+| `--no-log` | Write nothing to `FlightLogs/`. |
+| `--no-sweep` | Skip the parameter sweep (and its figure and CSV) saved with logged runs. |
+| `--list-solvers` | List the solver catalog, then exit. |
+
+Logged runs are saved to `FlightLogs/<vehicle>/<solver>_<timestamp>/` under the current directory. Exit status is `0` on success, `1` if the vehicle cannot be loaded or the solver fails, and `2` for invalid arguments. Errors go to stderr, so stdout stays clean for piping.

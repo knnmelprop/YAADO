@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from Terminal.screens.flight_deck import PipelineStage
+    from Terminal.solvers import PipelineStage
 
 PARAM_SYMBOLS: dict[str, str] = {
     # Flight Dynamics / Trajectory

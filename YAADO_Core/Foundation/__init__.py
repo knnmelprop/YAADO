@@ -1,7 +1,7 @@
 """Core infrastructure for the YAADO multi-fidelity design environment.
 
 Exposes the base abstractions used by all analysis and vehicle modules
-"""  # noqa: N999
+"""
 
 from .analysis_base import (
     BaseAnalysis,

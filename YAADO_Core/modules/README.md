@@ -63,7 +63,7 @@ This directory contains the swappable physics solvers for the YAADO framework. S
   * No standalone `argparse` blocks, CLI scripts, or runnable `if __name__ == "__main__":` blocks inside solver modules. All execution goes through the analysis class's `execute()` method or the main YAADO CLI (`Terminal/`).
 
 * **Usable from the CLI**:
-  * A module counts as repaired only once it can be used through the Flight Deck. Add a `SolverDescriptor` to `REPAIRED_SOLVERS` and a compatibility rule to `check_solver_compatibility` in `Terminal/screens/flight_deck.py`, and add its run name to the FlightLogs display names.
+  * A module counts as repaired only once it can be used through the Flight Deck and `yaado -b`. Follow [Adding a Solver](../../Terminal/README.md#adding-a-solver).
 
 * **Verification on real TOML configurations**:
   * Make sure the method can actually run by testing it on an actual TOML file from `Hangar/examples/` (or via vehicle factory), not just synthetic unit mocks.

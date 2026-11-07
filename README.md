@@ -36,6 +36,12 @@ To launch an app you simply type
 yaado
 ```
 
+To run a solver as a one-liner without the interactive UI (for scripts and batch jobs), use bare mode:
+```bash
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boost
+```
+See [`Terminal/GUIDE.md`](Terminal/GUIDE.md#bare-mode--b) for all bare-mode options.
+
 ## Acknowledgments
 
 This framework builds upon and interfaces with several major open-source aerospace tools, included as submodules in `external/`:
