@@ -90,7 +90,7 @@ def format_stage_param_specs(stage: PipelineStage) -> str:
     param_map = {p.name: p for p in stage.descriptor.parameters}
     parts: list[str] = []
     for k, v in stage.params.items():
-        if k in ("fins_name", "motor_name", "body_name"):
+        if k in ("fins_name", "motor_name", "body_name") or v is None:
             continue
         p_def = param_map.get(k)
         sym = p_def.symbol if p_def else PARAM_SYMBOLS.get(k, k[:4])

@@ -26,7 +26,7 @@ from scipy.optimize import brentq
 if __name__ == "__main__" and __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import GAMMA_COLD  # noqa: E402
+from YAADO_Core.Foundation.constants import GAMMA_AIR
 
 _HERE = Path(__file__).resolve().parent
 CSV_PATH = _HERE / "inlet_performance_v2.csv"
@@ -235,7 +235,7 @@ class InletResult:
 
 
 def evaluate_inlet(
-    mach0: float, cone_half_angle_deg: float, gamma: float = GAMMA_COLD
+    mach0: float, cone_half_angle_deg: float, gamma: float = GAMMA_AIR
 ) -> InletResult:
     """Evaluate conical-inlet total-pressure recovery at a flight condition.
 

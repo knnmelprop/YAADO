@@ -51,6 +51,9 @@ Pascals = Annotated[float, "Pa"]
 #: Energy or work [J]
 Joules = Annotated[float, "J"]
 
+#: Specific energy, e.g. fuel heating value [J/kg]
+JoulesPerKilogram = Annotated[float, "J/kg"]
+
 #: Power [W]
 Watts = Annotated[float, "W"]
 

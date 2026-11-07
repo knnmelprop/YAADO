@@ -20,6 +20,7 @@ from rich.text import Text
 ANALYSIS_DISPLAY_NAMES: dict[str, str] = {
     "point_mass_3dof_boost": "Point-Mass 3-DOF Boost",
     "point_mass_3dof": "Point-Mass 3-DOF",
+    "heiser_pratt_cycle": "Heiser & Pratt Ramjet Cycle",
     "aero_polar": "Aero Polars",
     "mass_estimation": "Mass & Inertia",
 }
@@ -54,6 +55,8 @@ def format_number(val: Any, unit: str = "") -> str:
         Formatted string representation.
     """
     if isinstance(val, (int, float)):
+        if abs(val) < 0.1 and val != 0 and (unit == "-" or abs(val) >= 0.01):
+            return f"{val:.4f}"
         if unit == "-":
             return f"{val:.2f}"
         if abs(val) >= 1000 and unit in ("m", "Pa", "N"):
@@ -212,6 +215,8 @@ def _render_checkpoint(results_file: Path, run_dir: Path | None = None) -> Rende
                     extra_str = f" ({val / 1000:.2f} km)"
                 elif unit == "Pa" and isinstance(val, (int, float)) and abs(val) >= 1000:
                     extra_str = f" ({val / 1000:.2f} kPa)"
+                elif unit == "N" and isinstance(val, (int, float)) and abs(val) >= 1000:
+                    extra_str = f" ({val / 1000:.2f} kN)"
                 unit_str = f" {unit}" if unit and unit != "-" else ""
                 label = k.replace("_", " ").title()
                 lines.append(f"  • [bold]{label}:[/bold] {val_str}{unit_str}{extra_str}")
@@ -232,6 +237,12 @@ def _render_checkpoint(results_file: Path, run_dir: Path | None = None) -> Rende
     if stopped_reason:
         reason_str = str(stopped_reason).replace("_", " ").title()
         lines.append(f"\n[bold]Flight Termination:[/bold] {reason_str}")
+
+    assumed_losses = details.get("assumed_losses")
+    if assumed_losses:
+        lines.append(
+            f"\n[bold #f59e0b]Placeholder values used for:[/bold #f59e0b] {', '.join(assumed_losses)}"
+        )
 
     # Append run files manifest
     lines.extend(_format_artifacts_manifest(containing_dir))
@@ -540,6 +551,8 @@ def _render_vehicle_directory(v_dir: Path) -> RenderableType:
                         summary_part = f" • Mach {rdata['burnout_mach']:.2f}"
                     elif "apogee_altitude" in rdata:
                         summary_part = f" • Apogee {rdata['apogee_altitude'] / 1000:.1f} km"
+                    elif "thrust_real" in rdata:
+                        summary_part = f" • Thrust {rdata['thrust_real'] / 1000:.2f} kN"
             except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError):
                 summary_part = ""
 

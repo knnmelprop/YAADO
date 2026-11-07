@@ -163,6 +163,10 @@ class RamjetEngine(BaseModel):
         nozzle_area_ratio: Nozzle exit/throat area ratio. (>= 1)
         nozzle_throat_diameter: Nozzle throat diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)
         nozzle_exit_diameter: Nozzle exit diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)
+        inlet_recovery: Inlet total-pressure recovery pt2/pt0 at design_mach. Defaults to None. (0 to 1]
+        combustor_pressure_ratio: Combustor total-pressure ratio pt4/pt2. Defaults to None. (0 to 1]
+        nozzle_pressure_ratio: Nozzle total-pressure ratio. Defaults to None. (0 to 1]
+        combustion_efficiency: Fraction of the fuel heating value released. Defaults to None. (0 to 1]
         mass: Mass Properties
     """
 
@@ -174,6 +178,10 @@ class RamjetEngine(BaseModel):
         "nozzle_area_ratio": "-",
         "nozzle_throat_diameter": "m",
         "nozzle_exit_diameter": "m",
+        "inlet_recovery": "-",
+        "combustor_pressure_ratio": "-",
+        "nozzle_pressure_ratio": "-",
+        "combustion_efficiency": "-",
     }
     HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("design_mach", "combustor_temp", "fuel_type")
 
@@ -218,7 +226,39 @@ class RamjetEngine(BaseModel):
         examples=[0.375],
         description='''Nozzle exit diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)'''
     )
-    
+
+    inlet_recovery: float | None = Field(
+        default=None,
+        gt=0.0,
+        le=1.0,
+        examples=[0.874],
+        description='''Inlet total-pressure recovery pt2/pt0 at design_mach. Defaults to None. (0 to 1]'''
+    )
+
+    combustor_pressure_ratio: float | None = Field(
+        default=None,
+        gt=0.0,
+        le=1.0,
+        examples=[0.8924],
+        description='''Combustor total-pressure ratio pt4/pt2. Defaults to None. (0 to 1]'''
+    )
+
+    nozzle_pressure_ratio: float | None = Field(
+        default=None,
+        gt=0.0,
+        le=1.0,
+        examples=[0.97],
+        description='''Nozzle total-pressure ratio. Defaults to None. (0 to 1]'''
+    )
+
+    combustion_efficiency: float | None = Field(
+        default=None,
+        gt=0.0,
+        le=1.0,
+        examples=[0.95],
+        description='''Fraction of the fuel heating value released. Defaults to None. (0 to 1]'''
+    )
+
     mass: MassProperties | None = Field(
         default=None,
         examples=[
@@ -374,3 +414,5 @@ AnyPropulsionComponent = Annotated[
 ]
 
 AnyBoosterComponent = SolidMotor
+
+AnyRamjetComponent = RamjetEngine

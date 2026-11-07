@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from textual import events
-from textual.widgets import TabbedContent
+from textual.widgets import Input, OptionList, Static, TabbedContent
 
 from Terminal.app import YaadoApp
 from Terminal.screens.flight_deck import (
@@ -23,16 +23,26 @@ from Terminal.screens.flight_deck import (
 from Terminal.solvers import (
     REPAIRED_SOLVERS,
     PipelineStage,
+    SolverDescriptor,
     check_solver_compatibility,
     resolve_fins_name,
 )
 from Terminal.widgets import SolverParamsForm, format_stage_param_specs
+from YAADO_Core.ComponentStore import RamjetEngine
 from YAADO_Core.Foundation.analysis_base import FidelityLevel
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     PointMass3DOFBoostAnalysis,
 )
+from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
+from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
+    HeiserPrattCycleAnalysis,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ALVRJ_TOML = REPO_ROOT / "Hangar" / "examples" / "ALVRJ" / "ALVRJ.toml"
+HARPOON_TOML = REPO_ROOT / "Hangar" / "examples" / "AGM-84_HARPOON" / "AGM-84_HARPOON.toml"
 
 # Regex matching common emoji unicode ranges
 EMOJI_PATTERN = re.compile(
@@ -53,6 +63,11 @@ EMOJI_PATTERN = re.compile(
 )
 
 
+def _ramjet_descriptor() -> SolverDescriptor:
+    """Return the Heiser & Pratt ramjet cycle catalog entry."""
+    return next(s for s in REPAIRED_SOLVERS if s.solver_id == "heiser_pratt_cycle")
+
+
 def _assert_no_emojis(text: str) -> None:
     """Assert that a string contains no emoji characters."""
     matches = EMOJI_PATTERN.findall(text)
@@ -61,16 +76,20 @@ def _assert_no_emojis(text: str) -> None:
 
 def test_repaired_solvers_catalog_contains_only_repaired() -> None:
     """Verify that REPAIRED_SOLVERS strictly exposes only verified solvers."""
-    assert len(REPAIRED_SOLVERS) == 1, "Only repaired solvers must be in catalog"
-    single_solver = REPAIRED_SOLVERS[0]
+    ids = [s.solver_id for s in REPAIRED_SOLVERS]
+    assert ids == ["point_mass_3dof_boost", "heiser_pratt_cycle"], "Only repaired solvers must be in catalog"
 
-    assert single_solver.solver_id == "point_mass_3dof_boost"
-    assert single_solver.solver_cls is PointMass3DOFBoostAnalysis
-    assert single_solver.fidelity == FidelityLevel.LEVEL_0
-    assert single_solver.discipline == "FLIGHT DYNAMICS"
+    trajectory = REPAIRED_SOLVERS[0]
+    assert trajectory.solver_cls is PointMass3DOFBoostAnalysis
+    assert trajectory.fidelity == FidelityLevel.LEVEL_0
+    assert trajectory.discipline == "FLIGHT DYNAMICS"
+
+    ramjet = _ramjet_descriptor()
+    assert ramjet.solver_cls is HeiserPrattCycleAnalysis
+    assert ramjet.fidelity == FidelityLevel.LEVEL_2
+    assert ramjet.discipline == "PROPULSION"
 
     # Verify no unverified methods exist
-    ids = [s.solver_id for s in REPAIRED_SOLVERS]
     for unverified in ("avl", "xfoil", "su2", "ramjet", "openvsp", "datcom"):
         assert unverified not in ids, f"Unverified solver '{unverified}' must not be listed"
 
@@ -481,7 +500,6 @@ def test_flight_deck_pipeline_stage_symbols_display() -> None:
     import asyncio
 
     from textual.app import App, ComposeResult
-    from textual.widgets import OptionList
 
     harpoon_path = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
     vehicle = BaseVehicleConfig.from_toml(harpoon_path)
@@ -607,3 +625,261 @@ def test_flight_deck_solver_form_scrollable() -> None:
 
     asyncio.run(_test())
 
+
+def test_ramjet_compatibility_follows_the_vehicle_propulsion() -> None:
+    """The ramjet cycle is ready only for a vehicle with exactly one ramjet."""
+    desc = _ramjet_descriptor()
+
+    is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig.from_toml(ALVRJ_TOML))
+    assert is_ready
+    assert "sustainer" in msg
+    _assert_no_emojis(msg)
+
+    is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig.from_toml(HARPOON_TOML))
+    assert not is_ready
+    assert "Missing ramjet" in msg
+
+    twin = BaseVehicleConfig(
+        name="twin",
+        propulsion={
+            "left": RamjetEngine(design_mach=2.5, combustor_temp=2000.0, nozzle_area_ratio=2.0),
+            "right": RamjetEngine(design_mach=2.5, combustor_temp=2000.0, nozzle_area_ratio=2.0),
+        },
+    )
+    is_ready, msg = check_solver_compatibility(desc, twin)
+    assert not is_ready
+    assert "left" in msg and "right" in msg
+
+
+def test_ramjet_run_uses_toml_values_when_parameters_are_blank() -> None:
+    """Default parameters leave Mach, Tt4 and mass flow to the vehicle."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_TOML)
+    fd = FlightDeckView(active_vehicle=vehicle, active_vehicle_path=ALVRJ_TOML)
+
+    results = fd.run_solver(_ramjet_descriptor(), enable_logging=False)
+
+    assert isinstance(results, HeiserPrattResults)
+    assert results.inputs.mach == 2.6
+    assert results.inputs.tt4 == 2150.0
+    assert results.thrust_real > 10000.0
+
+
+def test_ramjet_run_applies_custom_parameters() -> None:
+    """Tuned parameters override the vehicle's design point."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_TOML)
+    fd = FlightDeckView(active_vehicle=vehicle, active_vehicle_path=ALVRJ_TOML)
+    desc = _ramjet_descriptor()
+
+    params = {**desc.default_params, "mach": 3.0, "altitude_m": 12000.0, "eta_inlet": 0.7}
+    results = fd.run_solver(desc, enable_logging=False, params=params)
+
+    assert isinstance(results, HeiserPrattResults)
+    assert results.inputs.mach == 3.0
+    assert results.inputs.altitude == 12000.0
+    assert results.inputs.eta_inlet == 0.7
+
+
+def test_ramjet_without_throat_needs_a_mass_flow_from_the_form() -> None:
+    """A throatless ramjet is runnable, but fails clearly until the flow is set."""
+    engine = RamjetEngine(design_mach=2.5, combustor_temp=2000.0, nozzle_area_ratio=2.0)
+    vehicle = BaseVehicleConfig(name="no_throat", propulsion={"ramjet": engine})
+    fd = FlightDeckView(active_vehicle=vehicle)
+    desc = _ramjet_descriptor()
+
+    is_ready, msg = check_solver_compatibility(desc, vehicle)
+    assert is_ready
+    assert "air mass flow" in msg
+
+    assert fd.run_solver(desc, enable_logging=False) is None
+
+    params = {**desc.default_params, "mdot_air": 12.0}
+    results = fd.run_solver(desc, enable_logging=False, params=params)
+    assert isinstance(results, HeiserPrattResults)
+    assert results.mdot_air == 12.0
+
+
+def test_ramjet_stage_badge_skips_blank_parameters() -> None:
+    """Parameters left to the vehicle must not show as 'None' in the pipeline."""
+    desc = _ramjet_descriptor()
+    stage = PipelineStage(descriptor=desc, params=dict(desc.default_params))
+
+    badge = format_stage_param_specs(stage)
+    assert "None" not in badge
+    assert "η_i" not in badge
+
+    stage.params["mach"] = 3.0
+    stage.params["eta_inlet"] = 0.8
+    assert "M=3" in format_stage_param_specs(stage)
+    assert "η_i=0.8" in format_stage_param_specs(stage)
+    _assert_no_emojis(format_stage_param_specs(stage))
+
+
+def test_completion_message_reports_the_solver_headline() -> None:
+    """The run notification must not report a trajectory metric for a ramjet."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_TOML)
+    fd = FlightDeckView(active_vehicle=vehicle)
+    desc = _ramjet_descriptor()
+    results = fd.run_solver(desc, enable_logging=False)
+    assert results is not None
+
+    message = fd._completion_message(desc, results)
+    assert message.startswith("Completed Heiser & Pratt Ramjet Cycle (Net Thrust: ")
+    assert message.endswith(" N)")
+    assert "Mach" not in message
+
+
+def test_ramjet_full_workflow_through_the_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Select, tune, run and stage the ramjet cycle with the real key bindings."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(140, 42)) as pilot:
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+
+            tile = fd.query_one("#tile-solver-heiser_pratt_cycle", SolverTile)
+            await pilot.click(tile)
+            await pilot.pause(0.3)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            assert form.query_one("#param-inp-mach", Input).value == ""
+            assert form.query_one("#param-inp-mach", Input).placeholder == "TOML"
+
+            # A symbol such as [M] must not be read as Rich markup
+            labels = [str(label.render()) for label in form.query(".form-label").results(Static)]
+            assert "Flight Mach [M]:" in labels
+            assert "Fuel Heating Value [LHV]:" in labels
+
+            # Tune through the form, then run with the 'r' binding
+            form.query_one("#param-inp-mach", Input).value = "3.0"
+            await pilot.pause(0.1)
+            await pilot.press("r")
+            await pilot.pause(0.3)
+            content = str(fd.query_one("#flightdeck-results-content", Static).render())
+            assert "Net Thrust" in content
+            assert " kN)" in content
+            assert "Fuel-Air Ratio" in content
+            assert "Placeholder values used for: inlet_recovery" in content
+
+            # Clearing the input returns the value to the vehicle
+            await pilot.press("b")
+            await pilot.pause(0.2)
+            form.query_one("#param-inp-mach", Input).value = ""
+            await pilot.pause(0.1)
+            assert fd._active_params["mach"] is None
+
+            # A mixed pipeline runs both solvers with their own parameters
+            await pilot.press("a")
+            await pilot.pause(0.1)
+            await pilot.click(fd.query_one("#tile-solver-point_mass_3dof_boost", SolverTile))
+            await pilot.pause(0.3)
+            await pilot.press("a")
+            await pilot.pause(0.1)
+            assert [s.descriptor.solver_id for s in fd.pipeline] == [
+                "heiser_pratt_cycle",
+                "point_mass_3dof_boost",
+            ]
+            pipeline_list = fd.query_one("#flightdeck-pipeline-list", OptionList)
+            assert "[READY]" in str(pipeline_list.get_option_at_index(0).prompt)
+            await pilot.press("x")
+            await pilot.pause(1.0)
+
+    asyncio.run(_test())
+
+    runs = sorted(p.parent.name for p in (tmp_path / "FlightLogs" / "ALVRJ").glob("*/results.json"))
+    assert sum(name.startswith("heiser_pratt_cycle_") for name in runs) >= 2
+    assert sum(name.startswith("point_mass_3dof_boost_") for name in runs) == 1
+
+
+def test_form_keeps_controls_when_highlight_events_arrive_together() -> None:
+    """A click sends focus and click highlights at once; the form must still fill.
+
+    Cancelling a remount for the second event used to leave the form empty.
+    """
+    import asyncio
+
+    from textual.app import App, ComposeResult
+
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_TOML)
+
+    class TestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield FlightDeckView(active_vehicle=vehicle, id="flightdeck")
+
+    async def _test() -> None:
+        app = TestApp()
+        async with app.run_test(size=(140, 42)) as pilot:
+            await pilot.pause(0.2)
+            fd = app.query_one("#flightdeck", FlightDeckView)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            tiles = [fd.query_one(f"#tile-solver-{s.solver_id}", SolverTile) for s in REPAIRED_SOLVERS]
+
+            for tile in (tiles[1], tiles[0], tiles[1]):
+                tile.focus()
+                tile.post_message(
+                    SolverTile.SolverHighlighted(tile.descriptor, tile.is_ready, tile.status_msg)
+                )
+                await pilot.pause(0.3)
+                assert form.descriptor is tile.descriptor
+                assert len(form.query("#solver-form-header")) == 1
+                numeric = [p for p in tile.descriptor.parameters if p.param_type is not bool]
+                assert len(form.query(Input)) == len(numeric)
+                assert set(fd._active_params) == {p.name for p in tile.descriptor.parameters}
+
+            # Rapid switching must settle on the last solver without hanging
+            for index in range(30):
+                tiles[index % 2].focus()
+                await asyncio.sleep(0)
+            await pilot.pause(0.5)
+            assert form.descriptor is tiles[1].descriptor
+            assert len(form.query("#solver-form-header")) == 1
+
+    asyncio.run(_test())
+
+
+def test_optional_parameter_input_validation() -> None:
+    """Blank is valid only for optional parameters; bounds still apply to typed values."""
+    import asyncio
+
+    from textual.app import App, ComposeResult
+
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_TOML)
+
+    class TestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield FlightDeckView(active_vehicle=vehicle, id="flightdeck")
+
+    async def _test() -> None:
+        app = TestApp()
+        async with app.run_test(size=(140, 42)) as pilot:
+            await pilot.pause(0.2)
+            fd = app.query_one("#flightdeck", FlightDeckView)
+            fd.query_one("#tile-solver-heiser_pratt_cycle", SolverTile).focus()
+            await pilot.pause(0.3)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+
+            mach = form.query_one("#param-inp-mach", Input)
+            mach.value = "0.5"
+            await pilot.pause(0.1)
+            assert mach.has_class("-invalid")
+            assert fd._active_params["mach"] is None
+
+            mach.value = ""
+            await pilot.pause(0.1)
+            assert not mach.has_class("-invalid")
+            assert fd._active_params["mach"] is None
+
+            altitude = form.query_one("#param-inp-altitude_m", Input)
+            altitude.value = ""
+            await pilot.pause(0.1)
+            assert altitude.has_class("-invalid")
+            assert fd._active_params["altitude_m"] == 10000.0
+
+    asyncio.run(_test())

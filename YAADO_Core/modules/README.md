@@ -7,6 +7,7 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | Submodule | Method / Tool | File | Fidelity | Description |
 | :--- | :--- | :--- | :---: | :--- |
 | **Flight Dynamics** | `PointMass3DOFBoostAnalysis` | [`flight_dynamics/methods/point_mass_3dof.py`](flight_dynamics/methods/point_mass_3dof.py) | L0 | 3-DOF point-mass rocket boost trajectory simulation |
+| **Powerplant** | `HeiserPrattCycleAnalysis` | [`powerplant/cycle_methods/heiser_pratt.py`](powerplant/cycle_methods/heiser_pratt.py) | L2 | 1-D two-gas ramjet station cycle with finite nozzle area ratio |
 
 ## Not Yet Repaired and/or Verified Methods:
 
@@ -19,7 +20,6 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | **Powerplant** | Taylor-Maccoll Solver | [`powerplant/inlet_methods/taylor_maccoll.py`](powerplant/inlet_methods/taylor_maccoll.py) | L0 | Conical shock ODE integration |
 | **Powerplant** | `RamjetCycleAnalysis` | [`powerplant/cycle_methods/mattingly.py`](powerplant/cycle_methods/mattingly.py) | L2 | 1-D thermodynamic station ramjet cycle |
 | **Powerplant** | `GrzywkaCombustorNozzleAnalysis` | [`powerplant/cycle_methods/grzywka.py`](powerplant/cycle_methods/grzywka.py) | L2 | 1-D ramjet combustor and nozzle expansion |
-| **Powerplant** | Heiser & Pratt Cycle | [`powerplant/cycle_methods/heiser_pratt.py`](powerplant/cycle_methods/heiser_pratt.py) | L2 | Stream-thrust ramjet cycle routines |
 | **Stability & Control** | `BarrowmanStabilityAnalysis` | [`stability_control/methods/barrowman/barrowman_stability.py`](stability_control/methods/barrowman/barrowman_stability.py) | L0 | Slender-body rocket static margin and CP |
 | **Stability & Control** | `BarrowmanExtendedAnalysis` | [`stability_control/methods/barrowman/barrowman_extended.py`](stability_control/methods/barrowman/barrowman_extended.py) | L0 | Extended Barrowman with transonic corrections |
 | **Stability & Control** | DATCOM Runner | [`stability_control/methods/datcom/datcom_class_sweep.py`](stability_control/methods/datcom/datcom_class_sweep.py) | L1 | USAF Digital DATCOM deck generator and wrapper |
@@ -61,6 +61,9 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 
 * **Single entry-point**:
   * No standalone `argparse` blocks, CLI scripts, or runnable `if __name__ == "__main__":` blocks inside solver modules. All execution goes through the analysis class's `execute()` method or the main YAADO CLI (`Terminal/`).
+
+* **Usable from the CLI**:
+  * A module counts as repaired only once it can be used through the Flight Deck and `yaado -b`. Follow [Adding a Solver](../../Terminal/README.md#adding-a-solver).
 
 * **Verification on real TOML configurations**:
   * Make sure the method can actually run by testing it on an actual TOML file from `Hangar/examples/` (or via vehicle factory), not just synthetic unit mocks.

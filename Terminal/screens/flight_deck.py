@@ -1,6 +1,6 @@
 """Flight Deck view (Tab 3) for solver execution, pipelines, sweeps, and log inspection.
 
-Provides interfaces to configure verified physics solvers (currently Point-Mass 3-DOF),
+Provides interfaces to configure verified physics solvers (see ``REPAIRED_SOLVERS``),
 construct sequential computational pipelines, execute batch parameter sweeps,
 and interactively review historical runs stored in FlightLogs.
 """
@@ -597,6 +597,7 @@ class FlightDeckView(Container):
         descriptor: SolverDescriptor,
         results: Any,
         run_dir: Path | None = None,
+        warnings: Sequence[str] = (),
     ) -> None:
         """Render execution telemetry metrics into results card.
 
@@ -604,6 +605,7 @@ class FlightDeckView(Container):
             descriptor: Executed solver descriptor.
             results: Strongly typed results object returned by the solver.
             run_dir: Directory where run artifacts were saved, if any.
+            warnings: Conditions that limit how far the user can trust the results.
         """
         try:
             results_card = self.query_one("#flightdeck-results-card", Container)
@@ -633,10 +635,16 @@ class FlightDeckView(Container):
                             extra_str = f" ({val / 1000:.2f} km)"
                         elif f_unit == "Pa" and abs(val) >= 1000:
                             extra_str = f" ({val / 1000:.2f} kPa)"
+                        elif f_unit == "N" and abs(val) >= 1000:
+                            extra_str = f" ({val / 1000:.2f} kN)"
                         unit_str = f" {f_unit}" if f_unit and f_unit != "-" else ""
                         lines.append(f"  • [bold]{f_label}:[/bold] {val_str}{unit_str}{extra_str}")
                     else:
                         lines.append(f"  • [bold]{f_label}:[/bold] {val}")
+
+            for warning in warnings:
+                lines.append("")
+                lines.append(f"[bold #f59e0b]WARNING:[/bold #f59e0b] {escape(warning)}")
 
             if run_dir is not None:
                 lines.append("")
@@ -708,7 +716,29 @@ class FlightDeckView(Container):
             return f"{num:.3e}"
         if abs(num) >= 100:
             return f"{num:.1f}"
+        if abs(num) < 0.1:
+            return f"{num:.4f}".rstrip("0").rstrip(".")
         return f"{num:.3f}".rstrip("0").rstrip(".")
+
+    def _stage_label(self, stage_idx: int, stage: PipelineStage) -> str:
+        """Build a pipeline row, with the status ahead of parameters that may be truncated.
+
+        Args:
+            stage_idx: 1-based index of stage in pipeline.
+            stage: PipelineStage instance to label.
+
+        Returns:
+            Rich markup label for the option list.
+        """
+        is_ready, _ = check_solver_compatibility(stage.descriptor, self.active_vehicle)
+        status_tag = (
+            "[bold #10b981][READY][/bold #10b981]"
+            if is_ready
+            else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+        )
+        param_specs = format_stage_param_specs(stage)
+        param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
+        return f"Stage {stage_idx}: [bold]{escape(stage.descriptor.name)}[/bold]  {status_tag}{param_badge}"
 
     def _refresh_pipeline_ui(self) -> None:
         """Update the pipeline option list."""
@@ -726,16 +756,9 @@ class FlightDeckView(Container):
                 return
 
             for idx, stage in enumerate(self.pipeline, start=1):
-                is_ready, _ = check_solver_compatibility(stage.descriptor, self.active_vehicle)
-                status_tag = (
-                    "[bold #10b981][READY][/bold #10b981]"
-                    if is_ready
-                    else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+                pipeline_list.add_option(
+                    Option(prompt=self._stage_label(idx, stage), id=f"stage_{idx}")
                 )
-                param_specs = format_stage_param_specs(stage)
-                param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
-                label = f"Stage {idx}: [bold]{escape(stage.descriptor.name)}[/bold]{param_badge}  {status_tag}"
-                pipeline_list.add_option(Option(prompt=label, id=f"stage_{idx}"))
         except NoMatches:
             pass
 
@@ -813,12 +836,8 @@ class FlightDeckView(Container):
             return None
 
         self._selected_flightlog_path = None
-        self._render_run_results(descriptor, run.results, run.output_dir)
-        burnout_mach = getattr(run.results, "burnout_mach", 0.0)
-        self._notify(
-            f"Completed {descriptor.name} (Mach {burnout_mach:.2f})",
-            severity="information",
-        )
+        self._render_run_results(descriptor, run.results, run.output_dir, run.warnings)
+        self._notify(self._completion_message(descriptor, run.results), severity="information")
 
         # Refresh flight logs tree
         try:
@@ -828,6 +847,23 @@ class FlightDeckView(Container):
             pass
 
         return run.results
+
+    def _completion_message(
+        self, descriptor: SolverDescriptor, results: BaseAnalysisResults
+    ) -> str:
+        """Build the run notification from the solver's first headline output.
+
+        Args:
+            descriptor: Executed solver descriptor.
+            results: Results returned by the solver.
+
+        Returns:
+            Notification text naming the solver and its leading metric.
+        """
+        field_name, unit, label = descriptor.headline_outputs[0]
+        value = self._format_number(getattr(results, field_name), unit)
+        unit_str = f" {unit}" if unit != "-" else ""
+        return f"Completed {descriptor.name} ({label}: {value}{unit_str})"
 
     def action_quick_run(self) -> None:
         """Execute the currently focused solver or staged pipeline step on the active vehicle."""
@@ -946,16 +982,9 @@ class FlightDeckView(Container):
             stage.params[event.name] = event.value
             try:
                 pipeline_list = self.query_one("#flightdeck-pipeline-list", PipelineList)
-                is_ready, _ = check_solver_compatibility(stage.descriptor, self.active_vehicle)
-                status_tag = (
-                    "[bold #10b981][READY][/bold #10b981]"
-                    if is_ready
-                    else "[bold #f59e0b][INAPPLICABLE][/bold #f59e0b]"
+                pipeline_list.replace_option_prompt_at_index(
+                    event.stage_index - 1, self._stage_label(event.stage_index, stage)
                 )
-                param_specs = format_stage_param_specs(stage)
-                param_badge = f"  [dim]{param_specs}[/dim]" if param_specs else ""
-                label = f"Stage {event.stage_index}: [bold]{escape(stage.descriptor.name)}[/bold]{param_badge}  {status_tag}"
-                pipeline_list.replace_option_prompt_at_index(event.stage_index - 1, label)
             except NoMatches:
                 pass
         else:

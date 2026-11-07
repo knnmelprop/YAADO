@@ -14,12 +14,14 @@ from YAADO_Core.ComponentStore import (
     AERO_COMPONENTS,
     BODY_COMPONENTS,
     BOOSTER_COMPONENTS,
+    RAMJET_COMPONENTS,
 )
 from YAADO_Core.Foundation.analysis_base import (
     BaseAnalysis,
     BaseAnalysisResults,
     FidelityLevel,
 )
+from YAADO_Core.Foundation.constants import LHV_KEROSENE
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import (
@@ -33,6 +35,14 @@ from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     plot_full_flight,
     plot_launch_angle_sweep,
     run_launch_angle_sweep,
+)
+from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
+from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
+    HeiserPrattCycleAnalysis,
+    format_mach_sweep_csv,
+    plot_cycle_stations,
+    plot_mach_sweep,
+    run_mach_sweep,
 )
 
 _TRUE_STRINGS = frozenset({"true", "1", "yes"})
@@ -49,10 +59,12 @@ class SolverParam:
         symbol: Compact aerospace symbol (e.g. γ₀, h₀, M, α).
         unit: Canonical SI unit string (e.g. deg, m, s).
         param_type: Python type (float, int, bool, str).
-        default: Default value in canonical SI units.
+        default: Default value in canonical SI units. ``None`` makes the parameter
+            optional: it may be left blank and the solver resolves the value.
         description: Informative parameter explanation tooltip/hint.
         min_value: Optional minimum numerical bound.
         max_value: Optional maximum numerical bound.
+        placeholder: Source of the value while an optional parameter is blank.
     """
 
     name: str
@@ -64,6 +76,7 @@ class SolverParam:
     description: str = ""
     min_value: float | None = None
     max_value: float | None = None
+    placeholder: str = ""
 
     def parse(self, raw: str) -> Any:
         """Convert text input to this parameter's type and check its bounds.
@@ -72,12 +85,14 @@ class SolverParam:
             raw: User-entered text value.
 
         Returns:
-            The parsed value.
+            The parsed value, or ``None`` for a blank optional parameter.
 
         Raises:
             ValueError: If the text does not parse or the value is out of bounds.
         """
         text = raw.strip()
+        if not text and self.default is None:
+            return None
         if self.param_type is bool:
             if text.lower() in _TRUE_STRINGS:
                 return True
@@ -148,11 +163,13 @@ class SolverRun:
         results: Typed results returned by the solver.
         params: Parameters passed to solver.setup(), including auto-detected component names.
         output_dir: FlightLogs run directory, or None when logging was disabled.
+        warnings: Conditions that limit how far the user can trust the results.
     """
 
     results: BaseAnalysisResults
     params: dict[str, Any]
     output_dir: Path | None
+    warnings: tuple[str, ...] = ()
 
 
 REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
@@ -231,6 +248,153 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
             ),
         ),
     ),
+    SolverDescriptor(
+        solver_id="heiser_pratt_cycle",
+        name="Heiser & Pratt Ramjet Cycle",
+        discipline="PROPULSION",
+        fidelity=HeiserPrattCycleAnalysis.fidelity,
+        solver_cls=HeiserPrattCycleAnalysis,
+        description=(
+            "Evaluates a 1-D two-gas ramjet station cycle at one flight condition: inlet recovery, "
+            "combustor heat addition, and expansion through the finite nozzle area ratio. "
+            "Set the losses on the ramjet or below: other values are placeholders."
+        ),
+        required_components_desc=(
+            "One ramjet (RamjetEngine) with nozzle_throat_diameter, or an air mass flow set below."
+        ),
+        headline_outputs=(
+            ("thrust_real", "N", "Net Thrust"),
+            ("thrust_ideal", "N", "Ideal Thrust"),
+            ("specific_impulse", "s", "Specific Impulse"),
+            ("mdot_air", "kg/s", "Air Mass Flow"),
+            ("fuel_air_ratio", "-", "Fuel-Air Ratio"),
+            ("capture_area", "m^2", "Required Capture Area"),
+            ("mach_exit", "-", "Exit Mach"),
+            ("v_exit", "m/s", "Exit Velocity"),
+            ("p_exit_over_p0", "-", "Exit Pressure Ratio p_e/p0"),
+            ("a_throat", "m^2", "Throat Area"),
+            ("a_exit", "m^2", "Exit Area"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Flight Mach",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Flight Mach number (> 1). Blank uses design_mach",
+                min_value=1.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="altitude_m",
+                label="Flight Altitude",
+                symbol="h",
+                unit="m",
+                param_type=float,
+                default=HeiserPrattCycleAnalysis.DEFAULT_ALTITUDE_M,
+                description="ISA flight altitude above MSL",
+                min_value=0.0,
+                max_value=80000.0,
+            ),
+            SolverParam(
+                name="tt4",
+                label="Combustor Exit Temp",
+                symbol="Tt₄",
+                unit="K",
+                param_type=float,
+                default=None,
+                description="Combustor-exit total temperature. Blank uses combustor_temp",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="mdot_air",
+                label="Air Mass Flow",
+                symbol="ṁ_air",
+                unit="kg/s",
+                param_type=float,
+                default=None,
+                description="Blank derives the flow from the choked nozzle throat",
+                min_value=0.0,
+                placeholder="throat",
+            ),
+            SolverParam(
+                name="eta_inlet",
+                label="Inlet Recovery",
+                symbol="η_i",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Inlet total-pressure recovery pt2/pt0. Blank uses inlet_recovery",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_ETA_INLET}",
+            ),
+            SolverParam(
+                name="pi_cc",
+                label="Combustor pt Ratio",
+                symbol="π_cc",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Combustor total-pressure ratio pt4/pt2. Blank uses combustor_pressure_ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_PI_CC}",
+            ),
+            SolverParam(
+                name="pi_nozzle",
+                label="Nozzle pt Ratio",
+                symbol="π_n",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Nozzle total-pressure ratio. Blank uses nozzle_pressure_ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_PI_NOZZLE}",
+            ),
+            SolverParam(
+                name="eta_b",
+                label="Combustion Efficiency",
+                symbol="η_b",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Fraction of fuel energy released. Blank uses combustion_efficiency",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_ETA_B}",
+            ),
+            SolverParam(
+                name="gamma_hot",
+                label="Products Gamma",
+                symbol="γ_h",
+                unit="-",
+                param_type=float,
+                default=None,
+                description=(
+                    f"Blank uses {HeiserPrattCycleAnalysis.DEFAULT_GAMMA_HOT} for kerosene. "
+                    "Required for other fuels"
+                ),
+                min_value=1.0,
+                placeholder="kerosene",
+            ),
+            SolverParam(
+                name="fuel_lhv",
+                label="Fuel Heating Value",
+                symbol="LHV",
+                unit="J/kg",
+                param_type=float,
+                default=None,
+                description=f"Blank uses {LHV_KEROSENE:.3g} for kerosene. Required for other fuels",
+                min_value=0.0,
+                placeholder="kerosene",
+            ),
+        ),
+    ),
 )
 
 
@@ -271,6 +435,18 @@ def check_solver_compatibility(
         booster_name = next(iter(boosters.keys()))
         body_name = next(iter(bodies.keys()))
         return True, f"Ready ({booster_name}, {body_name}, {vehicle.total_mass:.1f} kg)"
+
+    if descriptor.solver_id == "heiser_pratt_cycle":
+        ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
+        if not ramjets:
+            return False, "Missing ramjet propulsion (RamjetEngine)"
+        if len(ramjets) > 1:
+            return False, f"Flight Deck runs one ramjet at a time; found {sorted(ramjets)}"
+
+        ramjet_name, ramjet = next(iter(ramjets.items()))
+        if ramjet.nozzle_throat_diameter is None:
+            return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
+        return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
     return False, "Unknown solver compatibility rule"
 
@@ -330,13 +506,44 @@ def execute_solver(
     solver.setup(vehicle, enable_logging=enable_logging, **exec_params)
     results = solver.execute()
 
+    warnings = _run_warnings(results)
     if not solver.logger.enabled:
-        return SolverRun(results=results, params=exec_params, output_dir=None)
+        return SolverRun(results=results, params=exec_params, output_dir=None, warnings=warnings)
 
     if isinstance(results, PointMassBoostResults):
         _save_point_mass_artifacts(solver.logger, vehicle, results, exec_params, run_sweep)
+    elif isinstance(results, HeiserPrattResults):
+        _save_ramjet_artifacts(solver.logger, results, run_sweep)
     solver.logger.save_results(results)
-    return SolverRun(results=results, params=exec_params, output_dir=solver.logger.output_dir)
+    return SolverRun(
+        results=results,
+        params=exec_params,
+        output_dir=solver.logger.output_dir,
+        warnings=warnings,
+    )
+
+
+def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
+    """List the conditions that limit how far the user can trust a run."""
+    if isinstance(results, HeiserPrattResults) and results.assumed_losses:
+        return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
+    return ()
+
+
+def _save_ramjet_artifacts(
+    logger: FlightLogger, results: HeiserPrattResults, run_sweep: bool
+) -> None:
+    """Save the station figure and, optionally, the Mach sweep for a ramjet run."""
+    logger.save_figure(plot_cycle_stations(results), "cycle_stations.png", show=False)
+    if not run_sweep:
+        return
+
+    points = run_mach_sweep(results)
+    sweep_fig = plot_mach_sweep(
+        points, design_mach=results.inputs.mach, design_capture_area=results.capture_area
+    )
+    logger.save_figure(sweep_fig, "mach_sweep.png", show=False)
+    logger.save_artifact("mach_sweep.csv", format_mach_sweep_csv(points))
 
 
 def _save_point_mass_artifacts(

@@ -27,6 +27,8 @@
 
 Add its `SolverDescriptor` to `REPAIRED_SOLVERS` and its prerequisites to `check_solver_compatibility` in `solvers.py`; it then appears in the Flight Deck and in `yaado -b --list-solvers`.
 
+Give its run name a display name in `ANALYSIS_DISPLAY_NAMES` (`widgets/flightlog_preview.py`) and `ANALYSIS_NAMES` (`widgets/flightlogs_tree.py`). A parameter with `default=None` is optional: blank in the form, `<placeholder>` in `--list-solvers`, and resolved by the solver.
+
 ## Tests
 
 Tests live in `tests/Terminal/`, mirroring this package. They must not write to `FlightLogs/`: logged runs should `monkeypatch.chdir(tmp_path)` first, or run with `enable_logging=False` / `--no-log`.

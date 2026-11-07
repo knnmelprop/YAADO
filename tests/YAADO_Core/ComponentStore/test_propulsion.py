@@ -1,6 +1,8 @@
 import pytest
 from pydantic import ValidationError
-from YAADO_Core.ComponentStore.propulsion import SolidMotor, RamjetEngine
+
+from YAADO_Core.ComponentStore.propulsion import RamjetEngine, SolidMotor
+
 
 def test_solid_motor_valid():
     """Test parsing a perfectly valid SolidMotor."""
@@ -73,4 +75,19 @@ def test_ramjet_inconsistent_area_ratio_fails():
             "nozzle_throat_diameter": 0.1,
             "nozzle_exit_diameter": 0.2     # But diameters only imply area ratio of 4!
         })
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["inlet_recovery", "combustor_pressure_ratio", "nozzle_pressure_ratio", "combustion_efficiency"],
+)
+def test_ramjet_loss_fields_are_optional_fractions(field: str) -> None:
+    """Loss fields default to None and accept only values in (0, 1]."""
+    base = {"design_mach": 2.5, "combustor_temp": 2000.0, "nozzle_area_ratio": 2.0}
+
+    assert getattr(RamjetEngine(**base), field) is None
+    assert getattr(RamjetEngine(**base, **{field: 1.0}), field) == 1.0
+    for invalid in (0.0, 1.1):
+        with pytest.raises(ValueError):
+            RamjetEngine(**base, **{field: invalid})
 

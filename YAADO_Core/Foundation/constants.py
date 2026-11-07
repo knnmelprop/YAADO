@@ -87,6 +87,13 @@ SUTHERLAND_MU0: float = 1.7894e-5
 """Reference dynamic viscosity of dry air at T0_ISA [Pa*s] (ICAO Doc 7488)."""
 
 # -----------------------------------------------------------------------------
+# Fuel Properties
+# -----------------------------------------------------------------------------
+
+LHV_KEROSENE: float = 43.0e6
+"""Lower heating value of kerosene / Jet-A [J/kg] (standard range 43.0-43.2 MJ/kg)."""
+
+# -----------------------------------------------------------------------------
 # ICAO Standard Atmosphere Altitude Limits
 # -----------------------------------------------------------------------------
 

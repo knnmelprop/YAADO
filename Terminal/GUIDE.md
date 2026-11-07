@@ -38,16 +38,22 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boo
 # Override parameters and print machine-readable JSON instead
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boost \
          --set launch_angle_deg=45 --set stop_at_burnout=false --json
+
+# Ramjet cycle: Mach, combustor temperature and mass flow come from the vehicle unless set
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle \
+         --set altitude_m=12000 --set eta_inlet=0.8
 ```
 
 | Option | Effect |
 |---|---|
 | `--vehicle TOML` | Vehicle configuration file to analyze. |
 | `--solver ID` | Solver to run (see `--list-solvers`). |
-| `--set NAME=VALUE` | Override a solver parameter, in the unit listed by `--list-solvers`. Repeatable. |
+| `--set NAME=VALUE` | Override a solver parameter, in the unit listed by `--list-solvers`. Repeatable. Defaults in `<angle brackets>` come from the vehicle or fuel. |
 | `--json` | Print all scalar results, units, parameters and the run directory as JSON. |
 | `--no-log` | Write nothing to `FlightLogs/`. |
 | `--no-sweep` | Skip the parameter sweep (and its figure and CSV) saved with logged runs. |
 | `--list-solvers` | List the solver catalog, then exit. |
+
+For the ramjet cycle, set real losses on the engine in the vehicle TOML (see the [module README](../YAADO_Core/modules/powerplant/cycle_methods/README.md)). `--set` overrides them, and the run warns about each loss that falls back to a placeholder.
 
 Logged runs are saved to `FlightLogs/<vehicle>/<solver>_<timestamp>/` under the current directory. Exit status is `0` on success, `1` if the vehicle cannot be loaded or the solver fails, and `2` for invalid arguments. Errors go to stderr, so stdout stays clean for piping.

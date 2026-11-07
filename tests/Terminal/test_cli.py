@@ -109,3 +109,70 @@ def test_no_arguments_launches_cockpit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(YaadoApp, "run", lambda self: launched.append(self))
     assert _exit_code([]) is None
     assert len(launched) == 1
+
+
+ALVRJ_PATH = Path("Hangar/examples/ALVRJ/ALVRJ.toml").resolve()
+RAMJET_RUN = ["-b", "--vehicle", str(ALVRJ_PATH), "--solver", "heiser_pratt_cycle"]
+
+
+def test_bare_list_solvers_shows_where_blank_defaults_come_from(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify optional parameters list their source instead of 'None'."""
+    assert _exit_code(["-b", "--list-solvers"]) == 0
+    out = capsys.readouterr().out
+    assert "heiser_pratt_cycle  [L2]" in out
+    assert "<TOML/0.874>" in out
+    assert "None" not in out
+
+
+def test_bare_ramjet_text_output(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify a ramjet run reads its design point from the TOML and prints thrust."""
+    assert _exit_code([*RAMJET_RUN, "--no-log"]) == 0
+    captured = capsys.readouterr()
+    assert "Placeholder values used for: inlet_recovery" in captured.err
+    rows = {line.split()[0]: line.split()[1:] for line in captured.out.splitlines()}
+    assert rows["vehicle"] == ["ALVRJ"]
+    assert rows["thrust_real"][1] == "N"
+    assert float(rows["thrust_real"][0]) > 10000.0
+    assert rows["a_throat"][1] == "m^2"
+    assert "warning" not in rows
+
+
+def test_bare_ramjet_json_applies_overrides(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify overrides reach the cycle, and blank parameters are reported as null."""
+    argv = [*RAMJET_RUN, "--no-log", "--json", "--set", "mach=3", "--set", "altitude_m=12000"]
+    assert _exit_code(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["params"]["mach"] == 3.0
+    assert payload["params"]["tt4"] is None
+    assert payload["units"]["thrust_real"] == "N"
+    assert payload["results"]["thrust_real"] > 0.0
+    assert "inlet_recovery" in payload["warnings"][0]
+
+
+def test_bare_ramjet_logged_run_writes_flightlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a logged run saves results under the solver's FlightLogs name."""
+    monkeypatch.chdir(tmp_path)
+    assert _exit_code(RAMJET_RUN) == 0
+    rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()}
+    run_dir = tmp_path / rows["flightlog"][0]
+    assert run_dir.parent.name == "ALVRJ"
+    assert run_dir.name.startswith("heiser_pratt_cycle_")
+    assert (run_dir / "results.json").is_file()
+    assert (run_dir / "summary.csv").is_file()
+    assert (run_dir / "figures" / "mach_sweep.png").is_file()
+
+
+def test_bare_ramjet_rejects_vehicle_without_ramjet(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify a turbojet vehicle fails with status 1 and a clear message."""
+    argv = ["-b", "--vehicle", str(HARPOON_PATH), "--solver", "heiser_pratt_cycle", "--no-log"]
+    assert _exit_code(argv) == 1
+    assert "Missing ramjet" in capsys.readouterr().err
+
+
+def test_bare_ramjet_rejects_out_of_range_value() -> None:
+    """Verify --set applies the parameter bounds as a usage error."""
+    assert _exit_code([*RAMJET_RUN, "--no-log", "--set", "mach=0.5"]) == 2
