@@ -297,7 +297,7 @@ class SolverParamsForm(VerticalScroll):
             hint_str = escape(param.description)
 
             row = Horizontal(
-                Static(label_text, classes="form-label"),
+                Static(label_text, classes="form-label", markup=False),
                 input_widget,
                 Static(unit_str, classes="form-unit"),
                 Static(hint_str, classes="form-hint"),

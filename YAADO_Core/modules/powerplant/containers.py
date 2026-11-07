@@ -15,6 +15,7 @@ from YAADO_Core.Foundation.units import (
     MetersPerSecond,
     Newtons,
     Pascals,
+    Seconds,
     SquareMeters,
 )
 
@@ -114,11 +115,14 @@ class HeiserPrattResults(BaseAnalysisResults):
         thrust_ideal: Thrust without combustor or nozzle total-pressure loss.
         thrust_cc_loss: Thrust with the combustor loss only.
         thrust_real: Thrust with both losses. Nominal value for downstream use.
+        specific_impulse: Net thrust per unit fuel weight flow, for the real model.
         capture_area: Freestream tube area that supplies ``mdot_air``.
+        assumed_losses: Loss fields that the analysis took from placeholder defaults.
     """
 
     HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
         "thrust_real",
+        "specific_impulse",
         "mdot_air",
         "fuel_air_ratio",
         "mach_exit",
@@ -149,5 +153,20 @@ class HeiserPrattResults(BaseAnalysisResults):
     thrust_ideal: Newtons
     thrust_cc_loss: Newtons
     thrust_real: Newtons
+    specific_impulse: Seconds
     momentum_thrust: Newtons
     pressure_thrust: Newtons
+    assumed_losses: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MachSweepPoint:
+    """Off-design cycle performance at one Mach number and a fixed nozzle throat."""
+
+    mach: Dimensionless
+    thrust_real: Newtons
+    specific_impulse: Seconds
+    mdot_air: KilogramsPerSecond
+    fuel_air_ratio: Dimensionless
+    capture_area: SquareMeters
+    p_exit_over_p0: Dimensionless

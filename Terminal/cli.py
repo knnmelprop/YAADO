@@ -132,6 +132,9 @@ def run_bare(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         print(f"yaado: error: {exc}", file=sys.stderr)
         return 1
 
+    for warning in run.warnings:
+        print(f"yaado: warning: {warning}", file=sys.stderr)
+
     if args.json:
         print(format_run_json(descriptor, vehicle, run))
     else:
@@ -231,6 +234,7 @@ def format_run_json(
         "results": run.results.scalars(),
         "units": run.results.units(),
         "flightlog": run.output_dir,
+        "warnings": run.warnings,
     }
     return json.dumps(payload, cls=YaadoJSONEncoder, indent=2)
 

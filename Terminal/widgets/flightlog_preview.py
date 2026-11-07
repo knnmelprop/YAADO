@@ -238,6 +238,12 @@ def _render_checkpoint(results_file: Path, run_dir: Path | None = None) -> Rende
         reason_str = str(stopped_reason).replace("_", " ").title()
         lines.append(f"\n[bold]Flight Termination:[/bold] {reason_str}")
 
+    assumed_losses = details.get("assumed_losses")
+    if assumed_losses:
+        lines.append(
+            f"\n[bold #f59e0b]Placeholder values used for:[/bold #f59e0b] {', '.join(assumed_losses)}"
+        )
+
     # Append run files manifest
     lines.extend(_format_artifacts_manifest(containing_dir))
 

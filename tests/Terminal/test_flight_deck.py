@@ -705,10 +705,12 @@ def test_ramjet_stage_badge_skips_blank_parameters() -> None:
 
     badge = format_stage_param_specs(stage)
     assert "None" not in badge
-    assert "η_i=0.874" in badge
+    assert "η_i" not in badge
 
     stage.params["mach"] = 3.0
+    stage.params["eta_inlet"] = 0.8
     assert "M=3" in format_stage_param_specs(stage)
+    assert "η_i=0.8" in format_stage_param_specs(stage)
     _assert_no_emojis(format_stage_param_specs(stage))
 
 
@@ -748,7 +750,12 @@ def test_ramjet_full_workflow_through_the_app(
             await pilot.pause(0.3)
             form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
             assert form.query_one("#param-inp-mach", Input).value == ""
-            assert form.query_one("#param-inp-mach", Input).placeholder == "design_mach"
+            assert form.query_one("#param-inp-mach", Input).placeholder == "TOML"
+
+            # A symbol such as [M] must not be read as Rich markup
+            labels = [str(label.render()) for label in form.query(".form-label").results(Static)]
+            assert "Flight Mach [M]:" in labels
+            assert "Fuel Heating Value [LHV]:" in labels
 
             # Tune through the form, then run with the 'r' binding
             form.query_one("#param-inp-mach", Input).value = "3.0"
@@ -759,6 +766,7 @@ def test_ramjet_full_workflow_through_the_app(
             assert "Net Thrust" in content
             assert " kN)" in content
             assert "Fuel-Air Ratio" in content
+            assert "Placeholder values used for: inlet_recovery" in content
 
             # Clearing the input returns the value to the vehicle
             await pilot.press("b")

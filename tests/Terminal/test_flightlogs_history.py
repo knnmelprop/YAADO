@@ -558,6 +558,7 @@ def test_ramjet_run_is_named_and_summarized_in_flightlogs(tmp_path: Path) -> Non
                 "headline_metrics": ["thrust_real"],
                 "data": {"thrust_real": 14483.9},
                 "units": {"thrust_real": "N"},
+                "details": {"assumed_losses": ["inlet_recovery"]},
             }
         ),
         encoding="utf-8",
@@ -570,3 +571,4 @@ def test_ramjet_run_is_named_and_summarized_in_flightlogs(tmp_path: Path) -> Non
     assert "HEISER & PRATT RAMJET CYCLE" in text
     assert "(14.48 kN)" in text
     assert "Thrust 14.48 kN" in text
+    assert "Placeholder values used for: inlet_recovery" in text

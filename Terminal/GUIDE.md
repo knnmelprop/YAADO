@@ -54,4 +54,6 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle 
 | `--no-sweep` | Skip the parameter sweep (and its figure and CSV) saved with logged runs. |
 | `--list-solvers` | List the solver catalog, then exit. |
 
+For the ramjet cycle, set real losses on the engine in the vehicle TOML (see the [module README](../YAADO_Core/modules/powerplant/cycle_methods/README.md)). `--set` overrides them, and the run warns about each loss that falls back to a placeholder.
+
 Logged runs are saved to `FlightLogs/<vehicle>/<solver>_<timestamp>/` under the current directory. Exit status is `0` on success, `1` if the vehicle cannot be loaded or the solver fails, and `2` for invalid arguments. Errors go to stderr, so stdout stays clean for piping.

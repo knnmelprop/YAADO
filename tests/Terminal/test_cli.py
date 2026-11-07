@@ -122,18 +122,21 @@ def test_bare_list_solvers_shows_where_blank_defaults_come_from(
     assert _exit_code(["-b", "--list-solvers"]) == 0
     out = capsys.readouterr().out
     assert "heiser_pratt_cycle  [L2]" in out
-    assert "<design_mach>" in out
+    assert "<TOML/0.874>" in out
     assert "None" not in out
 
 
 def test_bare_ramjet_text_output(capsys: pytest.CaptureFixture[str]) -> None:
     """Verify a ramjet run reads its design point from the TOML and prints thrust."""
     assert _exit_code([*RAMJET_RUN, "--no-log"]) == 0
-    rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()}
+    captured = capsys.readouterr()
+    assert "Placeholder values used for: inlet_recovery" in captured.err
+    rows = {line.split()[0]: line.split()[1:] for line in captured.out.splitlines()}
     assert rows["vehicle"] == ["ALVRJ"]
     assert rows["thrust_real"][1] == "N"
     assert float(rows["thrust_real"][0]) > 10000.0
     assert rows["a_throat"][1] == "m^2"
+    assert "warning" not in rows
 
 
 def test_bare_ramjet_json_applies_overrides(capsys: pytest.CaptureFixture[str]) -> None:
@@ -145,6 +148,7 @@ def test_bare_ramjet_json_applies_overrides(capsys: pytest.CaptureFixture[str]) 
     assert payload["params"]["tt4"] is None
     assert payload["units"]["thrust_real"] == "N"
     assert payload["results"]["thrust_real"] > 0.0
+    assert "inlet_recovery" in payload["warnings"][0]
 
 
 def test_bare_ramjet_logged_run_writes_flightlog(
@@ -159,6 +163,7 @@ def test_bare_ramjet_logged_run_writes_flightlog(
     assert run_dir.name.startswith("heiser_pratt_cycle_")
     assert (run_dir / "results.json").is_file()
     assert (run_dir / "summary.csv").is_file()
+    assert (run_dir / "figures" / "mach_sweep.png").is_file()
 
 
 def test_bare_ramjet_rejects_vehicle_without_ramjet(capsys: pytest.CaptureFixture[str]) -> None:

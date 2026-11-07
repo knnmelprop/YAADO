@@ -20,6 +20,10 @@ from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     area_ratio_from_mach,
     choked_mass_flux,
     evaluate_cycle,
+    format_mach_sweep_csv,
+    plot_cycle_stations,
+    plot_mach_sweep,
+    run_mach_sweep,
     supersonic_mach_from_area_ratio,
 )
 
@@ -116,6 +120,8 @@ def test_ideal_ramjet_matches_closed_form_hand_calculation() -> None:
     assert results.p_exit_over_p0 == pytest.approx(1.0, rel=1e-6)
     assert results.pressure_thrust == pytest.approx(0.0, abs=1e-2)
     assert results.thrust_real == pytest.approx(704.4, rel=1e-3)
+    # Hand value: Isp = 704.4 / (0.036308 * 9.80665) = 1978 s.
+    assert results.specific_impulse == pytest.approx(1978.0, rel=1e-3)
     assert results.thrust_ideal == pytest.approx(results.thrust_real, rel=1e-9)
     assert results.thrust_cc_loss == pytest.approx(results.thrust_real, rel=1e-9)
 
@@ -370,3 +376,152 @@ def test_disabled_logger_writes_nothing(
     analysis.execute()
 
     assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# Losses as inputs
+# ---------------------------------------------------------------------------
+
+
+def _vehicle_with_losses(**losses: float) -> BaseVehicleConfig:
+    """Build a vehicle whose ramjet carries the given loss fields."""
+    engine = RamjetEngine(
+        design_mach=2.5,
+        combustor_temp=2000.0,
+        nozzle_area_ratio=2.0,
+        nozzle_throat_diameter=0.25,
+        **losses,
+    )
+    return BaseVehicleConfig(name="with_losses", propulsion={"ramjet": engine})
+
+
+ALL_LOSSES = {
+    "inlet_recovery": 0.8,
+    "combustor_pressure_ratio": 0.9,
+    "nozzle_pressure_ratio": 0.95,
+    "combustion_efficiency": 0.92,
+}
+
+
+def test_losses_come_from_the_vehicle() -> None:
+    """Loss fields on the ramjet reach the cycle, and nothing is assumed."""
+    analysis = HeiserPrattCycleAnalysis()
+    analysis.setup(_vehicle_with_losses(**ALL_LOSSES), enable_logging=False)
+    results = analysis.execute()
+
+    assert results.inputs.eta_inlet == 0.8
+    assert results.inputs.pi_cc == 0.9
+    assert results.inputs.pi_nozzle == 0.95
+    assert results.inputs.eta_b == 0.92
+    assert results.assumed_losses == ()
+
+
+def test_setting_overrides_the_vehicle_loss() -> None:
+    """A keyword setting wins over the value in the TOML."""
+    analysis = HeiserPrattCycleAnalysis()
+    analysis.setup(_vehicle_with_losses(**ALL_LOSSES), enable_logging=False, eta_inlet=0.7)
+
+    assert analysis.execute().inputs.eta_inlet == 0.7
+
+
+def test_missing_losses_use_placeholders_and_are_reported() -> None:
+    """Only the fields with no value are listed as assumed."""
+    analysis = HeiserPrattCycleAnalysis()
+    analysis.setup(
+        _vehicle_with_losses(inlet_recovery=0.8, combustion_efficiency=0.92),
+        enable_logging=False,
+        pi_cc=0.9,
+    )
+    results = analysis.execute()
+
+    assert results.assumed_losses == ("nozzle_pressure_ratio",)
+    assert results.inputs.pi_nozzle == HeiserPrattCycleAnalysis.DEFAULT_PI_NOZZLE
+
+
+def test_alvrj_example_reports_all_losses_as_assumed(alvrj: BaseVehicleConfig) -> None:
+    """The example has no loss data, so its result must say so."""
+    analysis = HeiserPrattCycleAnalysis()
+    analysis.setup(alvrj, enable_logging=False)
+
+    assert analysis.execute().assumed_losses == tuple(ALL_LOSSES)
+
+
+def test_a_larger_inlet_loss_lowers_thrust_through_the_fixed_throat() -> None:
+    """A fixed throat passes less air at a lower total pressure."""
+    thrust = []
+    for recovery in (0.9, 0.7):
+        analysis = HeiserPrattCycleAnalysis()
+        analysis.setup(_vehicle_with_losses(inlet_recovery=recovery), enable_logging=False)
+        thrust.append(analysis.execute().thrust_real)
+
+    assert thrust[1] < thrust[0]
+
+
+# ---------------------------------------------------------------------------
+# Mach sweep and figures
+# ---------------------------------------------------------------------------
+
+
+def test_mach_sweep_reproduces_the_design_point() -> None:
+    """The sweep centers on the run Mach and keeps the nozzle throat of the run."""
+    results = evaluate_cycle(_inputs(mdot_air=None, throat_area=0.05))
+
+    points = run_mach_sweep(results)
+
+    assert len(points) == 21
+    assert points[0].mach == pytest.approx(1.5)
+    assert points[-1].mach == pytest.approx(3.5)
+    middle = points[10]
+    assert middle.mach == pytest.approx(2.5)
+    assert middle.thrust_real == pytest.approx(results.thrust_real)
+    assert middle.mdot_air == pytest.approx(results.mdot_air)
+
+
+def test_mach_sweep_with_explicit_flow_keeps_the_resulting_throat() -> None:
+    """A run with a set mass flow sweeps a fixed engine, not a fixed flow."""
+    results = evaluate_cycle(_inputs())
+
+    points = run_mach_sweep(results, machs=[2.5, 3.0])
+
+    assert points[0].mdot_air == pytest.approx(results.mdot_air)
+    assert points[1].mdot_air != pytest.approx(results.mdot_air)
+
+
+def test_mach_sweep_skips_points_without_heat_addition() -> None:
+    """Above the Mach number where Tt0 reaches Tt4, the cycle has no solution."""
+    results = evaluate_cycle(_inputs(tt4=1200.0))
+
+    points = run_mach_sweep(results, machs=[2.5, 6.0])
+
+    assert [point.mach for point in points] == [2.5]
+
+
+def test_mach_sweep_csv_has_one_row_per_point() -> None:
+    """The CSV lists every field of the sweep point."""
+    results = evaluate_cycle(_inputs())
+    lines = format_mach_sweep_csv(run_mach_sweep(results, machs=[2.0, 2.5])).splitlines()
+
+    assert lines[0].split(",")[:2] == ["mach", "thrust_real"]
+    assert len(lines) == 3
+
+
+def test_figures_have_expected_panels() -> None:
+    """Both figures build without a display and without showing a window."""
+    import matplotlib.pyplot as plt
+
+    results = evaluate_cycle(_inputs())
+    stations = plot_cycle_stations(results)
+    sweep = plot_mach_sweep(
+        run_mach_sweep(results),
+        design_mach=results.inputs.mach,
+        design_capture_area=results.capture_area,
+    )
+    empty = plot_mach_sweep([], design_mach=2.5, design_capture_area=0.05)
+
+    assert len(stations.axes) == 3
+    assert len(sweep.axes) == 4
+    assert stations.axes[1].get_ylim()[0] == 0.0
+    plt.close(stations)
+    plt.close(sweep)
+    plt.close(empty)
+

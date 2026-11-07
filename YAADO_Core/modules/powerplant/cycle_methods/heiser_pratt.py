@@ -21,10 +21,18 @@ in all three models.
 
 from __future__ import annotations
 
+import csv
+import io
 import math
-from typing import Any
+from collections.abc import Sequence
+from dataclasses import astuple, fields, replace
+from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from scipy.optimize import brentq
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 import YAADO_Core.Foundation.constants as const
 from YAADO_Core.ComponentStore import RAMJET_COMPONENTS
@@ -34,6 +42,7 @@ from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.powerplant.containers import (
     HeiserPrattInputs,
     HeiserPrattResults,
+    MachSweepPoint,
     NozzleExpansion,
 )
 
@@ -43,6 +52,11 @@ R_PRODUCTS: float = const.R_AIR
 
 #: Upper bracket of the supersonic area-Mach root search [-].
 _MACH_SEARCH_MAX: float = 50.0
+
+#: Mach sweep range around the run Mach, and its lower limit [-].
+_SWEEP_MACH_SPAN: float = 1.0
+_SWEEP_MACH_MIN: float = 1.1
+_SWEEP_POINTS: int = 21
 
 
 def area_ratio_from_mach(mach: float, gamma: float) -> float:
@@ -149,7 +163,7 @@ def evaluate_cycle(
 
     Raises:
         ValueError: If ``tt4`` does not exceed ``Tt0`` or the burner energy
-            balance has no solution.
+            balance has no solution with a positive fuel flow.
     """
     gc = inputs.gamma_cold
     gh = inputs.gamma_hot
@@ -177,6 +191,8 @@ def evaluate_cycle(
             f"{inputs.eta_b * inputs.fuel_lhv:.3e} J/kg"
         )
     fuel_air_ratio = (cp_hot * inputs.tt4 - cp_cold * tt0) / burner_margin
+    if fuel_air_ratio <= 0.0:
+        raise ValueError(f"tt4={inputs.tt4} K needs no fuel with gamma_hot={gh}")
 
     if inputs.mdot_air is not None:
         mdot_air = inputs.mdot_air
@@ -219,17 +235,182 @@ def evaluate_cycle(
         thrust_ideal=ideal.thrust,
         thrust_cc_loss=cc_loss.thrust,
         thrust_real=real.thrust,
+        specific_impulse=real.thrust / (fuel_air_ratio * mdot_air * const.G0),
         momentum_thrust=real.momentum_thrust,
         pressure_thrust=real.pressure_thrust,
     )
 
 
+def run_mach_sweep(
+    results: HeiserPrattResults,
+    machs: Sequence[float] | None = None,
+) -> list[MachSweepPoint]:
+    """Evaluate off-design performance with the nozzle throat of a finished run.
+
+    Loss factors stay at their design values at every Mach number, so the sweep
+    shows the trend with a fixed engine and not a real inlet schedule.
+
+    Args:
+        results: Design-point results that give the inputs and the throat area.
+        machs: Mach numbers to evaluate. Defaults to a span around the design Mach.
+
+    Returns:
+        One point per Mach number where the combustor can add heat.
+    """
+    if machs is None:
+        design_mach = results.inputs.mach
+        machs = [
+            float(mach)
+            for mach in np.linspace(
+                max(_SWEEP_MACH_MIN, design_mach - _SWEEP_MACH_SPAN),
+                design_mach + _SWEEP_MACH_SPAN,
+                _SWEEP_POINTS,
+            )
+        ]
+
+    points: list[MachSweepPoint] = []
+    for mach in machs:
+        inputs = replace(results.inputs, mach=mach, mdot_air=None, throat_area=results.a_throat)
+        try:
+            cycle = evaluate_cycle(inputs)
+        except ValueError:
+            continue
+        points.append(
+            MachSweepPoint(
+                mach=mach,
+                thrust_real=cycle.thrust_real,
+                specific_impulse=cycle.specific_impulse,
+                mdot_air=cycle.mdot_air,
+                fuel_air_ratio=cycle.fuel_air_ratio,
+                capture_area=cycle.capture_area,
+                p_exit_over_p0=cycle.p_exit_over_p0,
+            )
+        )
+    return points
+
+
+def format_mach_sweep_csv(points: list[MachSweepPoint]) -> str:
+    """Format Mach sweep points as CSV text.
+
+    Args:
+        points: Output of :func:`run_mach_sweep`.
+
+    Returns:
+        CSV text with one row per point.
+    """
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(field.name for field in fields(MachSweepPoint))
+    writer.writerows(astuple(point) for point in points)
+    return buffer.getvalue()
+
+
+def plot_cycle_stations(results: HeiserPrattResults) -> Figure:
+    """Plot total temperature, total pressure and thrust losses for one run.
+
+    Args:
+        results: Output of :func:`evaluate_cycle`.
+
+    Returns:
+        The matplotlib Figure instance.
+    """
+    import matplotlib.pyplot as plt
+
+    stations = ["0\nfreestream", "2\ndiffuser exit", "4\ncombustor exit", "e\nnozzle exit"]
+    total_temperature = [results.tt0, results.tt0, results.inputs.tt4, results.inputs.tt4]
+    total_pressure = [
+        results.pt0,
+        results.pt2,
+        results.pt4,
+        results.inputs.pi_nozzle * results.pt4,
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+
+    ax = axes[0]
+    ax.plot(stations, total_temperature, marker="o", color="tab:red")
+    ax.set_ylim(bottom=0.0)
+    ax.set_ylabel("Total temperature [K]")
+    ax.set_title("Total temperature by station")
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[1]
+    ax.plot(stations, total_pressure, marker="o", color="tab:blue")
+    ax.set_ylim(bottom=0.0)
+    ax.set_ylabel("Total pressure [Pa]")
+    ax.set_title("Total pressure by station")
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[2]
+    bars = ax.bar(
+        ["Ideal", "Combustor loss", "Real"],
+        [results.thrust_ideal, results.thrust_cc_loss, results.thrust_real],
+        color=["tab:green", "tab:orange", "tab:purple"],
+    )
+    ax.bar_label(bars, fmt="%.0f")
+    ax.set_ylabel("Net thrust [N]")
+    ax.set_title("Thrust by loss model")
+    ax.grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle(
+        f"Ramjet cycle at Mach {results.inputs.mach:g}, {results.inputs.altitude:.0f} m"
+    )
+    fig.tight_layout()
+    return fig
+
+
+def plot_mach_sweep(
+    points: list[MachSweepPoint], *, design_mach: float, design_capture_area: float
+) -> Figure:
+    """Plot thrust, specific impulse, exit pressure and capture area vs. Mach number.
+
+    Args:
+        points: Output of :func:`run_mach_sweep`.
+        design_mach: Mach number of the run, marked on each panel.
+        design_capture_area: Capture area of the run [m^2], marked on its panel. Above
+            this line, a real inlet sized for the run cannot supply the swept flow.
+
+    Returns:
+        The matplotlib Figure instance.
+    """
+    import matplotlib.pyplot as plt
+
+    if not points:
+        fig, _ = plt.subplots(figsize=(6, 4))
+        return fig
+
+    machs = [point.mach for point in points]
+    panels = (
+        ([point.thrust_real for point in points], "Net thrust [N]", "tab:purple"),
+        ([point.specific_impulse for point in points], "Specific impulse [s]", "tab:green"),
+        ([point.p_exit_over_p0 for point in points], "Exit pressure ratio p_e/p0 [-]", "tab:blue"),
+        ([point.capture_area for point in points], "Required capture area [m^2]", "tab:orange"),
+    )
+
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    for ax, (values, label, color) in zip(axes.flat, panels, strict=True):
+        ax.plot(machs, values, marker="o", markersize=3, color=color)
+        ax.axvline(design_mach, color="k", linewidth=0.8, linestyle="--", label="Run Mach")
+        ax.set_xlabel("Mach number [-]")
+        ax.set_ylabel(label)
+        ax.set_title(f"{label.split(' [')[0]} vs. Mach")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    axes[1, 0].axhline(1.0, color="tab:gray", linewidth=0.8)
+    axes[1, 1].axhline(design_capture_area, color="tab:gray", linewidth=0.8, label="Run capture area")
+    axes[1, 1].legend()
+
+    fig.suptitle("Off-design trend: fixed nozzle throat and constant loss factors")
+    fig.tight_layout()
+    return fig
+
+
 class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
     """Ramjet cycle performance at the engine's design point.
 
-    Mach, combustor temperature and nozzle geometry come from the vehicle's ramjet
-    component. Mass flow follows from its choked throat, which assumes the inlet
-    can supply that flow; check ``capture_area`` against the real inlet.
+    Mach, combustor temperature, nozzle geometry and losses come from the vehicle's
+    ramjet component. Mass flow follows from its choked throat, which assumes the
+    inlet can supply that flow; check ``capture_area`` against the real inlet.
 
     Example:
         analysis = HeiserPrattCycleAnalysis()
@@ -242,7 +423,7 @@ class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
 
     DEFAULT_ALTITUDE_M: float = 10000.0
 
-    # Placeholder losses until the vehicle schema and an inlet analysis provide them.
+    # Placeholder losses for a ramjet without loss data. Results list the ones used.
     DEFAULT_ETA_INLET: float = 0.874
     DEFAULT_PI_CC: float = 0.8924
     DEFAULT_PI_NOZZLE: float = 0.97
@@ -257,6 +438,7 @@ class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
     def __init__(self, name: str = "heiser_pratt_cycle") -> None:
         super().__init__(name)
         self._inputs: HeiserPrattInputs | None = None
+        self._assumed_losses: tuple[str, ...] = ()
 
     def _setup(
         self,
@@ -267,10 +449,10 @@ class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
         altitude_m: float = DEFAULT_ALTITUDE_M,
         tt4: float | None = None,
         mdot_air: float | None = None,
-        eta_inlet: float = DEFAULT_ETA_INLET,
-        pi_cc: float = DEFAULT_PI_CC,
-        pi_nozzle: float = DEFAULT_PI_NOZZLE,
-        eta_b: float = DEFAULT_ETA_B,
+        eta_inlet: float | None = None,
+        pi_cc: float | None = None,
+        pi_nozzle: float | None = None,
+        eta_b: float | None = None,
         gamma_hot: float | None = None,
         gamma_cold: float = const.GAMMA_AIR,
         fuel_lhv: float | None = None,
@@ -287,10 +469,14 @@ class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
                 ``combustor_temp``.
             mdot_air: Air mass flow [kg/s]. Replaces the flow set by the choked
                 ``nozzle_throat_diameter``.
-            eta_inlet: Inlet total-pressure recovery.
-            pi_cc: Combustor total-pressure ratio.
-            pi_nozzle: Nozzle total-pressure ratio.
-            eta_b: Combustion efficiency.
+            eta_inlet: Inlet total-pressure recovery. Defaults to the engine's
+                ``inlet_recovery``, then to a placeholder.
+            pi_cc: Combustor total-pressure ratio. Defaults to the engine's
+                ``combustor_pressure_ratio``, then to a placeholder.
+            pi_nozzle: Nozzle total-pressure ratio. Defaults to the engine's
+                ``nozzle_pressure_ratio``, then to a placeholder.
+            eta_b: Combustion efficiency. Defaults to the engine's
+                ``combustion_efficiency``, then to a placeholder.
             gamma_hot: Ratio of specific heats of the products. Required unless
                 the engine burns kerosene.
             gamma_cold: Ratio of specific heats of the inlet air.
@@ -325,15 +511,35 @@ class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
                 )
             throat_area = math.pi / 4.0 * engine.nozzle_throat_diameter**2
 
+        assumed: list[str] = []
+
+        def resolve_loss(
+            override: float | None, vehicle_value: float | None, field_name: str, default: float
+        ) -> float:
+            if override is not None:
+                return override
+            if vehicle_value is not None:
+                return vehicle_value
+            assumed.append(field_name)
+            return default
+
         self._inputs = HeiserPrattInputs(
             mach=engine.design_mach if mach is None else mach,
             altitude=altitude_m,
             tt4=engine.combustor_temp if tt4 is None else tt4,
             nozzle_area_ratio=engine.nozzle_area_ratio,
-            eta_inlet=eta_inlet,
-            pi_cc=pi_cc,
-            pi_nozzle=pi_nozzle,
-            eta_b=eta_b,
+            eta_inlet=resolve_loss(
+                eta_inlet, engine.inlet_recovery, "inlet_recovery", self.DEFAULT_ETA_INLET
+            ),
+            pi_cc=resolve_loss(
+                pi_cc, engine.combustor_pressure_ratio, "combustor_pressure_ratio", self.DEFAULT_PI_CC
+            ),
+            pi_nozzle=resolve_loss(
+                pi_nozzle, engine.nozzle_pressure_ratio, "nozzle_pressure_ratio", self.DEFAULT_PI_NOZZLE
+            ),
+            eta_b=resolve_loss(
+                eta_b, engine.combustion_efficiency, "combustion_efficiency", self.DEFAULT_ETA_B
+            ),
             gamma_hot=self.DEFAULT_GAMMA_HOT if gamma_hot is None else gamma_hot,
             gamma_cold=gamma_cold,
             fuel_lhv=const.LHV_KEROSENE if fuel_lhv is None else fuel_lhv,
@@ -348,6 +554,9 @@ class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
             self._inputs.tt4,
             self._inputs.nozzle_area_ratio,
         )
+        self._assumed_losses = tuple(assumed)
+        if assumed:
+            self.logger.warning("Placeholder values used for: %s", ", ".join(assumed))
 
     def _compute(self, **kwargs: Any) -> HeiserPrattResults:
         """Evaluate the cycle and return typed results."""
@@ -356,7 +565,10 @@ class HeiserPrattCycleAnalysis(BaseAnalysis[HeiserPrattResults]):
                 f"Analysis '{self.name}' must be setup before computation. Call setup() first."
             )
 
-        results = evaluate_cycle(self._inputs, name=self.name, fidelity=self.fidelity)
+        results = replace(
+            evaluate_cycle(self._inputs, name=self.name, fidelity=self.fidelity),
+            assumed_losses=self._assumed_losses,
+        )
         self.logger.info(
             "Thrust ideal/cc-loss/real = %.0f/%.0f/%.0f N, mdot_air=%.2f kg/s, f=%.4f, "
             "M_exit=%.3f, V_exit=%.0f m/s, p_exit/p0=%.2f, capture_area=%.4f m^2",

@@ -597,6 +597,7 @@ class FlightDeckView(Container):
         descriptor: SolverDescriptor,
         results: Any,
         run_dir: Path | None = None,
+        warnings: Sequence[str] = (),
     ) -> None:
         """Render execution telemetry metrics into results card.
 
@@ -604,6 +605,7 @@ class FlightDeckView(Container):
             descriptor: Executed solver descriptor.
             results: Strongly typed results object returned by the solver.
             run_dir: Directory where run artifacts were saved, if any.
+            warnings: Conditions that limit how far the user can trust the results.
         """
         try:
             results_card = self.query_one("#flightdeck-results-card", Container)
@@ -639,6 +641,10 @@ class FlightDeckView(Container):
                         lines.append(f"  • [bold]{f_label}:[/bold] {val_str}{unit_str}{extra_str}")
                     else:
                         lines.append(f"  • [bold]{f_label}:[/bold] {val}")
+
+            for warning in warnings:
+                lines.append("")
+                lines.append(f"[bold #f59e0b]WARNING:[/bold #f59e0b] {escape(warning)}")
 
             if run_dir is not None:
                 lines.append("")
@@ -830,7 +836,7 @@ class FlightDeckView(Container):
             return None
 
         self._selected_flightlog_path = None
-        self._render_run_results(descriptor, run.results, run.output_dir)
+        self._render_run_results(descriptor, run.results, run.output_dir, run.warnings)
         self._notify(self._completion_message(descriptor, run.results), severity="information")
 
         # Refresh flight logs tree
