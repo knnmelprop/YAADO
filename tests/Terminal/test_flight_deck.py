@@ -84,6 +84,7 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
         "point_mass_3dof_boost",
         "heiser_pratt_cycle",
         "mattingly_cycle",
+        "grzywka_nozzle",
         "conical_inlet",
         "multi_shock_inlet",
         "barrowman_stability",
@@ -1134,5 +1135,38 @@ def test_mattingly_run_through_the_app(tmp_path: Path, monkeypatch: pytest.Monke
             assert "Specific Thrust F/m0" in content
             assert "Overall Efficiency" in content
             assert "Placeholder values used for" in content
+
+    asyncio.run(_test())
+
+
+def test_grzywka_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the nozzle sizing from its tile with a capture area."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(140, 42)) as pilot:
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+
+            tile = fd.query_one("#tile-solver-grzywka_nozzle", SolverTile)
+            tile.scroll_visible(animate=False)
+            await pilot.pause(0.1)
+            await pilot.click(tile)
+            await pilot.pause(0.3)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            assert form.query_one("#param-inp-capture_area", Input).placeholder == "throat"
+            form.query_one("#param-inp-capture_area", Input).value = "0.05"
+            await pilot.pause(0.1)
+            await pilot.press("r")
+            await pilot.pause(0.3)
+            content = str(fd.query_one("#flightdeck-results-content", Static).render())
+            assert "Exit Diameter (full expansion)" in content
+            assert "Throat Diameter" in content
 
     asyncio.run(_test())

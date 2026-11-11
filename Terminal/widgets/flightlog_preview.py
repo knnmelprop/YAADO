@@ -22,6 +22,7 @@ ANALYSIS_DISPLAY_NAMES: dict[str, str] = {
     "point_mass_3dof": "Point-Mass 3-DOF",
     "heiser_pratt_cycle": "Heiser & Pratt Ramjet Cycle",
     "mattingly_cycle": "Parametric Ramjet Cycle (Mattingly)",
+    "grzywka_nozzle": "Combustor and Nozzle Sizing (Grzywka)",
     "conical_inlet": "Conical Spike Inlet (Taylor-Maccoll)",
     "multi_shock_inlet": "Multi-Ramp Inlet (Oblique Shocks)",
     "barrowman_stability": "Barrowman Static Stability",

@@ -415,3 +415,138 @@ class CycleMachPoint:
     thermal_efficiency: Dimensionless
     propulsive_efficiency: Dimensionless
     overall_efficiency: Dimensionless
+
+
+@dataclass(frozen=True)
+class GrzywkaInputs:
+    """Inputs to the Grzywka combustor and nozzle sizing.
+
+    The captured air flow comes from exactly one of ``capture_area`` (full capture
+    of the freestream tube), ``mdot_air``, or a choked ``throat_area``.
+
+    Attributes:
+        mach: Flight Mach number (> 1).
+        altitude: ISA flight altitude.
+        tt4: Combustor-exit total temperature.
+        eta_inlet: Inlet total-pressure recovery.
+        pi_cc: Combustor total-pressure ratio.
+        pi_nozzle: Nozzle total-pressure ratio.
+        eta_b: Combustion efficiency.
+        gamma_hot: Ratio of specific heats of the products.
+        gamma_cold: Ratio of specific heats of the air.
+        fuel_lhv: Fuel lower heating value.
+        capture_area: Freestream capture area.
+        mdot_air: Air mass flow.
+        throat_area: Choked nozzle throat area.
+    """
+
+    mach: Dimensionless
+    altitude: Meters
+    tt4: Kelvin
+    eta_inlet: Dimensionless
+    pi_cc: Dimensionless
+    pi_nozzle: Dimensionless
+    eta_b: Dimensionless
+    gamma_hot: Dimensionless
+    gamma_cold: Dimensionless
+    fuel_lhv: JoulesPerKilogram
+    capture_area: SquareMeters | None = None
+    mdot_air: KilogramsPerSecond | None = None
+    throat_area: SquareMeters | None = None
+
+    def __post_init__(self) -> None:
+        """Reject inputs outside the range of the model."""
+        if self.mach <= 1.0:
+            raise ValueError(f"mach must be > 1, got {self.mach}")
+        for label, value in (
+            ("eta_inlet", self.eta_inlet),
+            ("pi_cc", self.pi_cc),
+            ("pi_nozzle", self.pi_nozzle),
+            ("eta_b", self.eta_b),
+        ):
+            if not 0.0 < value <= 1.0:
+                raise ValueError(f"{label} must be in (0, 1], got {value}")
+        if self.gamma_hot <= 1.0 or self.gamma_cold <= 1.0:
+            raise ValueError("gamma_hot and gamma_cold must be > 1")
+        sources = {
+            "capture_area": self.capture_area,
+            "mdot_air": self.mdot_air,
+            "throat_area": self.throat_area,
+        }
+        given = [name for name, value in sources.items() if value is not None]
+        if len(given) != 1:
+            raise ValueError(
+                f"Give exactly one of capture_area, mdot_air or throat_area, got {given or 'none'}"
+            )
+        if sources[given[0]] <= 0.0:  # type: ignore[operator]
+            raise ValueError(f"{given[0]} must be > 0")
+
+
+@dataclass(frozen=True)
+class GrzywkaCycleResults(BaseAnalysisResults):
+    """Combustor and fully expanded nozzle sized for one flight condition.
+
+    Grzywka's stations: 1 combustor inlet, 2 combustor exit, 21 choked throat,
+    3 nozzle exit at ambient pressure. Exit values belong to the real model.
+
+    Attributes:
+        pt_combustor_inlet: Total pressure after the inlet (station 1).
+        pt_combustor_exit: Total pressure after the combustor (station 2).
+        capture_area: Freestream tube area that supplies ``mdot_air``.
+        throat_area: Choked throat area that passes the flow (station 21).
+        exit_area: Exit area that expands the flow to ambient pressure (station 3).
+        area_ratio: ``exit_area / throat_area``.
+        thrust_ideal: Thrust without combustor or nozzle total-pressure loss.
+        thrust_cc_loss: Thrust with the combustor loss only.
+        thrust_real: Thrust with both losses. Nominal value.
+        specific_impulse: Real thrust per unit fuel weight flow.
+        assumed_losses: Loss fields that took a placeholder value.
+        notes: Comparisons with the vehicle's nozzle, when its throat set the flow.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "thrust_real",
+        "throat_diameter",
+        "exit_diameter",
+        "area_ratio",
+        "specific_impulse",
+    )
+
+    inputs: GrzywkaInputs
+    t0: Kelvin
+    p0: Pascals
+    v0: MetersPerSecond
+    tt0: Kelvin
+    pt0: Pascals
+    pt_combustor_inlet: Pascals
+    pt_combustor_exit: Pascals
+    fuel_air_ratio: Dimensionless
+    mdot_air: KilogramsPerSecond
+    mdot_exit: KilogramsPerSecond
+    capture_area: SquareMeters
+    throat_area: SquareMeters
+    throat_diameter: Meters
+    exit_area: SquareMeters
+    exit_diameter: Meters
+    area_ratio: Dimensionless
+    mach_exit: Dimensionless
+    v_exit: MetersPerSecond
+    t_exit: Kelvin
+    thrust_ideal: Newtons
+    thrust_cc_loss: Newtons
+    thrust_real: Newtons
+    specific_impulse: Seconds
+    assumed_losses: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class NozzleSizingPoint:
+    """Nozzle size and performance at one flight Mach number."""
+
+    mach: Dimensionless
+    thrust_real: Newtons
+    specific_impulse: Seconds
+    throat_diameter: Meters
+    exit_diameter: Meters
+    area_ratio: Dimensionless
