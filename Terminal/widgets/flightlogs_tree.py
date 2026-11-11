@@ -72,6 +72,7 @@ class FlightLogsTree(Tree[Path | None]):
         "point_mass_3dof": "Point Mass 3-DOF",
         "heiser_pratt_cycle": "Ramjet Cycle",
         "conical_inlet": "Conical Inlet",
+        "multi_shock_inlet": "Multi-Ramp Inlet",
         "barrowman_stability": "Barrowman Stability",
         "barrowman_extended": "Extended Barrowman",
         "datcom_class_stability": "DATCOM-Class Stability",

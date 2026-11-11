@@ -46,6 +46,10 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle 
 # Inlet recovery of a 21 deg conical spike at the ramjet's design Mach
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver conical_inlet --set cone_half_angle_deg=21
 
+# Multi-ramp inlet: optimum 4-ramp schedule, or given ramp angles as a comma list
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver multi_shock_inlet --set n_oblique_shocks=4
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver multi_shock_inlet --set deflections_deg=8,9,10
+
 # Static stability: static margin at Mach 0.5 with the burnout CG
 yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver barrowman_stability \
          --set mach=0.5 --set cg_from_nose=2.2

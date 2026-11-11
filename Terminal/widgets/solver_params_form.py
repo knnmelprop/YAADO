@@ -27,7 +27,11 @@ if TYPE_CHECKING:
 
 def _input_text(value: Any) -> str:
     """Render a parameter value as input text, with ``None`` as a blank input."""
-    return "" if value is None else str(value)
+    if value is None:
+        return ""
+    if isinstance(value, tuple):
+        return ", ".join(f"{item:g}" for item in value)
+    return str(value)
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,7 @@ ANALYSIS_DISPLAY_NAMES: dict[str, str] = {
     "point_mass_3dof": "Point-Mass 3-DOF",
     "heiser_pratt_cycle": "Heiser & Pratt Ramjet Cycle",
     "conical_inlet": "Conical Spike Inlet (Taylor-Maccoll)",
+    "multi_shock_inlet": "Multi-Ramp Inlet (Oblique Shocks)",
     "barrowman_stability": "Barrowman Static Stability",
     "barrowman_extended": "Extended Barrowman: Body Lift and Fin Sizing",
     "datcom_class_stability": "DATCOM-Class Supersonic Stability",
