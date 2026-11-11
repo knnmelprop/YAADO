@@ -39,6 +39,8 @@ span = 0.285
 sweep = 60.0
 chord_root = 0.75
 chord_tip = 0.15
+# Estimated: puts the wing planform centroid at the wing-group mass CG (1.95 m).
+root_le_from_nose = 1.5
 control_surfaces = []
 
 [aero_surfaces.aft_control_fins]

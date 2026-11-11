@@ -23,6 +23,7 @@ AnyComponent = Annotated[
 # Standard tuples for runtime isinstance() checks and CLI menu generation
 AERO_COMPONENTS = (Fins, Wings)
 BODY_COMPONENTS = (AxisymmetricBody,)
+FIN_COMPONENTS = (Fins,)
 PROPULSION_COMPONENTS = (SolidMotor, RamjetEngine, TurbojetEngine)
 BOOSTER_COMPONENTS = (SolidMotor,)
 RAMJET_COMPONENTS = (RamjetEngine,)
@@ -33,6 +34,7 @@ __all__ = [
     "ALL_COMPONENTS",
     "BODY_COMPONENTS",
     "BOOSTER_COMPONENTS",
+    "FIN_COMPONENTS",
     "PROPULSION_COMPONENTS",
     "RAMJET_COMPONENTS",
     "AnyAeroComponent",

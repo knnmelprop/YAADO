@@ -60,3 +60,13 @@ def test_fins_without_control_surfaces():
     assert my_fins.control_surfaces == []
     assert len(my_fins.control_surfaces) == 0
 
+
+
+def test_fins_root_le_position_is_optional_and_non_negative():
+    """The fin root leading-edge position defaults to None and rejects negative values."""
+    fins = Fins(count=4, span=0.1, sweep=30.0, chord_root=0.2, chord_tip=0.1)
+    assert fins.root_le_from_nose is None
+    assert Fins.UNITS["root_le_from_nose"] == "m"
+    assert Fins(count=4, span=0.1, sweep=30.0, root_le_from_nose=1.2).root_le_from_nose == 1.2
+    with pytest.raises(ValueError):
+        Fins(count=4, span=0.1, sweep=30.0, root_le_from_nose=-0.1)
