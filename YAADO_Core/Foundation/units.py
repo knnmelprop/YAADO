@@ -91,3 +91,9 @@ PerRadian = Annotated[float, "1/rad"]
 
 #: Length in body diameters, e.g. a static margin [cal]
 Calibers = Annotated[float, "cal"]
+
+#: Specific thrust, thrust per unit air mass flow [N*s/kg]
+NewtonSecondsPerKilogram = Annotated[float, "N*s/kg"]
+
+#: Thrust-specific fuel consumption [kg/(N*s)]
+KilogramsPerNewtonSecond = Annotated[float, "kg/(N*s)"]

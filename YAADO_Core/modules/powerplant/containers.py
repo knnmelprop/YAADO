@@ -11,10 +11,12 @@ from YAADO_Core.Foundation.units import (
     Dimensionless,
     JoulesPerKilogram,
     Kelvin,
+    KilogramsPerNewtonSecond,
     KilogramsPerSecond,
     Meters,
     MetersPerSecond,
     Newtons,
+    NewtonSecondsPerKilogram,
     Pascals,
     Seconds,
     SquareMeters,
@@ -317,3 +319,99 @@ class MultiShockInletResults(BaseAnalysisResults):
     total_turning: Degrees
     mach_before_normal: Dimensionless
     assumptions: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RamjetCycleInputs:
+    """Inputs to Mattingly's parametric real-ramjet cycle.
+
+    Attributes:
+        mach: Flight Mach number.
+        altitude: ISA flight altitude.
+        tt4: Combustor-exit total temperature.
+        pi_d_max: Diffuser pressure ratio without shock losses; the inlet recovery
+            is ``pi_d_max * eta_r(M)`` with the MIL-E-5007D shock-loss term.
+        pi_b: Combustor total-pressure ratio.
+        pi_n: Nozzle total-pressure ratio.
+        eta_b: Combustion efficiency.
+        p0_over_p9: Ambient over exit static pressure (1 is perfectly expanded).
+        gamma_c: Ratio of specific heats of the air.
+        gamma_t: Ratio of specific heats of the products.
+        fuel_lhv: Fuel lower heating value.
+    """
+
+    mach: Dimensionless
+    altitude: Meters
+    tt4: Kelvin
+    pi_d_max: Dimensionless
+    pi_b: Dimensionless
+    pi_n: Dimensionless
+    eta_b: Dimensionless
+    p0_over_p9: Dimensionless
+    gamma_c: Dimensionless
+    gamma_t: Dimensionless
+    fuel_lhv: JoulesPerKilogram
+
+
+@dataclass(frozen=True)
+class RamjetCycleResults(BaseAnalysisResults):
+    """Mattingly parametric real-ramjet cycle per unit air mass flow.
+
+    Attributes:
+        inputs: The cycle inputs.
+        t0: Freestream static temperature.
+        tt0: Freestream total temperature.
+        v0: Flight speed.
+        pi_d: Inlet total-pressure recovery used at ``inputs.mach``.
+        fuel_air_ratio: Fuel over air mass flow.
+        specific_thrust: Thrust per unit air mass flow.
+        tsfc: Fuel mass flow per unit thrust.
+        specific_impulse: Thrust per unit fuel weight flow.
+        mach_exit: Nozzle exit Mach number.
+        v_exit: Nozzle exit velocity.
+        t_exit: Nozzle exit static temperature.
+        thermal_efficiency: Kinetic energy gain over fuel energy.
+        propulsive_efficiency: Thrust power over kinetic energy gain.
+        overall_efficiency: Product of the two.
+        lossless_specific_thrust: Same gases, Mach and ``tt4`` without any losses.
+        assumed: Inputs that fell back to placeholder values.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "specific_thrust",
+        "tsfc",
+        "specific_impulse",
+        "fuel_air_ratio",
+        "overall_efficiency",
+    )
+
+    inputs: RamjetCycleInputs
+    t0: Kelvin
+    tt0: Kelvin
+    v0: MetersPerSecond
+    pi_d: Dimensionless
+    fuel_air_ratio: Dimensionless
+    specific_thrust: NewtonSecondsPerKilogram
+    tsfc: KilogramsPerNewtonSecond
+    specific_impulse: Seconds
+    mach_exit: Dimensionless
+    v_exit: MetersPerSecond
+    t_exit: Kelvin
+    thermal_efficiency: Dimensionless
+    propulsive_efficiency: Dimensionless
+    overall_efficiency: Dimensionless
+    lossless_specific_thrust: NewtonSecondsPerKilogram
+    assumed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CycleMachPoint:
+    """Parametric cycle performance at one flight Mach number."""
+
+    mach: Dimensionless
+    specific_thrust: NewtonSecondsPerKilogram
+    tsfc: KilogramsPerNewtonSecond
+    fuel_air_ratio: Dimensionless
+    thermal_efficiency: Dimensionless
+    propulsive_efficiency: Dimensionless
+    overall_efficiency: Dimensionless
