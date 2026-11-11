@@ -223,3 +223,16 @@ def test_bare_text_shows_missing_optional_outputs(capsys: pytest.CaptureFixture[
     rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()}
     assert rows["required_tail_span"] == ["n/a"]
     assert rows["tail_span"] == ["0.245", "m"]
+
+
+def test_bare_conical_inlet_run(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify the inlet runs from the bare CLI on the ALVRJ ramjet."""
+    alvrj = Path("Hangar/examples/ALVRJ/ALVRJ.toml").resolve()
+    argv = [
+        "-b", "--vehicle", str(alvrj), "--solver", "conical_inlet",
+        "--no-log", "--set", "cone_half_angle_deg=21",
+    ]
+    assert _exit_code(argv) == 0
+    rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()}
+    assert 0.5 < float(rows["recovery"][0]) < 1.0
+    assert rows["shock_angle"][1] == "deg"

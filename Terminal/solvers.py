@@ -36,13 +36,20 @@ from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     plot_launch_angle_sweep,
     run_launch_angle_sweep,
 )
-from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
+from YAADO_Core.modules.powerplant.containers import (
+    ConicalInletResults,
+    HeiserPrattResults,
+)
 from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     HeiserPrattCycleAnalysis,
     format_mach_sweep_csv,
     plot_cycle_stations,
     plot_mach_sweep,
     run_mach_sweep,
+)
+from YAADO_Core.modules.powerplant.inlet_methods import taylor_maccoll
+from YAADO_Core.modules.powerplant.inlet_methods.taylor_maccoll import (
+    ConicalInletAnalysis,
 )
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
@@ -421,6 +428,67 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="conical_inlet",
+        name="Conical Spike Inlet (Taylor-Maccoll)",
+        discipline="PROPULSION",
+        fidelity=ConicalInletAnalysis.fidelity,
+        solver_cls=ConicalInletAnalysis,
+        description=(
+            "Total-pressure recovery of a single-cone external-compression inlet: Taylor-Maccoll "
+            "conical shock, terminal normal shock and subsonic-diffuser loss, compared with "
+            "MIL-E-5007D. Feeds inlet_recovery of the ramjet cycle."
+        ),
+        required_components_desc=(
+            "One ramjet (RamjetEngine) with spike_half_angle, or a spike half-angle set below."
+        ),
+        headline_outputs=(
+            ("recovery", "-", "Total-Pressure Recovery pt2/pt0"),
+            ("mil_e_5007d_recovery", "-", "MIL-E-5007D Reference"),
+            ("recovery_margin", "-", "Margin to Reference"),
+            ("shock_angle", "deg", "Conical Shock Angle"),
+            ("mach_behind_shock", "-", "Mach Behind Conical Shock"),
+            ("max_attached_half_angle", "deg", "Max Attached Spike Half-Angle"),
+            ("cone_half_angle", "deg", "Spike Half-Angle"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Flight Mach",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Flight Mach number (> 1). Blank uses design_mach",
+                min_value=1.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="cone_half_angle_deg",
+                label="Spike Half-Angle",
+                symbol="θ_c",
+                unit="deg",
+                param_type=float,
+                default=None,
+                description="External cone half-angle. Blank uses spike_half_angle",
+                min_value=0.0,
+                max_value=90.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="pi_diffuser",
+                label="Diffuser pt Ratio",
+                symbol="π_d",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Subsonic-diffuser total-pressure ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"{ConicalInletAnalysis.DEFAULT_PI_DIFFUSER}",
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="barrowman_stability",
         name="Barrowman Static Stability",
         discipline="STABILITY & CONTROL",
@@ -719,6 +787,15 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
         return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
+    if descriptor.solver_id == "conical_inlet":
+        ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
+        if len(ramjets) != 1:
+            return False, "Needs exactly one ramjet (RamjetEngine)"
+        ramjet_name, ramjet = next(iter(ramjets.items()))
+        if ramjet.spike_half_angle is None:
+            return True, f"Ready ({ramjet_name}); no spike_half_angle, so set it below"
+        return True, f"Ready ({ramjet_name}, {ramjet.spike_half_angle:g} deg spike)"
+
     if descriptor.solver_id in (
         "barrowman_stability",
         "barrowman_extended",
@@ -799,6 +876,8 @@ def execute_solver(
         _save_point_mass_artifacts(solver.logger, vehicle, results, exec_params, run_sweep)
     elif isinstance(results, HeiserPrattResults):
         _save_ramjet_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, ConicalInletResults):
+        _save_inlet_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, BarrowmanStabilityResults):
         _save_stability_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, AckeretFinResults):
@@ -820,6 +899,8 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
     """List the conditions that limit how far the user can trust a run."""
     if isinstance(results, HeiserPrattResults) and results.assumed_losses:
         return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
+    if isinstance(results, ConicalInletResults):
+        return results.assumptions
     if isinstance(
         results, (BarrowmanStabilityResults, DatcomStabilityResults, BarrowmanExtendedResults)
     ):
@@ -857,6 +938,19 @@ def _margin_warnings(
             )
         ]
     return []
+
+
+def _save_inlet_artifacts(
+    logger: FlightLogger, results: ConicalInletResults, run_sweep: bool
+) -> None:
+    """Save the recovery-vs-Mach figure and CSV of an inlet run."""
+    if not run_sweep:
+        return
+    points = taylor_maccoll.run_mach_sweep(results)
+    logger.save_figure(
+        taylor_maccoll.plot_recovery_vs_mach(points, results), "recovery_vs_mach.png", show=False
+    )
+    logger.save_artifact("recovery_vs_mach.csv", taylor_maccoll.format_mach_sweep_csv(points))
 
 
 def _save_extended_artifacts(
