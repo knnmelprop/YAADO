@@ -19,6 +19,7 @@ from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
     BarrowmanStabilityResults,
+    DatcomStabilityResults,
 )
 
 HARPOON_PATH = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
@@ -227,3 +228,21 @@ def test_execute_ackeret_saves_comparison_and_flags_instability(
     assert (run_dir / "figures" / "method_comparison.png").is_file()
     assert (run_dir / "artifacts" / "method_comparison.csv").is_file()
     assert any("Statically unstable at Mach 2.5" in w for w in run.warnings)
+
+
+def test_execute_datcom_saves_supersonic_cp_sweep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a logged DATCOM-class run saves its CP sweep and reports a low margin."""
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "datcom_class_stability")
+
+    run = execute_solver(descriptor, vehicle, {"mach": 2.5})
+
+    assert isinstance(run.results, DatcomStabilityResults)
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    assert (run_dir / "figures" / "cp_vs_mach.png").is_file()
+    assert (run_dir / "artifacts" / "cp_vs_mach.csv").is_file()
+    assert any("below the required" in w for w in run.warnings)

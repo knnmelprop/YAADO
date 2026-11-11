@@ -47,6 +47,9 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle 
 yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver barrowman_stability \
          --set mach=0.5 --set cg_from_nose=2.2
 
+# Supersonic static margin (DATCOM-class build-up) at Mach 2.5
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver datcom_class_stability --set mach=2.5
+
 # Supersonic cross-check: Ackeret fins against Barrowman at Mach 2.5
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver ackeret_fin_check --set mach=2.5
 ```
