@@ -1,755 +1,393 @@
-"""Extended Barrowman static-stability sensitivity analysis (Generic Vehicle).
+"""Barrowman build-up with Galejs body lift, and tail-fin span sizing.
 
-Extends the existing subsonic/supersonic Barrowman method in
-``analyses.stability.barrowman_stability`` with two additional
-corrections used by "practical" Barrowman implementations (RockSim /
-OpenRocket-style "extended Barrowman"), and sweeps the suspect
-``fins.span_m`` geometry field to quantify how much of the
-Barrowman-vs-Teltik-CFD static-margin discrepancy documented in
-``docs/vehicle/stability_reconciliation.md`` (+8.99 cal Barrowman vs. -2.75
-cal Teltik CFD at Mach 2.5) each correction, and each candidate fin
-span, can explain.
+Linear Barrowman theory gives a cylinder no normal force, but a real body at an
+angle of attack carries viscous cross-flow lift on its side-projected
+(planform) area. Galejs adds it back, as OpenRocket does:
 
-This module does **not** reimplement the base Barrowman formulas: nose,
-transition, and fin ``CN_alpha``/CP are all obtained by calling
-``analyses.stability.barrowman_stability.compute_stability_at_mach``
-(and its component helpers) directly. Only two new pieces of physics
-are added here:
+    CN_body = K * (A_planform / A_ref) * sin^2(alpha),  K = 1.1
 
-1. **Galejs body-lift correction** -- an empirical cylindrical-afterbody
-   normal-force contribution, referenced to the body's planform
-   (side-projection) area, that classical linear Barrowman omits
-   because pure slender-body potential theory predicts zero normal
-   force from a constant-cross-section cylinder (Munk's theorem). Real
-   (viscous, cross-flow-separated) afterbodies do generate normal force
-   at nonzero angle of attack; Galejs' extension -- as used by
-   RockSim/OpenRocket -- adds it back in as
-   ``CN_alpha_body = 2 * K_body * (A_planform_body / A_ref)``.
-2. **Prandtl-Glauert / Ackeret compressibility on the fin CN_alpha** --
-   this module does **not** re-derive this: it is already implemented
-   in ``barrowman_stability.fin_mach_correction_factor`` (Prandtl-Glauert
-   subsonic branch, linear transonic bridge, Ackeret supersonic branch)
-   and is reused as-is via ``compute_stability_at_mach``. Applying a
-   second compressibility factor here would double-count the
-   correction, so this module never touches fin CN_alpha directly.
+acting at the planform centroid. The term grows with ``alpha^2``, so it is
+zero at ``alpha = 0`` and moves the CP forward at the angle of attack of a gust
+or a launch in wind. Its secant slope ``CN_body / alpha`` joins the Barrowman
+components.
 
-Theory references
-------------------
-- Barrowman, J. S. and Barrowman, J. A., *The Theoretical Prediction of
-  the Center of Pressure*, NARAM-8, 1966; Barrowman, J. S., *The
-  Practical Calculation of the Aerodynamic Characteristics of Slender
-  Finned Vehicles*, MS Thesis, The Catholic University of America, 1967.
-- Galejs, R., *Where is the Center of Pressure?*, describing the
-  planform-area body-lift extension used in RockSim/OpenRocket, which
-  restores a nonzero cylindrical-afterbody normal force that first-order
-  slender-body (Munk) theory omits.
-- Allen, H. J. and Perkins, E. W., *A Study of Effects of Viscosity on
-  Flow over Slender Inclined Bodies of Revolution*, NACA Report 1048
-  (1951) -- physical motivation for nonzero cylindrical-body cross-flow
-  normal force at angle of attack (the "viscous crossflow" term the
-  Galejs planform-area correction approximates in linearized form).
-- Munk, M. M., *The Aerodynamic Forces on Airship Hulls*, NACA Report
-  184 (1924) -- slender-body potential-flow result that a
-  constant-cross-section cylinder carries zero normal force, motivating
-  why the base Barrowman nose+transition-only model needs the Galejs
-  correction to capture the afterbody's real contribution.
-
-Applicability and limits
--------------------------
-Per project rule, AVL (subsonic VLM) is never used for this vehicle's
-supersonic regime; this module only ever calls empirical/analytical
-DATCOM-style correlations, consistent with
-``analyses/stability/barrowman_stability.py``. This is a low-order
-engineering estimate, not CFD -- see ``docs/vehicle/stability_reconciliation.md``
-for the full discussion of why a large gap against the Teltik CFD result
-is expected to remain even after both corrections in this module.
-
-This module is analysis-only: it never writes to
-``Hangar/generic_vehicle/vehicle_config.yaml`` (frozen, HUMAN_REVIEW
-pending) and never modifies ``analyses/stability/barrowman_stability.py``.
+The analysis also sizes the tail fins: the span at which the static margin with
+body lift reaches the required value, and the span at which it reaches zero.
 """
 
 from __future__ import annotations
 
 import csv
+import io
 import math
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from dataclasses import fields
+from typing import TYPE_CHECKING, Any, ClassVar
 
-if __name__ == "__main__" and __package__ in (None, ""):
-    # Allow `python3 analyses/aero/barrowman_extended.py` direct execution
-    # by putting the repository root on sys.path (mirrors
-    # barrowman_stability.py's own bootstrap).
-    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
+import numpy as np
+from scipy.optimize import brentq
 
-import matplotlib
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
-import numpy as np  # noqa: E402
-
-from YAADO_Core.Foundation.analysis_base import (  # noqa: E402
-    AnalysisResults,
-    BaseAnalysis,
-    FidelityLevel,
-)
-from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
-from YAADO_Core.modules.stability_control.containers import (  # noqa: E402
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.stability_control.containers import (
+    BarrowmanExtendedResults,
     ComponentContribution,
+    FinSpanSweepPoint,
     RocketGeometry,
-    StabilityResult,
 )
-from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (  # noqa: E402
+from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
+    BarrowmanStabilityAnalysis,
     compute_stability_at_mach,
+    geometry_assumptions,
     geometry_from_vehicle,
 )
 
-# --------------------------------------------------------------------------
-# Named constants.
-# --------------------------------------------------------------------------
 
-#: Mach number used for the Teltik CFD comparison and the fin-span sweep,
-#: per docs/vehicle/stability_reconciliation.md Section 3 ("Ma 2.5").
-COMPARISON_MACH = 2.5
+def nose_radius(geometry: RocketGeometry, x: np.ndarray) -> np.ndarray:
+    """Nose radius [m] at axial stations ``0 <= x <= nose_length``.
 
-#: Teltik 2024 CFD static-margin result at COMPARISON_MACH, calibers.
-#: Source: docs/vehicle/stability_margin_report.md / stability_reconciliation.md
-#: (Barrowman +8.99 cal vs. Teltik CFD -2.75 cal discrepancy).
-TELTIK_CFD_SM_CAL = -2.75
-
-#: Minimum static margin generally considered "safe" for a finned rocket
-#: (rule of thumb, e.g. NAR/TRA amateur-rocketry guidance: >= 1 caliber).
-SM_MIN_SAFE_CAL = 1.0
-
-#: Static margin above which the vehicle is flagged for human review as
-#: still implausibly over-stable relative to the -2.75 cal CFD anchor
-#: (task-specified threshold).
-SM_REVIEW_THRESHOLD_CAL = 2.0
-
-#: Fin-span sweep bounds, as a multiplicative factor on the YAML
-#: `fins.span_m` value, per task specification.
-FIN_SPAN_SWEEP_FACTOR_MIN = 0.4
-FIN_SPAN_SWEEP_FACTOR_MAX = 1.6
-FIN_SPAN_SWEEP_POINTS = 9
-
-#: Bisection search bounds/precision for the neutral-span (SM=0) solve.
-NEUTRAL_SPAN_SEARCH_MIN_M = 1.0e-4
-NEUTRAL_SPAN_SEARCH_MAX_FACTOR = 5.0
-NEUTRAL_SPAN_SEARCH_GRID_POINTS = 4000
-NEUTRAL_SPAN_BISECTION_ITERATIONS = 60
-
-#: Output artifact paths.
-RESULTS_DIR = Path(__file__).resolve().parents[5] / "FlightLogs"
-CSV_PATH = RESULTS_DIR / "SM_sensitivity_fin_span.csv"
-PNG_PATH = RESULTS_DIR / "SM_sensitivity_fin_span.png"
-
-
-# --------------------------------------------------------------------------
-# Galejs body-lift correction.
-# --------------------------------------------------------------------------
-
-
-def reference_area_m2(d_ref_m: float) -> float:
-    """Reference (body cross-section) area used by all CN_alpha terms.
-
-    Args:
-        d_ref_m: Body reference diameter [m].
-
-    Returns:
-        ``pi/4 * d_ref_m**2`` [m^2], matching the ``A_ref`` convention
-        used throughout ``barrowman_stability.py``.
+    Conical: straight line. Ogive: tangent ogive. Hemispherical: ellipse with
+    semi-axes ``nose_length`` and the base radius.
     """
-    return math.pi / 4.0 * d_ref_m**2
+    length = geometry.nose_length
+    r_base = 0.5 * geometry.nose_base_diameter
+    if geometry.nose_type == "conical":
+        return r_base * x / length
+    if geometry.nose_type == "ogive":
+        rho = (r_base**2 + length**2) / (2.0 * r_base)
+        return np.sqrt(np.maximum(rho**2 - (length - x) ** 2, 0.0)) + r_base - rho
+    return r_base * np.sqrt(np.maximum(1.0 - ((length - x) / length) ** 2, 0.0))
 
 
-def body_planform_area_and_centroid_m(geometry: RocketGeometry) -> tuple[float, float]:
-    """Body-of-revolution planform (side-projection) area and its centroid.
+def body_planform(geometry: RocketGeometry) -> tuple[float, float]:
+    """Side-projected area [m^2] of the body and its centroid [m from the nose tip].
 
-    The body is split into three pieces along the axis, each with its
-    own exact area + centroid formula, and combined by an area-weighted
-    average (all measured from the nose tip, ``x = 0``):
-
-    - **Nose** (``0 <= x <= nose_length_m``): local diameter grows
-      linearly from 0 at the tip to ``nose_base_diameter_m`` -- a
-      triangle in the (x, diameter) plane. Area = ``0.5 * d_base *
-      L_nose``; centroid at ``(2/3) * L_nose`` from the tip (the
-      standard result for a linear ramp from zero, i.e. an approximate
-      confirmation of the task's "adjust for the conical nose
-      contribution" instruction relative to the plain
-      "0.5*L_body" cylindrical-body approximation).
-    - **Transition/shoulder** (``nose_length_m <= x <= nose_length_m +
-      transition_length_m``): local diameter grows linearly from
-      ``nose_base_diameter_m`` to ``d_ref_m`` -- a trapezoid. Area =
-      ``0.5*(d1+d2)*L_t``; centroid (from the start of the transition)
-      at ``(L_t/3) * (d1 + 2*d2) / (d1 + d2)`` (standard linear-trapezoid
-      centroid formula).
-    - **Cylindrical afterbody** (remainder of ``total_length_m``):
-      constant diameter ``d_ref_m`` -- a rectangle. Area = ``d_ref_m *
-      L_cyl``; centroid at its axial midpoint, matching the task's
-      "approx 0.5 * L_body from nose for a cylindrical body" baseline.
-
-    Args:
-        geometry: Rocket geometry (reused ``RocketGeometry`` from
-            ``barrowman_stability``; ``transition_length_m`` here is the
-            same ``TRANSITION_LENGTH_M`` engineering assumption used by
-            the base module -- not re-derived).
-
-    Returns:
-        Tuple of (total planform area [m^2], area-weighted centroid
-        location [m from nose tip]).
+    The nose profile is integrated numerically; the rest of the body is a cylinder
+    of the reference diameter.
     """
-    d1 = geometry.nose_base_diameter
-    d2 = geometry.d_ref
-    l_nose = geometry.nose_length
-    l_trans = 0.0  # shoulder is a step (see barrowman_stability)
-    l_cyl = geometry.total_length - l_nose - l_trans
+    x = np.linspace(0.0, geometry.nose_length, BarrowmanExtendedAnalysis.NOSE_PROFILE_POINTS)
+    width = 2.0 * nose_radius(geometry, x)
+    nose_area = float(np.trapezoid(width, x))
+    nose_moment = float(np.trapezoid(width * x, x))
 
-    area_nose = 0.5 * d1 * l_nose
-    x_nose = (2.0 / 3.0) * l_nose
+    cylinder_length = geometry.total_length - geometry.nose_length
+    cylinder_area = geometry.d_ref * cylinder_length
+    cylinder_moment = cylinder_area * (geometry.nose_length + 0.5 * cylinder_length)
 
-    area_trans = 0.5 * (d1 + d2) * l_trans
-    x_trans = l_nose + (l_trans / 3.0) * (d1 + 2.0 * d2) / (d1 + d2)
-
-    area_cyl = d2 * l_cyl
-    x_cyl = l_nose + l_trans + l_cyl / 2.0
-
-    area_total = area_nose + area_trans + area_cyl
-    x_centroid = (
-        area_nose * x_nose + area_trans * x_trans + area_cyl * x_cyl
-    ) / area_total
-    return area_total, x_centroid
+    area = nose_area + cylinder_area
+    return area, (nose_moment + cylinder_moment) / area
 
 
-def galejs_body_cn_alpha_and_cp(geometry: RocketGeometry) -> tuple[float, float]:
-    """Galejs body-lift CN_alpha and CP location.
-
-    ``CN_body_alpha = 2.0 * K_body * (A_planform_body / A_ref)`` with the
-    Barrowman-original body-fin interference factor ``K_body = 1 +
-    r_body / (r_body + r_fin)`` (``r_fin`` = exposed fin span), per task
-    specification. Note this is the *same functional form* as the
-    ``Kfb`` factor already applied to the fin CN_alpha in
-    ``fin_cn_alpha_base_and_cp`` (Hoerner/Barrowman mutual body-fin
-    interference), just evaluated as the reciprocal-role "body sees the
-    fins" interference term rather than "fins see the body." It is
-    computed independently here (not by calling into
-    ``fin_cn_alpha_base_and_cp``) to avoid conflating the two distinct
-    physical corrections.
-
-    This term is Mach-invariant (first-order slender-body/cross-flow
-    theory), consistent with how nose and transition CN_alpha are
-    treated as Mach-invariant in ``barrowman_stability.py`` -- only the
-    fin term there receives a compressibility correction.
+def galejs_body_lift(geometry: RocketGeometry, alpha_deg: float) -> ComponentContribution:
+    """Body lift as a component with secant slope ``CN_body / alpha`` [1/rad].
 
     Args:
         geometry: Rocket geometry.
+        alpha_deg: Angle of attack [deg].
 
     Returns:
-        Tuple of (CN_alpha [1/rad, ref. A_ref], x_cp [m from nose]).
+        The body-lift contribution, at the planform centroid.
     """
-    r_body = geometry.body_radius
-    r_fin = geometry.tail_fins.span
-    k_body = 1.0 + r_body / (r_body + r_fin)
-
-    a_planform, x_cp = body_planform_area_and_centroid_m(geometry)
-    a_ref = reference_area_m2(geometry.d_ref)
-    cn_alpha = 2.0 * k_body * (a_planform / a_ref)
-    return cn_alpha, x_cp
+    area, centroid = body_planform(geometry)
+    alpha = math.radians(alpha_deg)
+    coefficient = BarrowmanExtendedAnalysis.BODY_LIFT_K * area / geometry.reference_area
+    secant_slope = coefficient * math.sin(alpha) ** 2 / alpha if alpha > 0.0 else 0.0
+    return ComponentContribution("body_lift", secant_slope, centroid)
 
 
-@dataclass
-class ExtendedStabilityResult:
-    """Basic + Galejs-extended stability result at a single Mach number.
-
-    Attributes:
-        mach: Freestream Mach number.
-        basic: The unmodified ``compute_stability_at_mach`` result
-            (nose + transition + fin, fin already Prandtl-Glauert/Ackeret
-            corrected) -- reused, not recomputed.
-        body: The Galejs body-lift component contribution added here.
-        cn_alpha_extended: Total CN_alpha including the body term.
-        x_cp_extended_m: Combined CP location including the body term.
-    """
-
-    mach: float
-    basic: StabilityResult
-    body: ComponentContribution
-    cn_alpha_extended: float = 0.0
-    x_cp_extended_m: float = 0.0
-
-
-def compute_extended_stability_at_mach(
-    geometry: RocketGeometry, mach: float
-) -> ExtendedStabilityResult:
-    """Compute the Galejs-extended CN_alpha/CP at a given Mach number.
-
-    Calls ``barrowman_stability.compute_stability_at_mach`` for the
-    nose/transition/fin (Mach-corrected) baseline -- no reimplementation
-    -- then folds in the Galejs body-lift term computed by
-    :func:`galejs_body_cn_alpha_and_cp`.
-
-    Args:
-        geometry: Rocket geometry.
-        mach: Freestream Mach number (>= 0).
+def extended_build_up(
+    geometry: RocketGeometry, mach: float, alpha_deg: float
+) -> tuple[tuple[ComponentContribution, ...], float, float]:
+    """Barrowman components plus body lift.
 
     Returns:
-        :class:`ExtendedStabilityResult` with both the reused basic
-        result and the extended (body-lift-corrected) total.
+        The components, the total secant slope and the CP [m from the nose tip].
     """
     basic = compute_stability_at_mach(geometry, mach)
-    cn_body, x_body = galejs_body_cn_alpha_and_cp(geometry)
-    body_component = ComponentContribution("body_galejs", cn_body, x_body)
-
-    cn_alpha_extended = basic.cn_alpha_total + cn_body
-    x_cp_extended_m = (
-        sum(c.cn_alpha * c.x_cp for c in basic.components) + cn_body * x_body
-    ) / cn_alpha_extended
-
-    return ExtendedStabilityResult(
-        mach=mach,
-        basic=basic,
-        body=body_component,
-        cn_alpha_extended=cn_alpha_extended,
-        x_cp_extended_m=x_cp_extended_m,
-    )
+    components = (*basic.components, galejs_body_lift(geometry, alpha_deg))
+    cn_alpha = sum(c.cn_alpha for c in components)
+    return components, cn_alpha, sum(c.cn_alpha * c.x_cp for c in components) / cn_alpha
 
 
-def static_margin_cal(x_cp_m: float, cg_m: float, d_ref_m: float) -> float:
-    """Static margin in calibers, ``(x_cp - x_cg) / d_ref``.
-
-    Args:
-        x_cp_m: Center-of-pressure location [m from nose].
-        cg_m: Center-of-gravity location [m from nose].
-        d_ref_m: Reference (body) diameter [m].
-
-    Returns:
-        Static margin [calibers]. Positive = CP aft of CG = stable.
-    """
-    return (x_cp_m - cg_m) / d_ref_m
+def static_margin_for_span(
+    geometry: RocketGeometry, span: float, mach: float, alpha_deg: float
+) -> float:
+    """Static margin with body lift [cal] for a different tail-fin span."""
+    resized = geometry.with_tail_fin_span(span)
+    _, _, cp = extended_build_up(resized, mach, alpha_deg)
+    return (cp - geometry.cg_from_nose) / geometry.d_ref
 
 
-def sm_flag(sm_cal: float) -> str:
-    """Classify a static margin into a coarse per-row CSV flag.
-
-    Args:
-        sm_cal: Static margin [calibers].
-
-    Returns:
-        ``"UNSTABLE"`` if ``sm_cal < 0``, ``"MARGINAL"`` if
-        ``0 <= sm_cal < SM_MIN_SAFE_CAL``, else ``"STABLE"``.
-    """
-    if sm_cal < 0.0:
-        return "UNSTABLE"
-    if sm_cal < SM_MIN_SAFE_CAL:
-        return "MARGINAL"
-    return "STABLE"
-
-
-# --------------------------------------------------------------------------
-# Fin-span sensitivity sweep.
-# --------------------------------------------------------------------------
-
-
-@dataclass
-class SweepRow:
-    """One row of the fin-span sensitivity sweep.
-
-    Attributes correspond 1:1 to the required CSV columns.
-    """
-
-    fin_span_factor: float
-    fin_span_m: float
-    cp_nose_m: float
-    cp_fin_m: float
-    cp_body_m: float
-    cp_total_m: float
-    cg_m: float
-    sm_cal_basic: float
-    sm_cal_extended: float
-    sm_flag: str = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.sm_flag = sm_flag(self.sm_cal_extended)
-
-
-def evaluate_span(
-    geometry: RocketGeometry, fin_span_m: float, mach: float = COMPARISON_MACH
-) -> SweepRow:
-    """Evaluate basic and extended stability for one candidate fin span.
-
-    Args:
-        geometry: Baseline rocket geometry (``fin_span_m`` is overridden).
-        fin_span_m: Candidate exposed fin span [m].
-        mach: Freestream Mach number to evaluate at.
-
-    Returns:
-        A populated :class:`SweepRow`.
-    """
-    g = geometry.with_tail_fin_span(fin_span_m)
-    extended = compute_extended_stability_at_mach(g, mach)
-    basic = extended.basic
-
-    nose_component = next(c for c in basic.components if c.name == "nose")
-    fin_component = next(c for c in basic.components if c.name == g.tail_fins.name)
-
-    sm_basic = static_margin_cal(basic.x_cp, geometry.cg_from_nose, g.d_ref)
-    sm_extended = static_margin_cal(
-        extended.x_cp_extended_m, geometry.cg_from_nose, g.d_ref
-    )
-
-    return SweepRow(
-        fin_span_factor=fin_span_m / geometry.tail_fins.span,
-        fin_span_m=fin_span_m,
-        cp_nose_m=nose_component.x_cp,
-        cp_fin_m=fin_component.x_cp,
-        cp_body_m=extended.body.x_cp,
-        cp_total_m=extended.x_cp_extended_m,
-        cg_m=geometry.cg_from_nose,
-        sm_cal_basic=sm_basic,
-        sm_cal_extended=sm_extended,
-    )
-
-
-def fin_span_sweep(
-    geometry: RocketGeometry,
-    mach: float = COMPARISON_MACH,
-    factor_min: float = FIN_SPAN_SWEEP_FACTOR_MIN,
-    factor_max: float = FIN_SPAN_SWEEP_FACTOR_MAX,
-    n_points: int = FIN_SPAN_SWEEP_POINTS,
-) -> list[SweepRow]:
-    """Sweep ``fin_span_m`` from ``factor_min`` to ``factor_max`` of YAML.
-
-    Args:
-        geometry: Baseline rocket geometry (YAML ``fin_span_m`` used as
-            the 1.0x anchor).
-        mach: Freestream Mach number (default: Teltik comparison, Ma 2.5).
-        factor_min: Lower sweep bound as a fraction of the YAML span.
-        factor_max: Upper sweep bound as a fraction of the YAML span.
-        n_points: Number of sweep points.
-
-    Returns:
-        List of :class:`SweepRow`, one per factor, in increasing order.
-    """
-    factors = np.linspace(factor_min, factor_max, n_points)
-    return [
-        evaluate_span(geometry, float(f) * geometry.tail_fins.span, mach) for f in factors
-    ]
-
-
-def find_neutral_span_m(
-    geometry: RocketGeometry, mach: float = COMPARISON_MACH
-) -> tuple[float, str]:
-    """Bisect for the fin span at which the static margin crosses zero.
-
-    Tries the Galejs-**extended** static margin first (the physically
-    more complete model). If ``SM_cal_extended`` has no positive-span
-    root in the search bracket -- which is the case for this vehicle at
-    Ma 2.5: the cylindrical-afterbody planform centroid sits aft of the
-    CG on its own, so ``SM_cal_extended`` asymptotes to a positive value
-    (~+2.5 cal) as ``fin_span_m -> 0`` rather than crossing zero -- this
-    falls back to the **basic** (unmodified Barrowman) static margin,
-    which does have a well-defined root and reproduces the ~0.139 m
-    figure independently derived in
-    ``docs/vehicle/stability_reconciliation.md`` Section 3.
-
-    Args:
-        geometry: Baseline rocket geometry.
-        mach: Freestream Mach number.
-
-    Returns:
-        Tuple of (``neutral_span_m``, ``variant`` where variant is
-        ``"extended"`` or ``"basic (extended has no positive-span
-        root)"``).
-
-    Raises:
-        RuntimeError: If neither the extended nor the basic curve has a
-            root in the search bracket (would indicate a modeling error).
-    """
-
-    def _sm_extended(span_m: float) -> float:
-        g = geometry.with_tail_fin_span(span_m)
-        ext = compute_extended_stability_at_mach(g, mach)
-        return static_margin_cal(ext.x_cp_extended_m, geometry.cg_from_nose, g.d_ref)
-
-    def _sm_basic(span_m: float) -> float:
-        g = geometry.with_tail_fin_span(span_m)
-        res = compute_stability_at_mach(g, mach)
-        return static_margin_cal(res.x_cp, geometry.cg_from_nose, g.d_ref)
-
-    span_hi = NEUTRAL_SPAN_SEARCH_MAX_FACTOR * geometry.tail_fins.span
-
-    root = _bisect_for_root(_sm_extended, NEUTRAL_SPAN_SEARCH_MIN_M, span_hi)
-    if root is not None:
-        return root, "extended"
-
-    root = _bisect_for_root(_sm_basic, NEUTRAL_SPAN_SEARCH_MIN_M, span_hi)
-    if root is not None:
-        return root, "basic (extended has no positive-span root)"
-
-    raise RuntimeError(
-        "No neutral-stability fin span found for either the extended or "
-        f"basic static margin in [{NEUTRAL_SPAN_SEARCH_MIN_M}, {span_hi}] m"
-    )
-
-
-def _bisect_for_root(
-    func: Any, lo: float, hi: float
+def find_tail_span(
+    geometry: RocketGeometry, mach: float, alpha_deg: float, target_margin: float
 ) -> float | None:
-    """Grid-scan for a sign change then bisect to high precision.
+    """Smallest tail-fin span [m] whose static margin with body lift is ``target_margin``.
 
-    Args:
-        func: Scalar function of a single float span [m].
-        lo: Lower search bound [m].
-        hi: Upper search bound [m].
+    Searches from ``SPAN_SEARCH_MIN_FRACTION`` to ``SPAN_SEARCH_MAX_FACTOR`` times
+    the current span.
 
     Returns:
-        The root location, or ``None`` if no sign change was found on
-        the search grid.
+        The span, or None if the margin does not cross the target in that range.
     """
-    grid = np.linspace(lo, hi, NEUTRAL_SPAN_SEARCH_GRID_POINTS)
-    values = np.array([func(float(x)) for x in grid])
-    sign_changes = np.where(np.diff(np.sign(values)) != 0)[0]
-    if len(sign_changes) == 0:
-        return None
+    span = geometry.tail_fins.span
+    spans = np.linspace(
+        BarrowmanExtendedAnalysis.SPAN_SEARCH_MIN_FRACTION * span,
+        BarrowmanExtendedAnalysis.SPAN_SEARCH_MAX_FACTOR * span,
+        BarrowmanExtendedAnalysis.SPAN_SEARCH_POINTS,
+    )
 
-    idx = int(sign_changes[0])
-    a, b = float(grid[idx]), float(grid[idx + 1])
-    fa = func(a)
-    for _ in range(NEUTRAL_SPAN_BISECTION_ITERATIONS):
-        mid = 0.5 * (a + b)
-        fm = func(mid)
-        if fa * fm <= 0.0:
-            b = mid
-        else:
-            a, fa = mid, fm
-    return 0.5 * (a + b)
+    def gap(s: float) -> float:
+        return static_margin_for_span(geometry, s, mach, alpha_deg) - target_margin
 
-
-# --------------------------------------------------------------------------
-# CSV / PNG output.
-# --------------------------------------------------------------------------
-
-CSV_COLUMNS = (
-    "fin_span_factor",
-    "fin_span_m",
-    "CP_nose_m",
-    "CP_fin_m",
-    "CP_body_m",
-    "CP_total_m",
-    "CG_m",
-    "SM_cal_basic",
-    "SM_cal_extended",
-    "SM_flag",
-)
+    values = [gap(float(s)) for s in spans]
+    for i in range(len(spans) - 1):
+        if values[i] == 0.0:
+            return float(spans[i])
+        if values[i] * values[i + 1] < 0.0:
+            root: float = brentq(gap, float(spans[i]), float(spans[i + 1]), xtol=1e-9)
+            return root
+    return None
 
 
-def write_sensitivity_csv(
-    rows: list[SweepRow],
-    header_comments: list[str],
-    output_path: Path | str = CSV_PATH,
-) -> Path:
-    """Write the fin-span sensitivity sweep to CSV.
-
-    Args:
-        rows: Sweep rows, in the order to be written.
-        header_comments: Lines to write above the header row, each
-            prefixed with ``"# "`` if not already ``#``-prefixed.
-        output_path: Destination CSV path.
-
-    Returns:
-        The path written.
-    """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with output_path.open("w", encoding="utf-8", newline="") as fh:
-        for line in header_comments:
-            fh.write(line if line.startswith("#") else f"# {line}")
-            fh.write("\n")
-        writer = csv.writer(fh)
-        writer.writerow(CSV_COLUMNS)
-        for row in rows:
-            writer.writerow(
-                [
-                    f"{row.fin_span_factor:.6f}",
-                    f"{row.fin_span_m:.6f}",
-                    f"{row.cp_nose_m:.6f}",
-                    f"{row.cp_fin_m:.6f}",
-                    f"{row.cp_body_m:.6f}",
-                    f"{row.cp_total_m:.6f}",
-                    f"{row.cg_m:.6f}",
-                    f"{row.sm_cal_basic:.6f}",
-                    f"{row.sm_cal_extended:.6f}",
-                    row.sm_flag,
-                ]
+def run_span_sweep(geometry: RocketGeometry, mach: float, alpha_deg: float) -> list[FinSpanSweepPoint]:
+    """Static margins with and without body lift across the tail-fin span range."""
+    span = geometry.tail_fins.span
+    spans = np.linspace(
+        BarrowmanExtendedAnalysis.SWEEP_SPAN_MIN_FACTOR * span,
+        BarrowmanExtendedAnalysis.SWEEP_SPAN_MAX_FACTOR * span,
+        BarrowmanExtendedAnalysis.SWEEP_POINTS,
+    )
+    points = []
+    for s in spans:
+        resized = geometry.with_tail_fin_span(float(s))
+        points.append(
+            FinSpanSweepPoint(
+                span=float(s),
+                static_margin_basic=compute_stability_at_mach(resized, mach).static_margin,
+                static_margin=static_margin_for_span(geometry, float(s), mach, alpha_deg),
             )
-    return output_path
+        )
+    return points
 
 
-def plot_sm_sensitivity(
-    rows: list[SweepRow], output_path: Path | str = PNG_PATH
-) -> Path:
-    """Plot SM_cal (basic and extended) vs. fin-span factor.
+def format_span_sweep_csv(points: list[FinSpanSweepPoint]) -> str:
+    """CSV text of the tail-fin span sweep."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(f.name for f in fields(FinSpanSweepPoint))
+    writer.writerows((p.span, p.static_margin_basic, p.static_margin) for p in points)
+    return buffer.getvalue()
+
+
+def plot_span_sweep(points: list[FinSpanSweepPoint], results: BarrowmanExtendedResults) -> Figure:
+    """Plot static margin against tail-fin span, with and without body lift.
 
     Args:
-        rows: Sweep rows (assumed sorted by ``fin_span_factor``).
-        output_path: PNG output path.
+        points: Output of :func:`run_span_sweep`.
+        results: Results of the run, for the current and required spans.
 
     Returns:
-        Path to the saved PNG (150 DPI).
+        The matplotlib Figure instance.
     """
-    factors = [r.fin_span_factor for r in rows]
-    sm_basic = [r.sm_cal_basic for r in rows]
-    sm_extended = [r.sm_cal_extended for r in rows]
+    import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8.0, 5.5), dpi=150)
-    ax.plot(factors, sm_basic, "o-", color="#1f77b4", lw=2.0, label="SM_cal (basic Barrowman)")
+    spans = [p.span for p in points]
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    ax.plot(spans, [p.static_margin_basic for p in points], ls="--", lw=2.0, label="Barrowman")
     ax.plot(
-        factors,
-        sm_extended,
-        "s-",
-        color="#2ca02c",
+        spans,
+        [p.static_margin for p in points],
         lw=2.0,
-        label="SM_cal (extended: Galejs body-lift + P-G/Ackeret fin)",
+        label=f"With body lift at {results.alpha:g} deg",
     )
-
-    ax.axhline(0.0, color="black", lw=1.2, ls="-", label="SM = 0 (neutral)")
-    ax.axhline(
-        SM_MIN_SAFE_CAL, color="#ff7f0e", lw=1.2, ls="--", label=f"SM = +{SM_MIN_SAFE_CAL:.0f} (min safe)"
-    )
-    ax.axhline(
-        TELTIK_CFD_SM_CAL,
-        color="#d62728",
-        lw=1.5,
-        ls=":",
-        label=f"SM = {TELTIK_CFD_SM_CAL:.2f} (Teltik CFD, Ma {COMPARISON_MACH})",
-    )
-
-    ax.set_xlabel("Fin span factor [-] (fraction of YAML fins.span_m = 0.6685 m)")
-    ax.set_ylabel("Static margin [calibers]")
-    ax.set_title(
-        f"MELprop vehicle -- static margin vs. fin span (Barrowman, Ma {COMPARISON_MACH})"
-    )
+    ax.axhline(0.0, color="k", lw=0.8)
+    ax.axhline(results.sm_required, color="tab:red", ls=":", label="Required margin")
+    ax.axvline(results.tail_span, color="tab:gray", ls=":", label="Current span")
+    if results.required_tail_span is not None:
+        ax.plot(results.required_tail_span, results.sm_required, "o", color="tab:red",
+                label=f"Required span {results.required_tail_span:.3f} m")
+    ax.set_xlabel(f"Exposed span of '{results.tail_fin_set}' [m]")
+    ax.set_ylabel("Static margin [cal]")
+    ax.set_title(f"Tail-fin span sizing at Mach {results.mach:g}")
     ax.grid(True, alpha=0.3)
-    ax.legend(loc="best", fontsize=8)
+    ax.legend(fontsize=8)
     fig.tight_layout()
-
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
-    return output_path
+    return fig
 
 
-# --------------------------------------------------------------------------
-# BaseAnalysis wrapper.
-# --------------------------------------------------------------------------
-
-
-class BarrowmanExtendedAnalysis(BaseAnalysis):
-    """Galejs-extended Barrowman fin-span sensitivity analysis.
-
-    Wraps :func:`fin_span_sweep`, :func:`find_neutral_span_m`, and the
-    CSV/PNG writers behind the project's ``BaseAnalysis`` contract.
+class BarrowmanExtendedAnalysis(BaseAnalysis[BarrowmanExtendedResults]):
+    """Static margin with Galejs body lift, and the tail-fin span that meets the rule.
 
     Example:
-        >>> analysis = BarrowmanExtendedAnalysis()
-        >>> analysis.setup(vehicle)  # doctest: +SKIP
-        >>> results = analysis.execute()
-        >>> results["neutral_span_m"] < results["fin_span_yaml_m"]  # doctest: +SKIP
+        analysis = BarrowmanExtendedAnalysis()
+        analysis.setup(vehicle, mach=0.3, alpha_deg=8.0)
+        results = analysis.execute()
+        span = results.required_tail_span
     """
 
     fidelity = FidelityLevel.LEVEL_0
 
+    #: Galejs body-lift coefficient [-].
+    BODY_LIFT_K: ClassVar[float] = 1.1
+
+    DEFAULT_MACH: ClassVar[float] = BarrowmanStabilityAnalysis.DEFAULT_MACH
+    DEFAULT_ALPHA_DEG: ClassVar[float] = 5.0
+
+    #: Above this angle of attack linear theory and the body-lift term are poor [deg].
+    MAX_RELIABLE_ALPHA_DEG: ClassVar[float] = 15.0
+
+    NOSE_PROFILE_POINTS: ClassVar[int] = 401
+
+    #: Tail-fin span search for the required and neutral spans, as factors on the span.
+    SPAN_SEARCH_MIN_FRACTION: ClassVar[float] = 0.01
+    SPAN_SEARCH_MAX_FACTOR: ClassVar[float] = 5.0
+    SPAN_SEARCH_POINTS: ClassVar[int] = 100
+
+    #: Tail-fin span sweep for the figure, as factors on the span.
+    SWEEP_SPAN_MIN_FACTOR: ClassVar[float] = 0.4
+    SWEEP_SPAN_MAX_FACTOR: ClassVar[float] = 1.6
+    SWEEP_POINTS: ClassVar[int] = 25
+
     def __init__(self, name: str = "barrowman_extended") -> None:
         super().__init__(name)
         self._geometry: RocketGeometry | None = None
+        self._mach = self.DEFAULT_MACH
+        self._alpha_deg = self.DEFAULT_ALPHA_DEG
+        self._sm_required = 0.0
+        self._assumptions: tuple[str, ...] = ()
 
-    def setup(
+    @property
+    def geometry(self) -> RocketGeometry:
+        """Geometry bound by :meth:`setup`.
+
+        Raises:
+            RuntimeError: Before :meth:`setup`.
+        """
+        if self._geometry is None:
+            raise RuntimeError(f"Analysis '{self.name}' has not been setup yet.")
+        return self._geometry
+
+    def _setup(
         self,
         vehicle: BaseVehicleConfig,
-        operating_state: dict | None = None,
+        *,
+        body_name: str | None = None,
+        mach: float = DEFAULT_MACH,
+        alpha_deg: float = DEFAULT_ALPHA_DEG,
+        cg_from_nose: float | None = None,
+        sm_required: float | None = None,
+        **kwargs: Any,
     ) -> None:
-        """Bind the analysis to a validated vehicle configuration.
-
-        Geometry is read from ``vehicle`` via the reused
-        ``barrowman_stability.geometry_from_vehicle``
+        """Resolve the geometry and the evaluation settings.
 
         Args:
-            vehicle: Validated vehicle configuration providing the
-                axisymmetric body, fin-set geometry, and CG.
-            operating_state: Unused by this method -- the fin-span
-                sensitivity sweep is evaluated at the fixed
-                ``COMPARISON_MACH`` design point. Accepted for
-                :class:`BaseAnalysis` contract compatibility.
+            vehicle: Vehicle with one axisymmetric body and at least one fin set.
+            body_name: Body to use if the vehicle has more than one.
+            mach: Evaluation Mach number.
+            alpha_deg: Angle of attack for the body lift [deg].
+            cg_from_nose: Center of gravity [m]. Defaults to the vehicle's.
+            sm_required: Required static margin [cal]. Defaults to the Barrowman
+                rule, a fraction of the body length.
+            **kwargs: Not accepted; present for the ``BaseAnalysis`` signature.
 
         Raises:
-            ValueError: If a field the method needs is missing from
-                ``vehicle`` (see
-                ``barrowman_stability.geometry_from_vehicle``).
+            TypeError: If an unknown setting is passed.
+            ValueError: If a setting is out of range or the vehicle lacks what the
+                method needs.
         """
-        self._geometry = geometry_from_vehicle(vehicle)
-        self._is_setup = True
+        if kwargs:
+            raise TypeError(f"Unknown settings for '{self.name}': {sorted(kwargs)}")
+        if mach < 0.0:
+            raise ValueError(f"mach must be >= 0, got {mach}")
+        if not 0.0 <= alpha_deg < 90.0:
+            raise ValueError(f"alpha_deg must be in [0, 90), got {alpha_deg}")
 
-    def execute(self) -> AnalysisResults:
-        """Run the sweep + neutral-span solve and write CSV/PNG artifacts.
+        geometry = geometry_from_vehicle(vehicle, body_name=body_name, cg_from_nose=cg_from_nose)
+        assumptions = geometry_assumptions(vehicle, geometry)
+        if mach > BarrowmanStabilityAnalysis.MACH_SUBSONIC_LIMIT:
+            assumptions.append(
+                f"Mach {mach:g} is above {BarrowmanStabilityAnalysis.MACH_SUBSONIC_LIMIT:g}: "
+                "Barrowman is a subsonic method, so the result is an estimate."
+            )
+        if alpha_deg > self.MAX_RELIABLE_ALPHA_DEG:
+            assumptions.append(
+                f"Angle of attack {alpha_deg:g} deg is above {self.MAX_RELIABLE_ALPHA_DEG:g} deg: "
+                "the fin terms are linear, so the result is an estimate."
+            )
+        if len(geometry.fin_sets) > 1:
+            assumptions.append(
+                f"Span sizing changes only the aft fin set '{geometry.tail_fins.name}'."
+            )
 
-        Returns:
-            AnalysisResults with ``sm_basic_cal``, ``sm_extended_cal``,
-            ``delta_sm_cal``, ``delta_vs_teltik_cal``, ``neutral_span_m``,
-            and ``fin_span_yaml_m``.
+        self._geometry = geometry
+        self._mach = mach
+        self._alpha_deg = alpha_deg
+        self._sm_required = (
+            BarrowmanStabilityAnalysis.SM_REQUIRED_LENGTH_FRACTION * geometry.fineness_ratio
+            if sm_required is None
+            else sm_required
+        )
+        self._assumptions = tuple(assumptions)
+        self.logger.info(
+            "Configured extended Barrowman for vehicle '%s' (M=%.2f, alpha=%.1f deg, CG=%.3f m)",
+            vehicle.name,
+            mach,
+            alpha_deg,
+            geometry.cg_from_nose,
+        )
+        for assumption in self._assumptions:
+            self.logger.warning(assumption)
 
-        Raises:
-            RuntimeError: If called before :meth:`setup`.
-        """
-        if not self._is_setup or self._geometry is None:
-            raise RuntimeError("BarrowmanExtendedAnalysis.execute() called before setup()")
+    def _compute(self, **kwargs: Any) -> BarrowmanExtendedResults:
+        """Evaluate the build-up with body lift and size the tail fins."""
+        geometry = self.geometry
+        basic = compute_stability_at_mach(geometry, self._mach)
+        components, cn_alpha, cp = extended_build_up(geometry, self._mach, self._alpha_deg)
+        area, centroid = body_planform(geometry)
+        static_margin = (cp - geometry.cg_from_nose) / geometry.d_ref
 
-        output = run(geometry=self._geometry)
+        def span_for(target: float) -> float | None:
+            return find_tail_span(geometry, self._mach, self._alpha_deg, target)
 
-        results = AnalysisResults(
+        results = BarrowmanExtendedResults(
             name=self.name,
             fidelity=self.fidelity,
-            data={
-                "sm_basic_cal": output["sm_basic_cal"],
-                "sm_extended_cal": output["sm_extended_cal"],
-                "delta_sm_cal": output["delta_sm_cal"],
-                "delta_vs_teltik_cal": output["delta_vs_teltik_cal"],
-                "neutral_span_m": output["neutral_span_m"],
-                "fin_span_yaml_m": output["fin_span_yaml_m"],
-            },
-            metadata={
-                "neutral_span_variant": output["neutral_span_variant"],
-                "review_needed": output["review_needed"],
-                "csv_path": str(output["csv_path"]),
-                "png_path": str(output["png_path"]),
-                "mach": COMPARISON_MACH,
-            },
+            geometry=geometry,
+            mach=self._mach,
+            alpha=self._alpha_deg,
+            body_planform_area=area,
+            body_planform_centroid=centroid,
+            body_cn_alpha=components[-1].cn_alpha,
+            components=components,
+            cn_alpha=cn_alpha,
+            cp=cp,
+            cp_basic=basic.x_cp,
+            cg=geometry.cg_from_nose,
+            static_margin=static_margin,
+            static_margin_basic=basic.static_margin,
+            sm_required=self._sm_required,
+            margin=static_margin - self._sm_required,
+            tail_fin_set=geometry.tail_fins.name,
+            tail_span=geometry.tail_fins.span,
+            required_tail_span=span_for(self._sm_required),
+            neutral_tail_span=span_for(0.0),
+            assumptions=self._assumptions,
         )
-        if not self.validate_results(results):
-            raise RuntimeError(
-                "BarrowmanExtendedAnalysis results failed analytical cross-check"
-            )
+        self.logger.info(
+            "Body lift CN_alpha=%.3f /rad at %.3f m; SM=%.2f cal (Barrowman %.2f); "
+            "required tail span=%s m",
+            results.body_cn_alpha,
+            results.body_planform_centroid,
+            results.static_margin,
+            results.static_margin_basic,
+            "none" if results.required_tail_span is None else f"{results.required_tail_span:.4f}",
+        )
         return results
 
-    def validate_results(self, results: AnalysisResults) -> bool:
-        """Sanity-check the extended analysis against the basic one.
-
-        Checks:
-
-        1. ``neutral_span_m`` is finite, positive, and less than the
-           YAML fin span (the correction should not make the vehicle
-           *more* stable at small span than the design span).
-        2. The Galejs body-lift correction moves the CP forward
-           (destabilizing): ``sm_extended_cal <= sm_basic_cal``,
-           consistent with the physical direction documented in
-           :func:`galejs_body_cn_alpha_and_cp` (body-lift CN_alpha is
-           centered well aft of the nose but, once blended into the
-           weighted-average CP alongside the much-more-forward nose and
-           transition terms, the net effect at this vehicle's geometry
-           is a forward shift of the combined CP -- see the module test
-           suite for the numeric direction actually produced).
+    def validate_results(self, results: BarrowmanExtendedResults) -> bool:
+        """Check finite values, positive slopes and a CP on the vehicle.
 
         Args:
             results: Results produced by :meth:`execute`.
@@ -757,72 +395,13 @@ class BarrowmanExtendedAnalysis(BaseAnalysis):
         Returns:
             True if all checks pass.
         """
-        if "neutral_span_m" not in results or "fin_span_yaml_m" not in results:
+        if not all(math.isfinite(value) for value in results.scalars().values()):
             return False
-        neutral = results["neutral_span_m"]
-        if not math.isfinite(neutral) or neutral <= 0.0:
+        if any(c.cn_alpha < 0.0 for c in results.components) or results.cn_alpha <= 0.0:
             return False
-        if neutral >= results["fin_span_yaml_m"]:
-            return False
-        if results["sm_extended_cal"] > results["sm_basic_cal"]:
-            return False
-        return True
-
-
-def run(
-    geometry: RocketGeometry,
-    csv_path: Path | str = CSV_PATH,
-    png_path: Path | str = PNG_PATH,
-) -> dict[str, Any]:
-    """Run the full sensitivity analysis and write the CSV + PNG artifacts.
-
-    Args:
-        geometry: Rocket geometry, from ``barrowman_stability.geometry_from_vehicle``.
-        csv_path: Destination CSV path.
-        png_path: Destination PNG path.
-
-    Returns:
-        Dict of summary scalars (also embedded as CSV header comments).
-    """
-    rows = fin_span_sweep(geometry)
-
-    yaml_row = evaluate_span(geometry, geometry.tail_fins.span)
-    sm_basic_cal = yaml_row.sm_cal_basic
-    sm_extended_cal = yaml_row.sm_cal_extended
-    delta_sm_cal = sm_extended_cal - sm_basic_cal
-    delta_vs_teltik_cal = sm_extended_cal - TELTIK_CFD_SM_CAL
-    review_needed = sm_extended_cal > SM_REVIEW_THRESHOLD_CAL
-
-    neutral_span_m, neutral_variant = find_neutral_span_m(geometry)
-
-    header_comments = [
-        "# YAADO vehicle -- extended Barrowman fin-span sensitivity "
-        f"(Ma={COMPARISON_MACH})",
-        f"# YAML fin_span_m={geometry.tail_fins.span:.4f} m -> "
-        f"SM_basic={sm_basic_cal:.3f} cal, SM_extended={sm_extended_cal:.3f} cal, "
-        f"delta_SM={delta_sm_cal:.3f} cal",
-        f"# SM_extended vs Teltik CFD ({TELTIK_CFD_SM_CAL:.2f} cal): "
-        f"delta={delta_vs_teltik_cal:.3f} cal (gap narrowed by the Galejs "
-        "body-lift correction but not closed; see docs/vehicle/stability_reconciliation.md)",
-        f"# neutral_span_m (SM_cal=0)={neutral_span_m:.4f} m [{neutral_variant}]",
-    ]
-    if review_needed:
-        header_comments.append("# STABILITY_REVIEW_NEEDED")
-
-    csv_out = write_sensitivity_csv(rows, header_comments, csv_path)
-    png_out = plot_sm_sensitivity(rows, png_path)
-
-    return {
-        "rows": rows,
-        "sm_basic_cal": sm_basic_cal,
-        "sm_extended_cal": sm_extended_cal,
-        "delta_sm_cal": delta_sm_cal,
-        "delta_vs_teltik_cal": delta_vs_teltik_cal,
-        "neutral_span_m": neutral_span_m,
-        "neutral_span_variant": neutral_variant,
-        "review_needed": review_needed,
-        "fin_span_yaml_m": geometry.tail_fins.span,
-        "csv_path": csv_out,
-        "png_path": png_out,
-    }
+        aft_end = max(
+            results.geometry.total_length,
+            *(f.root_le_x + f.sweep_length + f.tip_chord for f in results.geometry.fin_sets),
+        )
+        return 0.0 <= results.cp <= aft_end
 

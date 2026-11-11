@@ -9,6 +9,7 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | **Flight Dynamics** | `PointMass3DOFBoostAnalysis` | [`flight_dynamics/methods/point_mass_3dof.py`](flight_dynamics/methods/point_mass_3dof.py) | L0 | 3-DOF point-mass rocket boost trajectory simulation |
 | **Powerplant** | `HeiserPrattCycleAnalysis` | [`powerplant/cycle_methods/heiser_pratt.py`](powerplant/cycle_methods/heiser_pratt.py) | L2 | 1-D two-gas ramjet station cycle with finite nozzle area ratio |
 | **Stability & Control** | `BarrowmanStabilityAnalysis` | [`stability_control/methods/barrowman/barrowman_stability.py`](stability_control/methods/barrowman/barrowman_stability.py) | L0 | Barrowman CP and static margin of a slender rocket with any number of fin sets |
+| **Stability & Control** | `BarrowmanExtendedAnalysis` | [`stability_control/methods/barrowman/barrowman_extended.py`](stability_control/methods/barrowman/barrowman_extended.py) | L0 | Barrowman with Galejs body lift at an angle of attack, and tail-fin span sizing |
 | **Stability & Control** | `DatcomStabilityAnalysis` | [`stability_control/methods/datcom/datcom_class_sweep.py`](stability_control/methods/datcom/datcom_class_sweep.py) | L1 | In-house DATCOM-class supersonic build-up of normal force and CP (not a wrapper around USAF Digital DATCOM) |
 | **Stability & Control** | `AckeretFinAnalysis` | [`stability_control/methods/ackeret/ackeret_fin_check.py`](stability_control/methods/ackeret/ackeret_fin_check.py) | L0 | Supersonic static margin with Ackeret fins, checked against Barrowman |
 
@@ -23,7 +24,6 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | **Powerplant** | Taylor-Maccoll Solver | [`powerplant/inlet_methods/taylor_maccoll.py`](powerplant/inlet_methods/taylor_maccoll.py) | L0 | Conical shock ODE integration |
 | **Powerplant** | `RamjetCycleAnalysis` | [`powerplant/cycle_methods/mattingly.py`](powerplant/cycle_methods/mattingly.py) | L2 | 1-D thermodynamic station ramjet cycle |
 | **Powerplant** | `GrzywkaCombustorNozzleAnalysis` | [`powerplant/cycle_methods/grzywka.py`](powerplant/cycle_methods/grzywka.py) | L2 | 1-D ramjet combustor and nozzle expansion |
-| **Stability & Control** | `BarrowmanExtendedAnalysis` | [`stability_control/methods/barrowman/barrowman_extended.py`](stability_control/methods/barrowman/barrowman_extended.py) | L0 | Extended Barrowman with transonic corrections |
 | **Wind Tunnel** | `XFOILAnalysis` | [`wind_tunnel/methods/xfoil/xfoil_runner.py`](wind_tunnel/methods/xfoil/xfoil_runner.py) | L0 / L1 | Airfoil polar analysis with Ackeret supersonic fallback |
 | **Wind Tunnel** | `AVLFinAnalysis` | [`wind_tunnel/methods/avl/avl_builder.py`](wind_tunnel/methods/avl/avl_builder.py) | L1 | Subsonic fin vortex lattice analysis (AVL) |
 | **Wind Tunnel** | `AVLAnalysis` | [`wind_tunnel/methods/avl/avl_wrapper.py`](wind_tunnel/methods/avl/avl_wrapper.py) | L1 | Subsonic wing vortex lattice analysis (AVL) |

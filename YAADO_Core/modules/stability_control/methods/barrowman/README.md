@@ -2,7 +2,7 @@
 
 * **Method class**: `BarrowmanStabilityAnalysis` in [`barrowman_stability.py`](barrowman_stability.py)
 * **Fidelity**: Level 0 (closed-form component build-up)
-* **Status**: Repaired and verified. `barrowman_extended.py` in this folder is not repaired.
+* **Status**: Repaired and verified. The [extended analysis](#extended-analysis-body-lift-and-fin-sizing) in `barrowman_extended.py` is too.
 
 This module calculates the center of pressure (CP) and the static margin of a slender finned rocket at one Mach number. It adds up the normal-force-curve slope `CN_alpha` and the CP of each component, after Barrowman and Barrowman, *The Theoretical Prediction of the Center of Pressure* (NARAM-8, 1966).
 
@@ -60,3 +60,30 @@ A logged run also saves `cp_vs_mach.png` and `cp_vs_mach.csv`, a sweep from Mach
 * Linear theory: small angles of attack, no body lift, no vortex lift and no fin-fin interference.
 * No boat tail and no flare.
 * Fin sets are trapezoidal with straight edges.
+
+## Extended Analysis: Body Lift and Fin Sizing
+
+`BarrowmanExtendedAnalysis` in [`barrowman_extended.py`](barrowman_extended.py) adds two things to the build-up above.
+
+### Galejs Body Lift
+
+Linear theory gives a cylinder no normal force. A real body at an angle of attack carries viscous cross-flow lift on its side-projected (planform) area $A_{plan}$. Galejs adds this term, and OpenRocket uses the same one:
+
+$$C_{N,body} = K \, \frac{A_{plan}}{A_{ref}} \, \sin^2\alpha, \qquad K = 1.1$$
+
+The term acts at the planform centroid. The nose profile (cone, tangent ogive or ellipse) is integrated numerically, and the rest of the body is a cylinder. The term grows with $\alpha^2$, so it is zero at $\alpha = 0$, and it moves the CP toward the planform centroid at the angle of attack of a gust or of a launch in wind. It joins the build-up as the secant slope $C_{N,body}/\alpha$.
+
+### Tail-Fin Span Sizing
+
+The analysis varies the span of the aft fin set and finds two spans with body lift included:
+* the span at which the static margin reaches the required value
+* the span at which the static margin is zero
+
+The search covers 0.01 to 5 times today's span, and an output is "n/a" if no span in that range gives the margin. A logged run also saves `fin_span_sizing.png` and `fin_span_sizing.csv`, which give the static margin with and without body lift from 0.4 to 1.6 times today's span.
+
+| Setting | Unit | Default |
+| :--- | :---: | :--- |
+| `mach` | - | 0.3 |
+| `alpha_deg` | deg | 5 (warns above 15) |
+| `cg_from_nose` | m | Vehicle CG |
+| `sm_required` | cal | 10 % of the body length |
