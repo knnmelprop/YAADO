@@ -138,6 +138,25 @@ def geometry_from_vehicle(
     )
 
 
+def geometry_assumptions(vehicle: BaseVehicleConfig, geometry: RocketGeometry) -> list[str]:
+    """Geometry assumptions that :func:`geometry_from_vehicle` made for this vehicle."""
+    assumptions: list[str] = []
+    fins = vehicle.get_components_by_type(FIN_COMPONENTS)
+    for name, fin in fins.items():
+        if fin.root_le_from_nose is None:
+            assumptions.append(
+                f"Fin set '{name}' has no root_le_from_nose: placed flush with the aft end."
+            )
+    other_surfaces = sorted(set(vehicle.get_components_by_type(AERO_COMPONENTS)) - set(fins))
+    if other_surfaces:
+        assumptions.append(
+            f"Lifting surfaces other than fins are ignored: {', '.join(other_surfaces)}."
+        )
+    if geometry.nose_base_diameter < geometry.d_ref:
+        assumptions.append("Nose base narrower than the body: shoulder modeled as a step.")
+    return assumptions
+
+
 def nose_cn_alpha_and_cp(geometry: RocketGeometry) -> tuple[float, float]:
     """Nose ``CN_alpha`` [1/rad] and CP [m from the nose tip]."""
     cn_alpha = 2.0 * (geometry.nose_base_diameter / geometry.d_ref) ** 2
@@ -456,20 +475,7 @@ class BarrowmanStabilityAnalysis(BaseAnalysis[BarrowmanStabilityResults]):
         self, vehicle: BaseVehicleConfig, geometry: RocketGeometry, mach: float
     ) -> tuple[str, ...]:
         """Modeling assumptions that this vehicle and Mach number need."""
-        assumptions: list[str] = []
-        fins = vehicle.get_components_by_type(FIN_COMPONENTS)
-        for name, fin in fins.items():
-            if fin.root_le_from_nose is None:
-                assumptions.append(
-                    f"Fin set '{name}' has no root_le_from_nose: placed flush with the aft end."
-                )
-        other_surfaces = sorted(set(vehicle.get_components_by_type(AERO_COMPONENTS)) - set(fins))
-        if other_surfaces:
-            assumptions.append(
-                f"Lifting surfaces other than fins are ignored: {', '.join(other_surfaces)}."
-            )
-        if geometry.nose_base_diameter < geometry.d_ref:
-            assumptions.append("Nose base narrower than the body: shoulder modeled as a step.")
+        assumptions = geometry_assumptions(vehicle, geometry)
         if mach > self.MACH_SUBSONIC_LIMIT:
             assumptions.append(
                 f"Mach {mach:g} is above {self.MACH_SUBSONIC_LIMIT:g}: Barrowman is a subsonic "
