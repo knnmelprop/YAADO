@@ -18,6 +18,7 @@ from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
+    BarrowmanExtendedResults,
     BarrowmanStabilityResults,
     DatcomStabilityResults,
 )
@@ -246,3 +247,31 @@ def test_execute_datcom_saves_supersonic_cp_sweep(
     assert (run_dir / "figures" / "cp_vs_mach.png").is_file()
     assert (run_dir / "artifacts" / "cp_vs_mach.csv").is_file()
     assert any("below the required" in w for w in run.warnings)
+
+
+def test_execute_extended_saves_span_sizing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a logged extended run saves the fin span sizing and sizes the Harpoon tail."""
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "barrowman_extended")
+
+    run = execute_solver(descriptor, vehicle, {"alpha_deg": 8.0})
+
+    assert isinstance(run.results, BarrowmanExtendedResults)
+    assert run.results.alpha == 8.0
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    assert (run_dir / "figures" / "fin_span_sizing.png").is_file()
+    assert (run_dir / "artifacts" / "fin_span_sizing.csv").is_file()
+    assert any("below the required" in w for w in run.warnings)
+
+
+def test_extended_warns_when_no_span_meets_the_rule() -> None:
+    """Verify an unreachable required margin gives a warning and no span."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "barrowman_extended")
+    run = execute_solver(descriptor, vehicle, {"sm_required": 50.0}, enable_logging=False)
+    assert run.results.required_tail_span is None
+    assert any("No tail fin span" in w for w in run.warnings)

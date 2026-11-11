@@ -211,3 +211,15 @@ def test_bare_datcom_run(capsys: pytest.CaptureFixture[str]) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["results"]["mach"] == 2.5
     assert payload["units"]["static_margin"] == "cal"
+
+
+def test_bare_text_shows_missing_optional_outputs(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify an output with no value prints n/a instead of None."""
+    argv = [
+        "-b", "--vehicle", str(HARPOON_PATH), "--solver", "barrowman_extended",
+        "--no-log", "--set", "sm_required=50",
+    ]
+    assert _exit_code(argv) == 0
+    rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()}
+    assert rows["required_tail_span"] == ["n/a"]
+    assert rows["tail_span"] == ["0.245", "m"]

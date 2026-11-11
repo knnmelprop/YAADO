@@ -72,6 +72,7 @@ class FlightLogsTree(Tree[Path | None]):
         "point_mass_3dof": "Point Mass 3-DOF",
         "heiser_pratt_cycle": "Ramjet Cycle",
         "barrowman_stability": "Barrowman Stability",
+        "barrowman_extended": "Extended Barrowman",
         "datcom_class_stability": "DATCOM-Class Stability",
         "ackeret_fin_check": "Ackeret Fin Check",
         "aero_polar": "Aero Polars",
