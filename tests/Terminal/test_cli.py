@@ -199,3 +199,15 @@ def test_bare_ackeret_rejects_subsonic_mach(capsys: pytest.CaptureFixture[str]) 
     ]
     assert _exit_code(argv) == 1
     assert "supersonic" in capsys.readouterr().err
+
+
+def test_bare_datcom_run(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify the DATCOM-class solver runs from the bare CLI."""
+    argv = [
+        "-b", "--vehicle", str(HARPOON_PATH), "--solver", "datcom_class_stability",
+        "--no-log", "--json", "--set", "mach=2.5",
+    ]
+    assert _exit_code(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["results"]["mach"] == 2.5
+    assert payload["units"]["static_margin"] == "cal"

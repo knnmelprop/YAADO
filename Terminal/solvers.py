@@ -47,6 +47,7 @@ from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
     BarrowmanStabilityResults,
+    DatcomStabilityResults,
 )
 from YAADO_Core.modules.stability_control.methods.ackeret import ackeret_fin_check
 from YAADO_Core.modules.stability_control.methods.ackeret.ackeret_fin_check import (
@@ -56,6 +57,10 @@ from YAADO_Core.modules.stability_control.methods.barrowman import barrowman_sta
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
     BarrowmanStabilityAnalysis,
     geometry_from_vehicle,
+)
+from YAADO_Core.modules.stability_control.methods.datcom import datcom_class_sweep
+from YAADO_Core.modules.stability_control.methods.datcom.datcom_class_sweep import (
+    DatcomStabilityAnalysis,
 )
 
 _TRUE_STRINGS = frozenset({"true", "1", "yes"})
@@ -471,6 +476,67 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="datcom_class_stability",
+        name="DATCOM-Class Supersonic Stability",
+        discipline="STABILITY & CONTROL",
+        fidelity=DatcomStabilityAnalysis.fidelity,
+        solver_cls=DatcomStabilityAnalysis,
+        description=(
+            "Supersonic component build-up of the center of pressure and static margin: "
+            "slender-body nose, Ackeret fin slope with Puckett tip loss on every fin set, and "
+            "the fin CP at the planform centroid. For flight above Mach 1.2."
+        ),
+        required_components_desc=(
+            "Same as Barrowman: one axisymmetric body with nose_length, at least one fin set "
+            "(Fins) with chord_root and chord_tip, and a CG."
+        ),
+        headline_outputs=(
+            ("static_margin", "cal", "Static Margin"),
+            ("sm_required", "cal", "Required Static Margin"),
+            ("margin", "cal", "Margin Above Required"),
+            ("cp", "m", "Center of Pressure"),
+            ("cg", "m", "Center of Gravity"),
+            ("cn_alpha", "1/rad", "Normal-Force Slope"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Mach Number",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=DatcomStabilityAnalysis.DEFAULT_MACH,
+                description="Supersonic Mach number of the evaluation (> 1)",
+                min_value=1.0,
+                max_value=10.0,
+            ),
+            SolverParam(
+                name="cg_from_nose",
+                label="CG Position",
+                symbol="x_cg",
+                unit="m",
+                param_type=float,
+                default=None,
+                description="CG from the nose tip, e.g. at burnout. Blank uses mass_properties",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="sm_required",
+                label="Required Static Margin",
+                symbol="SM_req",
+                unit="cal",
+                param_type=float,
+                default=None,
+                description=(
+                    "Design rule for the margin. Blank uses "
+                    f"{DatcomStabilityAnalysis.SM_REQUIRED_LENGTH_FRACTION:.0%} of the body length"
+                ),
+                placeholder=f"{DatcomStabilityAnalysis.SM_REQUIRED_LENGTH_FRACTION:.0%} L",
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="ackeret_fin_check",
         name="Ackeret Supersonic Fin Check",
         discipline="STABILITY & CONTROL",
@@ -572,7 +638,11 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
         return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
-    if descriptor.solver_id in ("barrowman_stability", "ackeret_fin_check"):
+    if descriptor.solver_id in (
+        "barrowman_stability",
+        "datcom_class_stability",
+        "ackeret_fin_check",
+    ):
         try:
             geometry = geometry_from_vehicle(vehicle)
         except ValueError as exc:
@@ -651,6 +721,8 @@ def execute_solver(
         _save_stability_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, AckeretFinResults):
         _save_ackeret_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, DatcomStabilityResults):
+        _save_datcom_artifacts(solver.logger, results, run_sweep)
     solver.logger.save_results(results)
     return SolverRun(
         results=results,
@@ -664,7 +736,7 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
     """List the conditions that limit how far the user can trust a run."""
     if isinstance(results, HeiserPrattResults) and results.assumed_losses:
         return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
-    if isinstance(results, BarrowmanStabilityResults):
+    if isinstance(results, (BarrowmanStabilityResults, DatcomStabilityResults)):
         warnings = list(results.assumptions)
         if results.static_margin < 0.0:
             warnings.append(f"Statically unstable at Mach {results.mach:g}: CP is ahead of the CG.")
@@ -685,6 +757,22 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
             warnings.append(f"Statically unstable at Mach {results.mach:g} with Ackeret fins.")
         return tuple(warnings)
     return ()
+
+
+def _save_datcom_artifacts(
+    logger: FlightLogger, results: DatcomStabilityResults, run_sweep: bool
+) -> None:
+    """Save the supersonic CP-vs-Mach figure and its CSV."""
+    if not run_sweep:
+        return
+    mach_max = max(DatcomStabilityAnalysis.SWEEP_MACH_MAX, results.mach)
+    points = datcom_class_sweep.run_mach_sweep(results.geometry, mach_max)
+    logger.save_figure(
+        datcom_class_sweep.plot_cp_vs_mach(points, results.geometry), "cp_vs_mach.png", show=False
+    )
+    logger.save_artifact(
+        "cp_vs_mach.csv", datcom_class_sweep.format_mach_sweep_csv(points, results.geometry)
+    )
 
 
 def _save_ackeret_artifacts(

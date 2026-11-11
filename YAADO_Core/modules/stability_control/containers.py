@@ -254,3 +254,65 @@ class AckeretFinResults(BaseAnalysisResults):
     barrowman_static_margin: Calibers
     tail_fin_cp_difference: Calibers
     assumptions: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DatcomFinSlope:
+    """DATCOM-class supersonic normal-force slope of one fin set.
+
+    Attributes:
+        name: Fin set name.
+        slope_2d: Ackeret 2-D section slope ``4 / beta``.
+        exposed_aspect_ratio: Aspect ratio of the two exposed panels joined at the root.
+        tip_loss_factor: Supersonic tip-loss factor on the section slope.
+        tip_loss_limited: True when ``beta * AR < 1`` and the factor sits at its floor.
+        cn_alpha: Fin-set slope referred to the body cross-section area.
+        x_cp: Planform centroid from the nose tip.
+    """
+
+    name: str
+    slope_2d: PerRadian
+    exposed_aspect_ratio: Dimensionless
+    tip_loss_factor: Dimensionless
+    tip_loss_limited: bool
+    cn_alpha: PerRadian
+    x_cp: Meters
+
+
+@dataclass(frozen=True)
+class DatcomStabilityResults(BaseAnalysisResults):
+    """DATCOM-class supersonic static stability at one Mach number.
+
+    Attributes:
+        geometry: Geometry the analysis used.
+        mach: Evaluation Mach number (> 1).
+        fin_sets: Supersonic slope and CP of each fin set, front to back.
+        components: Whole-vehicle build-up.
+        cn_alpha: Total normal-force-curve slope.
+        cp: Center of pressure from the nose tip.
+        cg: Center of gravity from the nose tip.
+        static_margin: ``(cp - cg) / d_ref``.
+        sm_required: Static margin the design rule asks for.
+        margin: ``static_margin - sm_required``. Negative fails the rule.
+        assumptions: Modeling assumptions this vehicle and Mach number needed.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "static_margin",
+        "sm_required",
+        "cp",
+        "cg",
+        "cn_alpha",
+    )
+
+    geometry: RocketGeometry
+    mach: Dimensionless
+    fin_sets: tuple[DatcomFinSlope, ...]
+    components: tuple[ComponentContribution, ...]
+    cn_alpha: PerRadian
+    cp: Meters
+    cg: Meters
+    static_margin: Calibers
+    sm_required: Calibers
+    margin: Calibers
+    assumptions: tuple[str, ...] = ()
