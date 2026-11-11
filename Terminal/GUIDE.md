@@ -47,6 +47,10 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle 
 yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver barrowman_stability \
          --set mach=0.5 --set cg_from_nose=2.2
 
+# Body lift at 8 deg angle of attack, and the tail-fin span that meets the required margin
+yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver barrowman_extended \
+         --set alpha_deg=8
+
 # Supersonic static margin (DATCOM-class build-up) at Mach 2.5
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver datcom_class_stability --set mach=2.5
 

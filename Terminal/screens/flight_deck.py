@@ -640,6 +640,8 @@ class FlightDeckView(Container):
                             extra_str = f" ({val / 1000:.2f} kN)"
                         unit_str = f" {f_unit}" if f_unit and f_unit != "-" else ""
                         lines.append(f"  • [bold]{f_label}:[/bold] {val_str}{unit_str}{extra_str}")
+                    elif val is None:
+                        lines.append(f"  • [bold]{f_label}:[/bold] n/a")
                     else:
                         lines.append(f"  • [bold]{f_label}:[/bold] {val}")
 

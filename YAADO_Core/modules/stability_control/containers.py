@@ -316,3 +316,70 @@ class DatcomStabilityResults(BaseAnalysisResults):
     sm_required: Calibers
     margin: Calibers
     assumptions: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class FinSpanSweepPoint:
+    """Static margins for one tail-fin span."""
+
+    span: Meters
+    static_margin_basic: Calibers
+    static_margin: Calibers
+
+
+@dataclass(frozen=True)
+class BarrowmanExtendedResults(BaseAnalysisResults):
+    """Barrowman build-up with Galejs body lift, and tail-fin span sizing.
+
+    Attributes:
+        geometry: Geometry the analysis used.
+        mach: Evaluation Mach number.
+        alpha: Angle of attack the body lift is evaluated at.
+        body_planform_area: Side-projected area of the body.
+        body_planform_centroid: Centroid of that area from the nose tip.
+        body_cn_alpha: Secant slope ``CN_body / alpha`` of the body lift at ``alpha``.
+        components: Build-up including the body lift.
+        cn_alpha: Total secant normal-force slope at ``alpha``.
+        cp: Center of pressure with body lift.
+        cp_basic: Center of pressure of the plain Barrowman build-up.
+        cg: Center of gravity from the nose tip.
+        static_margin: Static margin with body lift.
+        static_margin_basic: Static margin of the plain Barrowman build-up.
+        sm_required: Static margin the design rule asks for.
+        margin: ``static_margin - sm_required``. Negative fails the rule.
+        tail_fin_set: Name of the fin set whose span is sized.
+        tail_span: Current exposed span of that fin set.
+        required_tail_span: Span at which ``static_margin`` reaches ``sm_required``,
+            or None if no span in the search range does.
+        neutral_tail_span: Span at which ``static_margin`` is zero, or None.
+        assumptions: Modeling assumptions this vehicle and condition needed.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "static_margin",
+        "static_margin_basic",
+        "sm_required",
+        "cp",
+        "tail_span",
+    )
+
+    geometry: RocketGeometry
+    mach: Dimensionless
+    alpha: Degrees
+    body_planform_area: SquareMeters
+    body_planform_centroid: Meters
+    body_cn_alpha: PerRadian
+    components: tuple[ComponentContribution, ...]
+    cn_alpha: PerRadian
+    cp: Meters
+    cp_basic: Meters
+    cg: Meters
+    static_margin: Calibers
+    static_margin_basic: Calibers
+    sm_required: Calibers
+    margin: Calibers
+    tail_fin_set: str
+    tail_span: Meters
+    required_tail_span: Meters | None
+    neutral_tail_span: Meters | None
+    assumptions: tuple[str, ...] = ()

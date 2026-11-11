@@ -46,6 +46,7 @@ from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
 )
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
+    BarrowmanExtendedResults,
     BarrowmanStabilityResults,
     DatcomStabilityResults,
 )
@@ -53,7 +54,13 @@ from YAADO_Core.modules.stability_control.methods.ackeret import ackeret_fin_che
 from YAADO_Core.modules.stability_control.methods.ackeret.ackeret_fin_check import (
     AckeretFinAnalysis,
 )
-from YAADO_Core.modules.stability_control.methods.barrowman import barrowman_stability
+from YAADO_Core.modules.stability_control.methods.barrowman import (
+    barrowman_extended,
+    barrowman_stability,
+)
+from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_extended import (
+    BarrowmanExtendedAnalysis,
+)
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
     BarrowmanStabilityAnalysis,
     geometry_from_vehicle,
@@ -476,6 +483,80 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="barrowman_extended",
+        name="Extended Barrowman: Body Lift and Fin Sizing",
+        discipline="STABILITY & CONTROL",
+        fidelity=BarrowmanExtendedAnalysis.fidelity,
+        solver_cls=BarrowmanExtendedAnalysis,
+        description=(
+            "Barrowman build-up plus Galejs body lift, 1.1 (A_plan/A_ref) sin^2(alpha) at the "
+            "planform centroid, at the angle of attack of a gust or a launch in wind. Also finds "
+            "the tail-fin span that meets the required static margin."
+        ),
+        required_components_desc=(
+            "Same as Barrowman: one axisymmetric body with nose_length, at least one fin set "
+            "(Fins) with chord_root and chord_tip, and a CG."
+        ),
+        headline_outputs=(
+            ("static_margin", "cal", "Static Margin (with body lift)"),
+            ("static_margin_basic", "cal", "Static Margin (Barrowman)"),
+            ("sm_required", "cal", "Required Static Margin"),
+            ("cp", "m", "Center of Pressure (with body lift)"),
+            ("body_cn_alpha", "1/rad", "Body Lift Slope at alpha"),
+            ("tail_span", "m", "Tail Fin Span"),
+            ("required_tail_span", "m", "Tail Fin Span for Required Margin"),
+            ("neutral_tail_span", "m", "Tail Fin Span for Zero Margin"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Mach Number",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=BarrowmanExtendedAnalysis.DEFAULT_MACH,
+                description="Mach number of the evaluation. Barrowman is valid below 0.8",
+                min_value=0.0,
+                max_value=5.0,
+            ),
+            SolverParam(
+                name="alpha_deg",
+                label="Angle of Attack",
+                symbol="α",
+                unit="deg",
+                param_type=float,
+                default=BarrowmanExtendedAnalysis.DEFAULT_ALPHA_DEG,
+                description="Angle of attack for the body lift, e.g. from wind at rail exit",
+                min_value=0.0,
+                max_value=30.0,
+            ),
+            SolverParam(
+                name="cg_from_nose",
+                label="CG Position",
+                symbol="x_cg",
+                unit="m",
+                param_type=float,
+                default=None,
+                description="CG from the nose tip, e.g. at burnout. Blank uses mass_properties",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="sm_required",
+                label="Required Static Margin",
+                symbol="SM_req",
+                unit="cal",
+                param_type=float,
+                default=None,
+                description=(
+                    "Design rule for the margin. Blank uses "
+                    f"{BarrowmanStabilityAnalysis.SM_REQUIRED_LENGTH_FRACTION:.0%} of the body length"
+                ),
+                placeholder=f"{BarrowmanStabilityAnalysis.SM_REQUIRED_LENGTH_FRACTION:.0%} L",
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="datcom_class_stability",
         name="DATCOM-Class Supersonic Stability",
         discipline="STABILITY & CONTROL",
@@ -640,6 +721,7 @@ def check_solver_compatibility(
 
     if descriptor.solver_id in (
         "barrowman_stability",
+        "barrowman_extended",
         "datcom_class_stability",
         "ackeret_fin_check",
     ):
@@ -723,6 +805,8 @@ def execute_solver(
         _save_ackeret_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, DatcomStabilityResults):
         _save_datcom_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, BarrowmanExtendedResults):
+        _save_extended_artifacts(solver.logger, results, run_sweep)
     solver.logger.save_results(results)
     return SolverRun(
         results=results,
@@ -736,14 +820,14 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
     """List the conditions that limit how far the user can trust a run."""
     if isinstance(results, HeiserPrattResults) and results.assumed_losses:
         return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
-    if isinstance(results, (BarrowmanStabilityResults, DatcomStabilityResults)):
-        warnings = list(results.assumptions)
-        if results.static_margin < 0.0:
-            warnings.append(f"Statically unstable at Mach {results.mach:g}: CP is ahead of the CG.")
-        elif results.margin < 0.0:
+    if isinstance(
+        results, (BarrowmanStabilityResults, DatcomStabilityResults, BarrowmanExtendedResults)
+    ):
+        warnings = [*results.assumptions, *_margin_warnings(results)]
+        if isinstance(results, BarrowmanExtendedResults) and results.required_tail_span is None:
             warnings.append(
-                f"Static margin {results.static_margin:.2f} cal is below the required "
-                f"{results.sm_required:.2f} cal."
+                f"No tail fin span up to {BarrowmanExtendedAnalysis.SPAN_SEARCH_MAX_FACTOR:g}x "
+                "today's reaches the required margin."
             )
         return tuple(warnings)
     if isinstance(results, AckeretFinResults):
@@ -757,6 +841,35 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
             warnings.append(f"Statically unstable at Mach {results.mach:g} with Ackeret fins.")
         return tuple(warnings)
     return ()
+
+
+def _margin_warnings(
+    results: BarrowmanStabilityResults | DatcomStabilityResults | BarrowmanExtendedResults,
+) -> list[str]:
+    """Warn about instability or a static margin below the required value."""
+    if results.static_margin < 0.0:
+        return [f"Statically unstable at Mach {results.mach:g}: CP is ahead of the CG."]
+    if results.margin < 0.0:
+        return [
+            (
+                f"Static margin {results.static_margin:.2f} cal is below the required "
+                f"{results.sm_required:.2f} cal."
+            )
+        ]
+    return []
+
+
+def _save_extended_artifacts(
+    logger: FlightLogger, results: BarrowmanExtendedResults, run_sweep: bool
+) -> None:
+    """Save the tail-fin span sizing figure and its CSV."""
+    if not run_sweep:
+        return
+    points = barrowman_extended.run_span_sweep(results.geometry, results.mach, results.alpha)
+    logger.save_figure(
+        barrowman_extended.plot_span_sweep(points, results), "fin_span_sizing.png", show=False
+    )
+    logger.save_artifact("fin_span_sizing.csv", barrowman_extended.format_span_sweep_csv(points))
 
 
 def _save_datcom_artifacts(

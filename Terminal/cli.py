@@ -207,6 +207,9 @@ def format_run_text(
     rows = [("solver", descriptor.solver_id), ("vehicle", vehicle.name)]
     for field_name, unit, _label in descriptor.headline_outputs:
         value = getattr(run.results, field_name)
+        if value is None:
+            rows.append((field_name, "n/a"))
+            continue
         value_str = f"{value:.6g}" if isinstance(value, float) else str(value)
         rows.append((field_name, value_str if unit == "-" else f"{value_str} {unit}"))
     if run.output_dir is not None:
