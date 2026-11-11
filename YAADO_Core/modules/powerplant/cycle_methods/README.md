@@ -20,16 +20,22 @@ The model calculates each result in this sequence:
 1. The ISA model gives the freestream state at the flight altitude.
 2. The burner energy balance gives the fuel-air ratio:
 
-   $$f = \frac{c_{p,h} T_{t4} - c_{p,c} T_{t0}}{\eta_b \, LHV - c_{p,h} T_{t4}}$$
+   ```math
+   f = \frac{c_{p,h} T_{t4} - c_{p,c} T_{t0}}{\eta_b \, LHV - c_{p,h} T_{t4}}
+   ```
 
 3. The choked throat gives the mass flow:
 
-   $$\dot{m}_{exit} = A_t \, p_{t4} \sqrt{\frac{\gamma_h}{R T_{t4}}} \left(\frac{2}{\gamma_h + 1}\right)^{\frac{\gamma_h + 1}{2(\gamma_h - 1)}}, \quad \dot{m}_{air} = \frac{\dot{m}_{exit}}{1 + f}$$
+   ```math
+   \dot{m}_{exit} = A_t \, p_{t4} \sqrt{\frac{\gamma_h}{R T_{t4}}} \left(\frac{2}{\gamma_h + 1}\right)^{\frac{\gamma_h + 1}{2(\gamma_h - 1)}}, \quad \dot{m}_{air} = \frac{\dot{m}_{exit}}{1 + f}
+   ```
 
 4. The nozzle area ratio gives the exit Mach number.
 5. The exit state gives the net thrust:
 
-   $$F = \dot{m}_{exit} V_e - \dot{m}_{air} V_0 + (p_e - p_0) A_e$$
+   ```math
+   F = \dot{m}_{exit} V_e - \dot{m}_{air} V_0 + (p_e - p_0) A_e
+   ```
 
 ## Thrust Models
 
@@ -63,8 +69,8 @@ Losses have a large effect on the result. Give measured or calculated values for
 
 | TOML field | Setting | Definition | Placeholder |
 | :--- | :--- | :--- | :---: |
-| `inlet_recovery` | `eta_inlet` | $p_{t2} / p_{t0}$ at `design_mach` | 0.874 |
-| `combustor_pressure_ratio` | `pi_cc` | $p_{t4} / p_{t2}$ | 0.8924 |
+| `inlet_recovery` | `eta_inlet` | $`p_{t2} / p_{t0}`$ at `design_mach` | 0.874 |
+| `combustor_pressure_ratio` | `pi_cc` | $`p_{t4} / p_{t2}`$ | 0.8924 |
 | `nozzle_pressure_ratio` | `pi_nozzle` | Nozzle total-pressure ratio | 0.97 |
 | `combustion_efficiency` | `eta_b` | Fraction of the fuel heating value released | 0.95 |
 
@@ -173,7 +179,7 @@ The model has these limits:
 
 The unit tests are in [`test_heiser_pratt.py`](../../../../tests/YAADO_Core/modules/powerplant/test_heiser_pratt.py). They do these checks:
 
-* The ideal ramjet matches a hand calculation. With one gas, no losses, and a perfectly expanded nozzle, $M_e = M_0$ and $V_e = V_0 \sqrt{T_{t4} / T_{t0}}$.
+* The ideal ramjet matches a hand calculation. With one gas, no losses, and a perfectly expanded nozzle, $`M_e = M_0`$ and $`V_e = V_0 \sqrt{T_{t4} / T_{t0}}`$.
 * The isentropic relations match tabulated values.
 * The differences between the three thrust models match their closed-form terms.
 * The `ALVRJ` throat and exit areas match the TOML diameters.
@@ -191,15 +197,21 @@ W. H. Heiser and D. T. Pratt, *Hypersonic Airbreathing Propulsion*, AIAA Educati
 
 This analysis calculates a real ramjet cycle per unit air mass flow, after Mattingly, *Elements of Propulsion: Gas Turbines and Rockets*, 2nd ed., AIAA, 2006, Sec. 7.3 and 7.6. Engine size does not enter. Use it to choose the flight Mach number and the combustor temperature before you size the engine with Heiser & Pratt.
 
-Stations are 0 (freestream), 2 (diffuser exit), 4 (combustor exit) and 9 (nozzle exit). The air uses $\gamma_c$ and the products $\gamma_t$, with the gas constant of air:
+Stations are 0 (freestream), 2 (diffuser exit), 4 (combustor exit) and 9 (nozzle exit). The air uses $`\gamma_c`$ and the products $`\gamma_t`$, with the gas constant of air:
 
-$$\tau_r = 1 + \tfrac{\gamma_c - 1}{2} M_0^2, \qquad \tau_\lambda = \frac{c_{p,t} T_{t4}}{c_{p,c} T_0}, \qquad f = \frac{\tau_\lambda - \tau_r}{\eta_b h / (c_{p,c} T_0) - \tau_\lambda}$$
+```math
+\tau_r = 1 + \tfrac{\gamma_c - 1}{2} M_0^2, \qquad \tau_\lambda = \frac{c_{p,t} T_{t4}}{c_{p,c} T_0}, \qquad f = \frac{\tau_\lambda - \tau_r}{\eta_b h / (c_{p,c} T_0) - \tau_\lambda}
+```
 
-$$\frac{P_{t9}}{P_9} = \frac{P_0}{P_9} \pi_r \pi_d \pi_b \pi_n, \qquad \pi_d = \pi_{d,max} \, \eta_r(M_0)$$
+```math
+\frac{P_{t9}}{P_9} = \frac{P_0}{P_9} \pi_r \pi_d \pi_b \pi_n, \qquad \pi_d = \pi_{d,max} \, \eta_r(M_0)
+```
 
-$$\frac{F}{\dot m_0} = a_0 \left[(1 + f)\frac{V_9}{a_0} - M_0 + (1 + f)\frac{T_9 / T_0}{V_9 / a_0}\,\frac{1 - P_0/P_9}{\gamma_c}\right]$$
+```math
+\frac{F}{\dot m_0} = a_0 \left[(1 + f)\frac{V_9}{a_0} - M_0 + (1 + f)\frac{T_9 / T_0}{V_9 / a_0}\,\frac{1 - P_0/P_9}{\gamma_c}\right]
+```
 
-$\eta_r$ is the MIL-E-5007D ram recovery: $1 - 0.075 (M_0 - 1)^{1.35}$ up to Mach 5 and $800 / (M_0^4 + 935)$ above. The analysis also reports TSFC, specific impulse, and the thermal, propulsive and overall efficiencies.
+$`\eta_r`$ is the MIL-E-5007D ram recovery: $`1 - 0.075 (M_0 - 1)^{1.35}`$ up to Mach 5 and $`800 / (M_0^4 + 935)`$ above. The analysis also reports TSFC, specific impulse, and the thermal, propulsive and overall efficiencies.
 
 ### Inputs
 
@@ -227,7 +239,7 @@ The tests in [`test_mattingly_cycle.py`](../../../../tests/YAADO_Core/modules/po
 
 * the isentropic relations against NACA 1135;
 * the ideal ramjet against a hand calculation;
-* that the lossless one-gas cycle gives $V_9 = V_0 \sqrt{\tau_\lambda / \tau_r}$ with the $(1 + f)$ term;
+* that the lossless one-gas cycle gives $`V_9 = V_0 \sqrt{\tau_\lambda / \tau_r}`$ with the $`(1 + f)`$ term;
 * the two-gas energy balance;
 * that every loss lowers the specific thrust;
 * that the ALVRJ fuel-air ratio matches Heiser & Pratt.
@@ -241,20 +253,20 @@ Heiser & Pratt analyzes a nozzle that you already have. This analysis sizes one:
 
 | Station | Plane | Relation |
 | :---: | :--- | :--- |
-| 1 | Combustor inlet | $p_{t1} = \eta_{inlet} \, p_{t0}$, $T_{t1} = T_{t0}$ |
-| 2 | Combustor exit | $p_{t2} = \pi_{cc} \, p_{t1}$, $f = \dfrac{c_{p,t} T_{t4} - c_{p,c} T_{t1}}{\eta_b h - c_{p,t} T_{t4}}$ |
-| 21 | Throat, choked | $A_{21} = \dot m_{exit} / (\text{choked mass flux at } p_{t2}, T_{t4})$ |
-| 3 | Exit, $p_3 = p_0$ | $T_3 = T_{t4} (p_0/p_{tn})^{(\gamma_t - 1)/\gamma_t}$, $V_3 = \sqrt{2 c_{p,t} (T_{t4} - T_3)}$, $A_3 = \dot m_{exit} / (\rho_3 V_3)$ |
+| 1 | Combustor inlet | $`p_{t1} = \eta_{inlet} \, p_{t0}`$, $`T_{t1} = T_{t0}`$ |
+| 2 | Combustor exit | $`p_{t2} = \pi_{cc} \, p_{t1}`$, $`f = \dfrac{c_{p,t} T_{t4} - c_{p,c} T_{t1}}{\eta_b h - c_{p,t} T_{t4}}`$ |
+| 21 | Throat, choked | $`A_{21} = \dot m_{exit} / (\text{choked mass flux at } p_{t2}, T_{t4})`$ |
+| 3 | Exit, $`p_3 = p_0`$ | $`T_3 = T_{t4} (p_0/p_{tn})^{(\gamma_t - 1)/\gamma_t}`$, $`V_3 = \sqrt{2 c_{p,t} (T_{t4} - T_3)}`$, $`A_3 = \dot m_{exit} / (\rho_3 V_3)`$ |
 
-The thrust $F = \dot m_{exit} V_3 - \dot m_{air} V_0$ has three levels. Each uses a different nozzle total pressure $p_{tn}$:
-* **Ideal:** $p_{t1}$.
-* **Combustor loss:** $p_{t2}$.
-* **Real:** $\pi_{nozzle} \, p_{t2}$. The exit size and the specific impulse refer to this level.
+The thrust $`F = \dot m_{exit} V_3 - \dot m_{air} V_0`$ has three levels. Each uses a different nozzle total pressure $`p_{tn}`$:
+* **Ideal:** $`p_{t1}`$.
+* **Combustor loss:** $`p_{t2}`$.
+* **Real:** $`\pi_{nozzle} \, p_{t2}`$. The exit size and the specific impulse refer to this level.
 
 ### Air Flow
 
 The captured air flow comes from one source:
-1. **`capture_area`:** the freestream tube area, with full capture: $\dot m_{air} = \rho_0 V_0 A_c$.
+1. **`capture_area`:** the freestream tube area, with full capture: $`\dot m_{air} = \rho_0 V_0 A_c`$.
 2. **`mdot_air`:** the air flow itself.
 3. **Neither:** the flow that the ramjet's `nozzle_throat_diameter` passes when choked, as in Heiser & Pratt. The sized throat is then the TOML throat. If the sized area ratio differs from the TOML `nozzle_area_ratio` by more than 10 %, the run warns that the TOML nozzle under- or overexpands the flow.
 
@@ -264,7 +276,7 @@ The losses, Mach number, combustor temperature and fuel come from the ramjet, wi
 
 These conditions stop the run with a clear message:
 * The combustor exit is at or below the flight total temperature.
-* The real nozzle total pressure is below the critical ratio $((\gamma_t + 1)/2)^{\gamma_t/(\gamma_t - 1)}$, so the throat cannot choke.
+* The real nozzle total pressure is below the critical ratio $`((\gamma_t + 1)/2)^{\gamma_t/(\gamma_t - 1)}`$, so the throat cannot choke.
 * The cycle has no net thrust.
 
 ### Run Artifacts
@@ -280,6 +292,6 @@ The figure shows how much a fixed nozzle is off its ideal size across the speed 
 
 The tests in [`test_grzywka_cycle.py`](../../../../tests/YAADO_Core/modules/powerplant/test_grzywka_cycle.py) check:
 * the fully expanded exit and the energy balance by hand;
-* that the throat passes the flow when choked, and that the exit satisfies continuity at $p_0$;
+* that the throat passes the flow when choked, and that the exit satisfies continuity at $`p_0`$;
 * the order of the three thrust levels;
 * that on the ALVRJ throat, the air flow and fuel-air ratio match Heiser & Pratt, and the fully expanded nozzle gives at least Heiser & Pratt's thrust.

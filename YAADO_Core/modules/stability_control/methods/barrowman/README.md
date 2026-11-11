@@ -12,21 +12,21 @@ All slopes refer to the body cross-section area `A_ref = pi d^2 / 4`. Positions 
 
 | Component | `CN_alpha` [1/rad] | CP |
 | :--- | :--- | :--- |
-| Nose | $2 (d_{base}/d)^2$ | $k \, L_{nose}$: cone 2/3, ogive 0.466, hemisphere 1/3 |
-| Shoulder (nose base narrower than the body) | $2 \left(1 - (d_{base}/d)^2\right)$ | At the nose base (a step) |
-| Each fin set | $K_{fb} \dfrac{4N (s/d)^2}{1 + \sqrt{1 + \left(\dfrac{2 l_F}{C_r + C_t}\right)^2}}$ | $x_{LE} + \dfrac{X_R (C_r + 2C_t)}{3(C_r + C_t)} + \dfrac{1}{6}\left(C_r + C_t - \dfrac{C_r C_t}{C_r + C_t}\right)$ |
+| Nose | $`2 (d_{base}/d)^2`$ | $`k \, L_{nose}`$: cone 2/3, ogive 0.466, hemisphere 1/3 |
+| Shoulder (nose base narrower than the body) | $`2 \left(1 - (d_{base}/d)^2\right)`$ | At the nose base (a step) |
+| Each fin set | $`K_{fb} \dfrac{4N (s/d)^2}{1 + \sqrt{1 + \left(\dfrac{2 l_F}{C_r + C_t}\right)^2}}`$ | $`x_{LE} + \dfrac{X_R (C_r + 2C_t)}{3(C_r + C_t)} + \dfrac{1}{6}\left(C_r + C_t - \dfrac{C_r C_t}{C_r + C_t}\right)`$ |
 
-* $K_{fb} = 1 + R/(s + R)$ is the body interference on the fins.
-* $l_F$ is the length of the fin mid-chord line, and $X_R = s \tan \Lambda_{LE}$ is the axial distance from the root leading edge to the tip leading edge.
+* $`K_{fb} = 1 + R/(s + R)`$ is the body interference on the fins.
+* $`l_F`$ is the length of the fin mid-chord line, and $`X_R = s \tan \Lambda_{LE}`$ is the axial distance from the root leading edge to the tip leading edge.
 
-The vehicle CP is the slope-weighted mean, and the static margin is $(x_{CP} - x_{CG}) / d$ in calibers. Positive is stable.
+The vehicle CP is the slope-weighted mean, and the static margin is $`(x_{CP} - x_{CG}) / d`$ in calibers. Positive is stable.
 
 ### Mach Number
 
 Only the fin slopes change with Mach number:
 
-* Below Mach 0.8: the Barrowman equation with $\beta = \sqrt{1 - M^2}$ on the aspect-ratio term, $2 \beta l_F / (C_r + C_t)$ (Diederich, as in OpenRocket). A low-aspect-ratio fin barely changes with Mach; plain Prandtl-Glauert would overpredict it by up to 50 % at Mach 0.8.
-* Above Mach 1.5: linear supersonic theory, $K_{fb} \frac{N}{2} \frac{4}{\beta} \eta \frac{A_{panel}}{A_{ref}}$ with $\beta = \sqrt{M^2 - 1}$. The Puckett tip-loss factor $\eta = 1 - 1/(2 \beta AR)$ uses the two exposed panels joined at the root, $AR = 2s/\bar c$, and is held at 1/2 where $\beta AR < 1$.
+* Below Mach 0.8: the Barrowman equation with $`\beta = \sqrt{1 - M^2}`$ on the aspect-ratio term, $`2 \beta l_F / (C_r + C_t)`$ (Diederich, as in OpenRocket). A low-aspect-ratio fin barely changes with Mach; plain Prandtl-Glauert would overpredict it by up to 50 % at Mach 0.8.
+* Above Mach 1.5: linear supersonic theory, $`K_{fb} \frac{N}{2} \frac{4}{\beta} \eta \frac{A_{panel}}{A_{ref}}`$ with $`\beta = \sqrt{M^2 - 1}`$. The Puckett tip-loss factor $`\eta = 1 - 1/(2 \beta AR)`$ uses the two exposed panels joined at the root, $`AR = 2s/\bar c`$, and is held at 1/2 where $`\beta AR \lt 1`$.
 * Between the two, a linear bridge. Linear supersonic theory is poor close to Mach 1.
 
 The fin CP stays at Barrowman's subsonic value at every Mach number. Supersonic loading moves it aft toward the planform centroid; the Ackeret fin check reports that shift.
@@ -67,11 +67,13 @@ A logged run also saves `cp_vs_mach.png` and `cp_vs_mach.csv`, a sweep from Mach
 
 ### Galejs Body Lift
 
-Linear theory gives a cylinder no normal force. A real body at an angle of attack carries viscous cross-flow lift on its side-projected (planform) area $A_{plan}$. Galejs adds this term, and OpenRocket uses the same one:
+Linear theory gives a cylinder no normal force. A real body at an angle of attack carries viscous cross-flow lift on its side-projected (planform) area $`A_{plan}`$. Galejs adds this term, and OpenRocket uses the same one:
 
-$$C_{N,body} = K \, \frac{A_{plan}}{A_{ref}} \, \sin^2\alpha, \qquad K = 1.1$$
+```math
+C_{N,body} = K \, \frac{A_{plan}}{A_{ref}} \, \sin^2\alpha, \qquad K = 1.1
+```
 
-See Galejs, *What Barrowman Left Out* (High Power Rocketry, 1998), and Niskanen, *Development of an Open Source Model Rocket Simulation Software* (M.Sc. thesis, 2009), section "Effect of body lift". The term acts at the planform centroid. The nose profile (cone, tangent ogive or ellipse) is integrated numerically, and the rest of the body is a cylinder. The term grows with $\alpha^2$, so it is zero at $\alpha = 0$, and it moves the CP toward the planform centroid at the angle of attack of a gust or of a launch in wind. It joins the build-up as the secant slope $C_{N,body}/\alpha$.
+See Galejs, *What Barrowman Left Out* (High Power Rocketry, 1998), and Niskanen, *Development of an Open Source Model Rocket Simulation Software* (M.Sc. thesis, 2009), section "Effect of body lift". The term acts at the planform centroid. The nose profile (cone, tangent ogive or ellipse) is integrated numerically, and the rest of the body is a cylinder. The term grows with $`\alpha^2`$, so it is zero at $`\alpha = 0`$, and it moves the CP toward the planform centroid at the angle of attack of a gust or of a launch in wind. It joins the build-up as the secant slope $`C_{N,body}/\alpha`$.
 
 ### Tail-Fin Span Sizing
 

@@ -6,13 +6,13 @@
 * **Fidelity**: Level 0 (exact inviscid conical flow plus shock relations)
 * **Status**: Repaired and verified.
 
-This module calculates the total-pressure recovery $p_{t2}/p_{t0}$ of a single-cone external-compression inlet at one flight Mach number:
+This module calculates the total-pressure recovery $`p_{t2}/p_{t0}`$ of a single-cone external-compression inlet at one flight Mach number:
 
 1. **Conical shock.** An attached shock on the spike, from the Taylor-Maccoll equation (Anderson, *Modern Compressible Flow*, Ch. 10). The solver scans shock angles from just above the Mach angle, so the first crossing is the weak solution, also for thin cones (#130).
 2. **Terminal normal shock.** It sits at the Mach number just behind the conical shock. The flow compresses further toward the cone surface, so this is the conservative end of the conical flow field. The run also reports the cone-surface Mach number.
 3. **Subsonic diffuser.** A total-pressure ratio.
 
-If the spike is too blunt for an attached shock at the flight Mach number, a normal (bow) shock at the flight Mach number bounds the recovery, and the run warns that the inlet will spill and may buzz. The result is compared with the MIL-E-5007D reference $1 - 0.075 (M - 1)^{1.35}$.
+If the spike is too blunt for an attached shock at the flight Mach number, a normal (bow) shock at the flight Mach number bounds the recovery, and the run warns that the inlet will spill and may buzz. The result is compared with the MIL-E-5007D reference $`1 - 0.075 (M - 1)^{1.35}`$.
 
 | Input | Setting | From the TOML | Default |
 | :--- | :--- | :--- | :--- |
@@ -35,7 +35,7 @@ The public function `solve_conical_shock(mach, cone_half_angle_rad)` returns the
 * **Fidelity**: Level 0 (oblique and normal shock relations)
 * **Status**: Repaired and verified.
 
-This module calculates the recovery of an external-compression inlet with $n$ weak oblique shocks, a terminal normal shock and a subsonic diffuser. The relations are exact for planar (2-D) ramps. Applied to a cone, they overpredict the turning of each stage, so the recovery comes out **optimistic**. For example, a single 14.4° stage at Mach 2.5 gives 0.661 as a wedge and 0.549 as a cone (Taylor-Maccoll, diffuser 0.92). Use the conical inlet for a single-cone spike.
+This module calculates the recovery of an external-compression inlet with $`n`$ weak oblique shocks, a terminal normal shock and a subsonic diffuser. The relations are exact for planar (2-D) ramps. Applied to a cone, they overpredict the turning of each stage, so the recovery comes out **optimistic**. For example, a single 14.4° stage at Mach 2.5 gives 0.661 as a wedge and 0.549 as a cone (Taylor-Maccoll, diffuser 0.92). Use the conical inlet for a single-cone spike.
 
 * **Given ramps:** set `deflections_deg` to a comma-separated list of ramp increments, for example `7.6, 8.5, 9.3`.
 * **Optimum ramps:** leave `deflections_deg` blank. The analysis then uses the Oswatitsch optimum for `n_oblique_shocks` shocks: every oblique shock has the same normal Mach number, chosen for the highest recovery (Oswatitsch, NACA TM 1140). At Mach 2.5 with 4 shocks it gives 7.61°, 8.45°, 9.32° and 9.64°.

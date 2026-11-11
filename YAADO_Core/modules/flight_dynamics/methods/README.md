@@ -5,42 +5,49 @@
 * **Fidelity**: Level 0 (Analytical / ODE integration)
 * **Status**: Repaired and Verified
 
-This module simulates the 2D vertical-plane trajectory (range $x$, altitude $h$, and velocity components $v_x, v_h$) of a rocket booster stage from launch rail release through motor burnout or full unpowered coast to ground impact.
+This module simulates the 2D vertical-plane trajectory (range $`x`$, altitude $`h`$, and velocity components $`v_x, v_h`$) of a rocket booster stage from launch rail release through motor burnout or full unpowered coast to ground impact.
 
 ## Physical & Mathematical Model
 
 ### 1. Equations of Motion
 Point-mass equations in the vertical launch plane:
-$$\frac{dx}{dt} = v_x, \quad \frac{dh}{dt} = v_h$$
-$$\frac{dv_x}{dt} = \frac{T_x - D \cdot u_x}{m(t)}, \quad \frac{dv_h}{dt} = \frac{T_h - D \cdot u_h}{m(t)} - g_0$$
+```math
+\frac{dx}{dt} = v_x, \quad \frac{dh}{dt} = v_h
+```
+```math
+\frac{dv_x}{dt} = \frac{T_x - D \cdot u_x}{m(t)}, \quad \frac{dv_h}{dt} = \frac{T_h - D \cdot u_h}{m(t)} - g_0
+```
 
 where:
-* $(u_x, u_h) = (v_x / V, v_h / V)$ is the velocity unit vector.
-* $T(t) = \dot{m} \cdot g_0 \cdot I_{sp}(h)$ is the altitude-compensated thrust during motor burn ($t \le t_{burn}$), directed along the fixed launch rail elevation angle $\theta_{launch}$.
-* $D = \frac{1}{2} \rho(h) V^2 C_D(M) A_{ref}$ is aerodynamic drag opposing the velocity vector.
-* $m(t)$ decreases linearly from `launch_mass` to dry burnout mass over `burn_time`.
+* $`(u_x, u_h) = (v_x / V, v_h / V)`$ is the velocity unit vector.
+* $`T(t) = \dot{m} \cdot g_0 \cdot I_{sp}(h)`$ is the altitude-compensated thrust during motor burn ($`t \le t_{burn}`$), directed along the fixed launch rail elevation angle $`\theta_{launch}`$.
+* $`D = \frac{1}{2} \rho(h) V^2 C_D(M) A_{ref}`$ is aerodynamic drag opposing the velocity vector.
+* $`m(t)`$ decreases linearly from `launch_mass` to dry burnout mass over `burn_time`.
 
 ### 2. Environment & Atmosphere
-Atmospheric conditions ($\rho, p, T, a$) are evaluated via the centralized standard atmosphere in [`YAADO_Core.Foundation.atmosphere`](../../Foundation/atmosphere.py) (`isa_atmosphere` for scalar ODE steps, `isa_atmosphere_array` for vectorized trajectory postprocessing). The model supports launch sites above sea level or in terrain depressions below sea level ($h_{ground} < 0$).
+Atmospheric conditions ($`\rho, p, T, a`$) are evaluated via the centralized standard atmosphere in [`YAADO_Core.Foundation.atmosphere`](../../Foundation/atmosphere.py) (`isa_atmosphere` for scalar ODE steps, `isa_atmosphere_array` for vectorized trajectory postprocessing). The model supports launch sites above sea level or in terrain depressions below sea level ($`h_{ground} \lt 0`$).
 
 ### 3. Aerodynamics Build-Up
-Drag coefficient $C_D(M)$ uses a piecewise Mach build-up:
-* **Subsonic** ($M < M_{transonic}$): constant body base/skin drag $C_{D,sub}$.
-* **Transonic** ($M_{transonic} \le M < M_{supersonic}$): linearly interpolated drag rise to $C_{D,trans}$.
-* **Supersonic** ($M \ge M_{supersonic}$): supersonic wave drag $C_{D,sup}$ plus fin wave drag per fin:
-  $$C_{D,total} = C_{D,body}(M) + N_{fins} \cdot C_{D,wave/fin}$$
+Drag coefficient $`C_D(M)`$ uses a piecewise Mach build-up:
+* **Subsonic** ($`M \lt M_{transonic}`$): constant body base/skin drag $`C_{D,sub}`$.
+* **Transonic** ($`M_{transonic} \le M \lt M_{supersonic}`$): linearly interpolated drag rise to $`C_{D,trans}`$.
+* **Supersonic** ($`M \ge M_{supersonic}`$): supersonic wave drag $`C_{D,sup}`$ plus fin wave drag per fin, as below.
+
+```math
+C_{D,total} = C_{D,body}(M) + N_{fins} \cdot C_{D,wave/fin}
+```
 
 ## Assumptions & Limitations
 
 * **Point-mass model**: Rotational degrees of freedom, moments of inertia, and attitude dynamics are neglected.
-* **Fixed thrust elevation (Gravity-turn approximation)**: Thrust is aligned with the fixed initial launch rail angle $\theta_{launch}$ without active pitch programming or TVC. The trajectory arcs over naturally under gravity.
-* **Zero-lift flight**: Angle of attack is assumed near zero ($\alpha \approx 0$). Aerodynamic lift forces are neglected. Valid for high launch rail angles (e.g. 80°–85°).
+* **Fixed thrust elevation (Gravity-turn approximation)**: Thrust is aligned with the fixed initial launch rail angle $`\theta_{launch}`$ without active pitch programming or TVC. The trajectory arcs over naturally under gravity.
+* **Zero-lift flight**: Angle of attack is assumed near zero ($`\alpha \approx 0`$). Aerodynamic lift forces are neglected. Valid for high launch rail angles (e.g. 80°–85°).
 
 ## Vehicle Component Resolution
 
 The solver extracts all physical parameters from a declarative `BaseVehicleConfig` via [`ComponentStore`](../../ComponentStore/__init__.py) registries:
 * **Booster Motor**: Auto-discovered from `vehicle.propulsion` matching `BOOSTER_COMPONENTS` (e.g. `SolidMotor`). Provides `propellant_mass`, `burn_time`, `isp_sl`, and `isp_vacuum`.
-* **Airframe Body**: Auto-discovered from `vehicle.bodies` matching `BODY_COMPONENTS`. Provides `diameter` for reference area $A_{ref} = \frac{\pi}{4} d_{ref}^2$.
+* **Airframe Body**: Auto-discovered from `vehicle.bodies` matching `BODY_COMPONENTS`. Provides `diameter` for reference area $`A_{ref} = \frac{\pi}{4} d_{ref}^2`$.
 * **Aero Surfaces (Fins)**: Auto-discovered from `vehicle.aero_surfaces` matching `AERO_COMPONENTS` (e.g. `Fins`). Provides fin count for wave drag.
 * **Mass**: Reads `vehicle.mass_properties.total_mass`.
 
@@ -50,8 +57,8 @@ The solver extracts all physical parameters from a declarative `BaseVehicleConfi
 
 | Mode | `stop_at_burnout` | Description |
 | :--- | :---: | :--- |
-| **Boost Phase** (default) | `True` | Integrates strictly from ignition to motor burnout ($t = t_{burn}$). Returns burnout velocity, Mach, altitude, range, and max dynamic pressure. |
-| **Full Flight** | `False` | Continues integration past burnout through unpowered ballistic coast until apogee and ground impact ($h \le h_{ground}$). Returns apogee altitude/time, total flight range, total duration, and impact speed. |
+| **Boost Phase** (default) | `True` | Integrates strictly from ignition to motor burnout ($`t = t_{burn}`$). Returns burnout velocity, Mach, altitude, range, and max dynamic pressure. |
+| **Full Flight** | `False` | Continues integration past burnout through unpowered ballistic coast until apogee and ground impact ($`h \le h_{ground}`$). Returns apogee altitude/time, total flight range, total duration, and impact speed. |
 
 ## Output Data Structure
 
@@ -71,7 +78,7 @@ The analysis returns a standardized `AnalysisResults` container:
 When `enable_logging=True`, `FlightLogger` writes artifacts to `FlightLogs/PointMass3DOFBoostAnalysis_<timestamp>/`:
 * `results.json`: Complete scalar metrics and serialized dense trajectory samples.
 * `summary.csv`: Key scalar metrics in CSV format.
-* `boost_phase.png`: 2x2 multi-panel plot ($V(t)$, $h(t)$, $M(t)$, $q(t)$) for the boost phase.
+* `boost_phase.png`: 2x2 multi-panel plot ($`V(t)`$, $`h(t)`$, $`M(t)`$, $`q(t)`$) for the boost phase.
 * `full_flight.png`: Full boost + coast trajectory to apogee and impact (when `stop_at_burnout=False`).
 * `launch_angle_sweep.csv` & `launch_angle_sweep.png`: Burnout Mach, burnout altitude, and apogee sensitivity across launch angles.
 
