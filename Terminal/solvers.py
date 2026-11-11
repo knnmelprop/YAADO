@@ -44,7 +44,14 @@ from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     plot_mach_sweep,
     run_mach_sweep,
 )
-from YAADO_Core.modules.stability_control.containers import BarrowmanStabilityResults
+from YAADO_Core.modules.stability_control.containers import (
+    AckeretFinResults,
+    BarrowmanStabilityResults,
+)
+from YAADO_Core.modules.stability_control.methods.ackeret import ackeret_fin_check
+from YAADO_Core.modules.stability_control.methods.ackeret.ackeret_fin_check import (
+    AckeretFinAnalysis,
+)
 from YAADO_Core.modules.stability_control.methods.barrowman import barrowman_stability
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
     BarrowmanStabilityAnalysis,
@@ -463,6 +470,55 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
             ),
         ),
     ),
+    SolverDescriptor(
+        solver_id="ackeret_fin_check",
+        name="Ackeret Supersonic Fin Check",
+        discipline="STABILITY & CONTROL",
+        fidelity=AckeretFinAnalysis.fidelity,
+        solver_cls=AckeretFinAnalysis,
+        description=(
+            "Supersonic static margin with every fin set from linearized (Ackeret) thin-airfoil "
+            "theory, compared with the Barrowman build-up at the same Mach number. A "
+            "cross-check of Barrowman above Mach 1, not a design value."
+        ),
+        required_components_desc=(
+            "Same as Barrowman: one axisymmetric body with nose_length, at least one fin set "
+            "(Fins) with chord_root and chord_tip, and a CG."
+        ),
+        headline_outputs=(
+            ("static_margin", "cal", "Static Margin (Ackeret)"),
+            ("barrowman_static_margin", "cal", "Static Margin (Barrowman)"),
+            ("cp", "m", "Center of Pressure (Ackeret)"),
+            ("barrowman_cp", "m", "Center of Pressure (Barrowman)"),
+            ("cg", "m", "Center of Gravity"),
+            ("tail_fin_cp_difference", "cal", "Tail Fin CP Gap (Ackeret - Barrowman)"),
+            ("cn_alpha", "1/rad", "Normal-Force Slope (Ackeret)"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Mach Number",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=AckeretFinAnalysis.DEFAULT_MACH,
+                description="Supersonic Mach number of the check (> 1)",
+                min_value=1.0,
+                max_value=10.0,
+            ),
+            SolverParam(
+                name="cg_from_nose",
+                label="CG Position",
+                symbol="x_cg",
+                unit="m",
+                param_type=float,
+                default=None,
+                description="CG from the nose tip, e.g. at burnout. Blank uses mass_properties",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+        ),
+    ),
 )
 
 
@@ -516,7 +572,7 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
         return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
-    if descriptor.solver_id == "barrowman_stability":
+    if descriptor.solver_id in ("barrowman_stability", "ackeret_fin_check"):
         try:
             geometry = geometry_from_vehicle(vehicle)
         except ValueError as exc:
@@ -593,6 +649,8 @@ def execute_solver(
         _save_ramjet_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, BarrowmanStabilityResults):
         _save_stability_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, AckeretFinResults):
+        _save_ackeret_artifacts(solver.logger, results, run_sweep)
     solver.logger.save_results(results)
     return SolverRun(
         results=results,
@@ -616,7 +674,33 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
                 f"{results.sm_required:.2f} cal."
             )
         return tuple(warnings)
+    if isinstance(results, AckeretFinResults):
+        warnings = list(results.assumptions)
+        if abs(results.tail_fin_cp_difference) > AckeretFinAnalysis.CP_DIFFERENCE_WARNING:
+            warnings.append(
+                f"Ackeret and Barrowman tail fin CPs differ by "
+                f"{results.tail_fin_cp_difference:+.2f} cal: check the fin geometry."
+            )
+        if results.static_margin < 0.0:
+            warnings.append(f"Statically unstable at Mach {results.mach:g} with Ackeret fins.")
+        return tuple(warnings)
     return ()
+
+
+def _save_ackeret_artifacts(
+    logger: FlightLogger, results: AckeretFinResults, run_sweep: bool
+) -> None:
+    """Save the Ackeret-Barrowman comparison figure and its CSV."""
+    if not run_sweep:
+        return
+    mach_max = max(AckeretFinAnalysis.SWEEP_MACH_MAX, results.mach)
+    points = ackeret_fin_check.run_mach_sweep(results.geometry, mach_max)
+    logger.save_figure(
+        ackeret_fin_check.plot_method_comparison(points, results.mach),
+        "method_comparison.png",
+        show=False,
+    )
+    logger.save_artifact("method_comparison.csv", ackeret_fin_check.format_mach_sweep_csv(points))
 
 
 def _save_stability_artifacts(

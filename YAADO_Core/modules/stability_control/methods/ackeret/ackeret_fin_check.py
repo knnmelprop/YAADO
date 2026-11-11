@@ -1,252 +1,331 @@
-"""Ackeret / slender-body independent fin CP hand-check (Generic Vehicle, vehicle).
+"""Supersonic fin check with two-dimensional Ackeret thin-airfoil theory.
 
-Independent closed-form cross-check of the FIN center of pressure and fin-alone
-normal force using pure Ackeret slender/thin-supersonic theory (no DATCOM
-correlations, no reuse of datcom_class_sweep functions — genuinely independent).
+An independent, closed-form check of the fin terms of the Barrowman build-up
+above Mach 1. For each fin set:
 
-Purpose
--------
-Verify that the DATCOM-class fin CP (datcom_class_sweep.py) and this Ackeret
-fin CP agree on sign and location (within ~one caliber) at the cruise condition
-(Ma 2.5, config CG).
+    a_2D      = 4 / sqrt(M^2 - 1)                      Ackeret section slope
+    CN_alpha  = K_fb * (N / 2) * a_2D * A_panel / A_ref,  K_fb = 1 + R / (s + R)
+    CP        = planform centroid (uniform supersonic loading)
 
-Theory
-------
-Ackeret linearized supersonic thin-airfoil theory:
-- Fin-panel 2D slope: ``a_2D = 4 / sqrt(M^2 - 1)`` [1/rad].
-- Finite-span (simple slender-body approximation, no Puckett correlation):
-  exposed-panel aspect ratio ``AR = s / c_mean``;
-  slope ``slope_fin = a_2D / (1 + 2/AR)`` (inviscid elliptic lift-distribution
-  downwash correction, classical low-AR formula).
-- Fin-body interference: ``K_fb = 1 + R/(s+R)``, ``R = d/2`` (same as all other methods).
-- CP location (supersonic): 50% of mean chord (uniform-pressure center of pressure).
-
-Reference:
-    Ackeret (1925) linearized supersonic theory; Anderson *Fundamentals of
-    Aerodynamics* Ch.12; classical low-AR downwash correction (Glauert,
-    Prandtl lifting-line).
+``N / 2`` is the number of panels that carry load at any roll angle
+(``sum sin^2(phi_i) = N / 2`` for ``N >= 3``). Without tip loss the slope is an
+upper bound on linear theory; the Barrowman build-up applies the Puckett tip
+loss and keeps the subsonic fin CP. The gap between the two shows how much
+those two effects move the static margin.
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import math
-import sys
-from pathlib import Path
-from typing import Any
+from dataclasses import fields
+from typing import TYPE_CHECKING, Any, ClassVar
 
-if __name__ == "__main__" and __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
+import numpy as np
 
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-from YAADO_Core.modules.stability_control.containers import RocketGeometry
+from YAADO_Core.modules.stability_control.containers import (
+    AckeretFinResults,
+    AckeretFinSlope,
+    AckeretSweepPoint,
+    ComponentContribution,
+    FinSetGeometry,
+    RocketGeometry,
+)
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
+    compute_stability_at_mach,
+    geometry_assumptions,
     geometry_from_vehicle,
     nose_cn_alpha_and_cp,
     transition_cn_alpha_and_cp,
 )
 
-RESULTS_DIR = Path(__file__).resolve().parents[5] / "FlightLogs"
-MARKDOWN_PATH = RESULTS_DIR / "ackeret_fin_check.md"
 
-# Cruise condition for the hand-check.
-CRUISE_MACH = 2.5
-
-
-def ackeret_fin_cn_alpha_and_cp(
-    geometry: RocketGeometry, mach: float
-) -> tuple[float, float]:
-    """Fin-set CN_alpha and CP location (pure Ackeret, independent).
+def ackeret_fin_set(
+    fins: FinSetGeometry, mach: float, body_radius: float, reference_area: float
+) -> AckeretFinSlope:
+    """Ackeret normal-force slope and CP of one fin set.
 
     Args:
-        geometry: Rocket geometry.
-        mach: Freestream Mach number (>= 1.0).
+        fins: Fin set geometry.
+        mach: Freestream Mach number (> 1).
+        body_radius: Body radius at the fins [m].
+        reference_area: Area the slope refers to [m^2].
 
     Returns:
-        Tuple of (CN_alpha [1/rad, ref. S_ref], x_cp [m from nose]).
+        The fin-set slope and its CP.
 
     Raises:
-        ValueError: If mach < 1.0.
+        ValueError: If ``mach <= 1``.
     """
     if mach <= 1.0:
-        raise ValueError(f"ackeret_fin_cn_alpha_and_cp requires mach > 1.0 (strictly supersonic, beta>0); got {mach}")
+        raise ValueError(f"Ackeret theory needs a supersonic Mach number, got {mach}")
 
-    s = geometry.tail_fins.span
-    cr = geometry.tail_fins.root_chord
-    ct = geometry.tail_fins.tip_chord
-    r = geometry.body_radius
-    d = geometry.d_ref
-    sweep_rad = math.radians(geometry.tail_fins.sweep)
+    slope_2d = 4.0 / math.sqrt(mach**2 - 1.0)
+    k_fb = 1.0 + body_radius / (fins.span + body_radius)
+    cn_alpha = k_fb * (fins.count / 2.0) * slope_2d * fins.panel_area / reference_area
 
-    # Beta.
-    beta = math.sqrt(mach**2 - 1.0)
-
-    # 2D Ackeret slope.
-    a_2d = 4.0 / beta
-
-    # Finite-span correction (classical low-AR downwash, NOT Puckett).
-    c_mean = (cr + ct) / 2.0
-    ar_panel = s / c_mean
-    slope_fin = a_2d / (1.0 + 2.0 / ar_panel)
-
-    # Fin-body interference.
-    k_fb = 1.0 + r / (s + r)
-
-    # Effective panels (4-fin "+" set, pitch plane).
-    n_effective = 2
-
-    # Panel area.
-    a_f = s * c_mean
-
-    # Fin-set CN_alpha (ref S_ref).
-    s_ref = math.pi / 4.0 * d**2
-    cn_alpha = k_fb * n_effective * slope_fin * (a_f / s_ref)
-
-    # Fin CP (supersonic): 50% of mean chord, streamwise accounting for sweep.
-    # For a rectangular fin (cr=ct), the spanwise centroid is at s/2.
-    # For a trapezoidal fin, use (s/3)*((cr+2ct)/(cr+ct)).
-    y_centroid = (s / 3.0) * ((cr + 2.0 * ct) / (cr + ct))
-    x_cp = geometry.tail_fins.root_le_x + y_centroid * math.tan(sweep_rad) + 0.5 * c_mean
-
-    return cn_alpha, x_cp
+    cr, ct = fins.root_chord, fins.tip_chord
+    x_centroid = (fins.sweep_length * (cr + 2.0 * ct) + cr**2 + cr * ct + ct**2) / (3.0 * (cr + ct))
+    return AckeretFinSlope(
+        name=fins.name,
+        slope_2d=slope_2d,
+        cn_alpha=cn_alpha,
+        x_cp=fins.root_le_x + x_centroid,
+        normal_mach_le=mach * math.cos(math.radians(fins.sweep)),
+    )
 
 
-def compute_whole_vehicle_sm_ackeret(
-    geometry: RocketGeometry, mach: float, cg_from_nose_m: float
-) -> dict[str, Any]:
-    """Compute whole-vehicle static margin using Ackeret fin + body terms.
-
-    Args:
-        geometry: Rocket geometry.
-        mach: Freestream Mach number.
-        cg_from_nose_m: CG location [m from nose tip].
-
-    Returns:
-        Dict with component CN_alpha, CP, total CP, and static margin.
-    """
-    # Nose (use subsonic Barrowman value; this is a hand-check, not a full model).
+def ackeret_build_up(
+    geometry: RocketGeometry, mach: float
+) -> tuple[tuple[AckeretFinSlope, ...], tuple[ComponentContribution, ...]]:
+    """Fin-set slopes and the whole-vehicle build-up with Ackeret fins."""
+    fin_sets = tuple(
+        ackeret_fin_set(f, mach, geometry.body_radius, geometry.reference_area)
+        for f in geometry.fin_sets
+    )
     cn_nose, x_nose = nose_cn_alpha_and_cp(geometry)
-
-    # Transition (Barrowman).
-    cn_trans, x_trans = transition_cn_alpha_and_cp(geometry)
-
-    # Fins (Ackeret).
-    cn_fin, x_fin = ackeret_fin_cn_alpha_and_cp(geometry, mach)
-
-    # Total.
-    cn_alpha_total = cn_nose + cn_trans + cn_fin
-    x_cp_total = (cn_nose * x_nose + cn_trans * x_trans + cn_fin * x_fin) / cn_alpha_total
-
-    # Static margin.
-    static_margin_cal = (x_cp_total - cg_from_nose_m) / geometry.d_ref
-    stable_bool = static_margin_cal > 0.0
-
-    return {
-        "cn_alpha_nose": cn_nose,
-        "cn_alpha_transition": cn_trans,
-        "cn_alpha_fins": cn_fin,
-        "cn_alpha_total": cn_alpha_total,
-        "x_cp_nose": x_nose,
-        "x_cp_transition": x_trans,
-        "x_cp_fins": x_fin,
-        "x_cp_total": x_cp_total,
-        "static_margin_cal": static_margin_cal,
-        "stable_bool": stable_bool,
-    }
+    components = [ComponentContribution("nose", cn_nose, x_nose)]
+    cn_shoulder, x_shoulder = transition_cn_alpha_and_cp(geometry)
+    if cn_shoulder > 0.0:
+        components.append(ComponentContribution("shoulder", cn_shoulder, x_shoulder))
+    components.extend(ComponentContribution(f.name, f.cn_alpha, f.x_cp) for f in fin_sets)
+    return fin_sets, tuple(components)
 
 
-def write_markdown_report(
-    geometry: RocketGeometry,
-    ackeret_result: dict[str, Any],
-    output_path: Path = MARKDOWN_PATH,
-) -> None:
-    """Write Ackeret fin check report to Markdown.
-
-    Args:
-        geometry: Rocket geometry.
-        ackeret_result: Result dict from :func:`compute_whole_vehicle_sm_ackeret`.
-        output_path: Markdown output path.
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as fh:
-        fh.write("# Ackeret Fin CP Hand-Check (Generic Vehicle, vehicle)\n\n")
-        fh.write(
-            "Independent closed-form cross-check of the fin center of pressure "
-            "using pure Ackeret slender-body / thin-supersonic theory.\n\n"
-        )
-        fh.write("## Method\n\n")
-        fh.write(
-            "- **Fin-panel 2D slope**: `a_2D = 4 / sqrt(M^2 - 1)` [1/rad].\n"
-        )
-        fh.write(
-            "- **Finite-span correction**: `slope_fin = a_2D / (1 + 2/AR)` "
-            "(classical low-AR downwash, NOT Puckett).\n"
-        )
-        fh.write("- **Fin-body interference**: `K_fb = 1 + R/(s+R)`.\n")
-        fh.write("- **CP location**: 50% of mean chord (supersonic uniform-pressure).\n\n")
-        fh.write("## Geometry\n\n")
-        fh.write(f"- Body diameter: {geometry.d_ref:.4f} m\n")
-        fh.write(f"- Total length: {geometry.total_length:.5f} m\n")
-        fh.write(f"- Fin span (exposed): {geometry.tail_fins.span:.4f} m\n")
-        fh.write(f"- Fin root chord: {geometry.tail_fins.root_chord:.4f} m\n")
-        fh.write(f"- Fin tip chord: {geometry.tail_fins.tip_chord:.4f} m\n")
-        fh.write(f"- Fin sweep: {geometry.tail_fins.sweep:.2f} deg\n")
-        fh.write(f"- CG (config): {geometry.cg_from_nose:.4f} m from nose\n\n")
-        fh.write(f"## Results at Ma {CRUISE_MACH} (cruise condition)\n\n")
-        fh.write(f"- **Nose CN_alpha**: {ackeret_result['cn_alpha_nose']:.6f} [1/rad]\n")
-        fh.write(
-            f"- **Transition CN_alpha**: {ackeret_result['cn_alpha_transition']:.6f} [1/rad]\n"
-        )
-        fh.write(
-            f"- **Fins CN_alpha (Ackeret)**: {ackeret_result['cn_alpha_fins']:.6f} [1/rad]\n"
-        )
-        fh.write(
-            f"- **Total CN_alpha**: {ackeret_result['cn_alpha_total']:.6f} [1/rad]\n\n"
-        )
-        fh.write(f"- **Nose CP**: {ackeret_result['x_cp_nose']:.6f} m from nose\n")
-        fh.write(
-            f"- **Transition CP**: {ackeret_result['x_cp_transition']:.6f} m from nose\n"
-        )
-        fh.write(
-            f"- **Fins CP (Ackeret)**: {ackeret_result['x_cp_fins']:.6f} m from nose\n"
-        )
-        fh.write(
-            f"- **Total CP**: {ackeret_result['x_cp_total']:.6f} m from nose\n\n"
-        )
-        fh.write(
-            f"- **Static margin**: {ackeret_result['static_margin_cal']:.6f} cal "
-            f"({'STABLE' if ackeret_result['stable_bool'] else 'UNSTABLE'})\n\n"
-        )
-        fh.write("## Comparison with DATCOM-class method\n\n")
-        fh.write(
-            "See `datcom_class_sweep.csv` for the DATCOM-class fin CP at Ma 2.5, "
-            "CG = 0.37 L (config anchor).\n\n"
-        )
-        fh.write(
-            "**Agreement criterion**: Ackeret fin CP should be within ~one caliber "
-            f"({geometry.d_ref:.4f} m) of the DATCOM fin CP, and both should "
-            "agree on sign (fins push CP aft, stabilizing).\n"
-        )
+def _cp(components: tuple[ComponentContribution, ...]) -> tuple[float, float]:
+    """Total slope and slope-weighted CP of a build-up."""
+    cn_alpha = sum(c.cn_alpha for c in components)
+    return cn_alpha, sum(c.cn_alpha * c.x_cp for c in components) / cn_alpha
 
 
-def main(vehicle: BaseVehicleConfig) -> dict[str, Any]:
-    """Run the Ackeret fin hand-check at cruise Ma, config CG.
+def run_mach_sweep(geometry: RocketGeometry, mach_max: float) -> list[AckeretSweepPoint]:
+    """Compare Ackeret and Barrowman from ``SWEEP_MACH_MIN`` to ``mach_max``."""
+    machs = np.linspace(
+        AckeretFinAnalysis.SWEEP_MACH_MIN, mach_max, AckeretFinAnalysis.SWEEP_POINTS
+    )
+    points: list[AckeretSweepPoint] = []
+    for m in machs:
+        mach = float(m)
+        fin_sets, components = ackeret_build_up(geometry, mach)
+        barrowman = compute_stability_at_mach(geometry, mach)
+        tail_name = geometry.tail_fins.name
+        _, cp = _cp(components)
+        points.append(
+            AckeretSweepPoint(
+                mach=mach,
+                ackeret_fin_cn_alpha=fin_sets[-1].cn_alpha,
+                barrowman_fin_cn_alpha=next(
+                    c.cn_alpha for c in barrowman.components if c.name == tail_name
+                ),
+                ackeret_static_margin=(cp - geometry.cg_from_nose) / geometry.d_ref,
+                barrowman_static_margin=barrowman.static_margin,
+            )
+        )
+    return points
+
+
+def format_mach_sweep_csv(points: list[AckeretSweepPoint]) -> str:
+    """CSV text of the Ackeret-Barrowman comparison sweep."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(f.name for f in fields(AckeretSweepPoint))
+    writer.writerows(
+        (p.mach, p.ackeret_fin_cn_alpha, p.barrowman_fin_cn_alpha,
+         p.ackeret_static_margin, p.barrowman_static_margin)
+        for p in points
+    )
+    return buffer.getvalue()
+
+
+def plot_method_comparison(points: list[AckeretSweepPoint], run_mach: float) -> Figure:
+    """Plot tail-fin slope and static margin of both methods against Mach number.
 
     Args:
-        vehicle: Vehicle configuration.
+        points: Output of :func:`run_mach_sweep`.
+        run_mach: Mach number of the run, marked on both panels.
 
     Returns:
-        Result dict.
+        The matplotlib Figure instance.
     """
-    geometry = geometry_from_vehicle(vehicle)
-    cg_from_nose_m = geometry.cg_from_nose  # Config CG (0.37 L).
-    result = compute_whole_vehicle_sm_ackeret(geometry, CRUISE_MACH, cg_from_nose_m)
-    write_markdown_report(geometry, result, MARKDOWN_PATH)
+    import matplotlib.pyplot as plt
 
-    print(f"Ackeret fin check complete at Ma {CRUISE_MACH}, CG = {cg_from_nose_m:.4f} m.")
-    print(f"Markdown report: {MARKDOWN_PATH}")
-    print(f"Ackeret fin CN_alpha: {result['cn_alpha_fins']:.6f} [1/rad]")
-    print(f"Ackeret fin CP: {result['x_cp_fins']:.6f} m from nose")
-    print(f"Static margin: {result['static_margin_cal']:.6f} cal ({'STABLE' if result['stable_bool'] else 'UNSTABLE'})")
+    machs = [p.mach for p in points]
+    fig, (ax_cn, ax_sm) = plt.subplots(2, 1, figsize=(8.0, 7.0), sharex=True)
 
-    return result
+    ax_cn.plot(machs, [p.ackeret_fin_cn_alpha for p in points], lw=2.0, label="Ackeret")
+    ax_cn.plot(machs, [p.barrowman_fin_cn_alpha for p in points], lw=2.0, ls="--", label="Barrowman")
+    ax_cn.set_ylim(bottom=0.0)
+    ax_cn.set_ylabel("Tail fin CN_alpha [1/rad]")
+    ax_cn.set_title("Tail fin normal-force slope")
 
+    ax_sm.plot(machs, [p.ackeret_static_margin for p in points], lw=2.0, label="Ackeret")
+    ax_sm.plot(machs, [p.barrowman_static_margin for p in points], lw=2.0, ls="--", label="Barrowman")
+    ax_sm.axhline(0.0, color="k", lw=0.8)
+    ax_sm.set_xlabel("Mach number [-]")
+    ax_sm.set_ylabel("Static margin [cal]")
+    ax_sm.set_title("Static margin (positive is stable)")
+
+    for ax in (ax_cn, ax_sm):
+        ax.axvline(run_mach, color="tab:gray", lw=0.8, ls=":", label="Run Mach")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+
+    fig.tight_layout()
+    return fig
+
+
+class AckeretFinAnalysis(BaseAnalysis[AckeretFinResults]):
+    """Supersonic static margin with Ackeret fins, compared with Barrowman.
+
+    Example:
+        analysis = AckeretFinAnalysis()
+        analysis.setup(vehicle, mach=2.5)
+        results = analysis.execute()
+        gap = results.static_margin - results.barrowman_static_margin
+    """
+
+    fidelity = FidelityLevel.LEVEL_0
+
+    DEFAULT_MACH: ClassVar[float] = 2.0
+
+    #: Below this Mach number linear supersonic theory is poor [-].
+    MIN_RELIABLE_MACH: ClassVar[float] = 1.2
+
+    #: Tail-fin CP gap between the methods that the run reports [cal].
+    CP_DIFFERENCE_WARNING: ClassVar[float] = 1.0
+
+    #: Mach sweep for the comparison figure.
+    SWEEP_MACH_MIN: ClassVar[float] = 1.2
+    SWEEP_MACH_MAX: ClassVar[float] = 4.0
+    SWEEP_POINTS: ClassVar[int] = 57
+
+    def __init__(self, name: str = "ackeret_fin_check") -> None:
+        super().__init__(name)
+        self._geometry: RocketGeometry | None = None
+        self._mach = self.DEFAULT_MACH
+        self._assumptions: tuple[str, ...] = ()
+
+    @property
+    def geometry(self) -> RocketGeometry:
+        """Geometry bound by :meth:`setup`.
+
+        Raises:
+            RuntimeError: Before :meth:`setup`.
+        """
+        if self._geometry is None:
+            raise RuntimeError(f"Analysis '{self.name}' has not been setup yet.")
+        return self._geometry
+
+    def _setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        *,
+        body_name: str | None = None,
+        mach: float = DEFAULT_MACH,
+        cg_from_nose: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Resolve the geometry and the evaluation Mach number.
+
+        Args:
+            vehicle: Vehicle with one axisymmetric body and at least one fin set.
+            body_name: Body to use if the vehicle has more than one.
+            mach: Evaluation Mach number (> 1).
+            cg_from_nose: Center of gravity [m]. Defaults to the vehicle's.
+            **kwargs: Not accepted; present for the ``BaseAnalysis`` signature.
+
+        Raises:
+            TypeError: If an unknown setting is passed.
+            ValueError: If ``mach <= 1`` or the vehicle lacks what the method needs.
+        """
+        if kwargs:
+            raise TypeError(f"Unknown settings for '{self.name}': {sorted(kwargs)}")
+        if mach <= 1.0:
+            raise ValueError(f"Ackeret theory needs a supersonic Mach number, got {mach}")
+
+        geometry = geometry_from_vehicle(vehicle, body_name=body_name, cg_from_nose=cg_from_nose)
+        assumptions = geometry_assumptions(vehicle, geometry)
+        if mach < self.MIN_RELIABLE_MACH:
+            assumptions.append(
+                f"Mach {mach:g} is below {self.MIN_RELIABLE_MACH:g}: linear supersonic theory "
+                "is poor close to Mach 1."
+            )
+        for fins in geometry.fin_sets:
+            normal_mach = mach * math.cos(math.radians(fins.sweep))
+            if normal_mach < 1.0:
+                assumptions.append(
+                    f"Fin set '{fins.name}' has a subsonic leading edge (M cos(sweep) = "
+                    f"{normal_mach:.2f}): 2-D Ackeret theory overpredicts its slope."
+                )
+
+        self._geometry = geometry
+        self._mach = mach
+        self._assumptions = tuple(assumptions)
+        self.logger.info(
+            "Configured Ackeret fin check for vehicle '%s' (M=%.2f, CG=%.3f m)",
+            vehicle.name,
+            mach,
+            geometry.cg_from_nose,
+        )
+        for assumption in self._assumptions:
+            self.logger.warning(assumption)
+
+    def _compute(self, **kwargs: Any) -> AckeretFinResults:
+        """Evaluate both build-ups at the evaluation Mach number."""
+        geometry = self.geometry
+        fin_sets, components = ackeret_build_up(geometry, self._mach)
+        cn_alpha, cp = _cp(components)
+        barrowman = compute_stability_at_mach(geometry, self._mach)
+        barrowman_tail_cp = next(
+            c.x_cp for c in barrowman.components if c.name == geometry.tail_fins.name
+        )
+        results = AckeretFinResults(
+            name=self.name,
+            fidelity=self.fidelity,
+            geometry=geometry,
+            mach=self._mach,
+            fin_sets=fin_sets,
+            components=components,
+            cn_alpha=cn_alpha,
+            cp=cp,
+            cg=geometry.cg_from_nose,
+            static_margin=(cp - geometry.cg_from_nose) / geometry.d_ref,
+            barrowman_cp=barrowman.x_cp,
+            barrowman_static_margin=barrowman.static_margin,
+            tail_fin_cp_difference=(fin_sets[-1].x_cp - barrowman_tail_cp) / geometry.d_ref,
+            assumptions=self._assumptions,
+        )
+        self.logger.info(
+            "Ackeret: CN_alpha=%.3f /rad, CP=%.3f m, SM=%.2f cal; Barrowman: CP=%.3f m, SM=%.2f cal",
+            results.cn_alpha,
+            results.cp,
+            results.static_margin,
+            results.barrowman_cp,
+            results.barrowman_static_margin,
+        )
+        return results
+
+    def validate_results(self, results: AckeretFinResults) -> bool:
+        """Check that the slopes are positive and the CP lies on the vehicle.
+
+        Args:
+            results: Results produced by :meth:`execute`.
+
+        Returns:
+            True if all checks pass.
+        """
+        if not all(math.isfinite(value) for value in results.scalars().values()):
+            return False
+        if any(c.cn_alpha < 0.0 for c in results.components) or results.cn_alpha <= 0.0:
+            return False
+        aft_end = max(
+            results.geometry.total_length,
+            *(f.root_le_x + f.sweep_length + f.tip_chord for f in results.geometry.fin_sets),
+        )
+        return 0.0 <= results.cp <= aft_end

@@ -178,3 +178,79 @@ class BarrowmanStabilityResults(BaseAnalysisResults):
     fineness_ratio: Dimensionless
     components: tuple[ComponentContribution, ...]
     assumptions: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AckeretFinSlope:
+    """Linearized supersonic normal-force slope of one fin set.
+
+    Attributes:
+        name: Fin set name.
+        slope_2d: Ackeret 2-D section slope ``4 / beta``.
+        cn_alpha: Fin-set slope with body interference, referred to the body
+            cross-section area.
+        x_cp: Planform centroid from the nose tip (uniform loading).
+        normal_mach_le: Mach number normal to the leading edge, ``M cos(sweep)``.
+            Below 1 the leading edge is subsonic and 2-D Ackeret theory overpredicts.
+    """
+
+    name: str
+    slope_2d: PerRadian
+    cn_alpha: PerRadian
+    x_cp: Meters
+    normal_mach_le: Dimensionless
+
+
+@dataclass(frozen=True)
+class AckeretSweepPoint:
+    """Ackeret and Barrowman static margins at one supersonic Mach number."""
+
+    mach: Dimensionless
+    ackeret_fin_cn_alpha: PerRadian
+    barrowman_fin_cn_alpha: PerRadian
+    ackeret_static_margin: Calibers
+    barrowman_static_margin: Calibers
+
+
+@dataclass(frozen=True)
+class AckeretFinResults(BaseAnalysisResults):
+    """Supersonic static stability with 2-D Ackeret fins, checked against Barrowman.
+
+    The nose and shoulder use the slender-body terms of the Barrowman build-up;
+    every fin set uses two-dimensional Ackeret theory without tip loss.
+
+    Attributes:
+        geometry: Geometry the analysis used.
+        mach: Evaluation Mach number (> 1).
+        fin_sets: Ackeret slope and CP of each fin set, front to back.
+        components: Whole-vehicle build-up with the Ackeret fins.
+        cn_alpha: Total normal-force-curve slope.
+        cp: Center of pressure from the nose tip.
+        cg: Center of gravity from the nose tip.
+        static_margin: ``(cp - cg) / d_ref`` with Ackeret fins.
+        barrowman_cp: Center of pressure of the Barrowman build-up at ``mach``.
+        barrowman_static_margin: Static margin of the Barrowman build-up at ``mach``.
+        tail_fin_cp_difference: Ackeret minus Barrowman CP of the tail fins.
+        assumptions: Modeling assumptions this vehicle and Mach number needed.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "static_margin",
+        "barrowman_static_margin",
+        "cp",
+        "barrowman_cp",
+        "tail_fin_cp_difference",
+    )
+
+    geometry: RocketGeometry
+    mach: Dimensionless
+    fin_sets: tuple[AckeretFinSlope, ...]
+    components: tuple[ComponentContribution, ...]
+    cn_alpha: PerRadian
+    cp: Meters
+    cg: Meters
+    static_margin: Calibers
+    barrowman_cp: Meters
+    barrowman_static_margin: Calibers
+    tail_fin_cp_difference: Calibers
+    assumptions: tuple[str, ...] = ()

@@ -189,3 +189,13 @@ def test_bare_stability_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["params"]["mach"] == 0.5
     assert payload["units"]["static_margin"] == "cal"
     assert payload["results"]["cp"] > payload["results"]["cg"]
+
+
+def test_bare_ackeret_rejects_subsonic_mach(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify the Ackeret check refuses a subsonic Mach with a clear error."""
+    argv = [
+        "-b", "--vehicle", str(HARPOON_PATH), "--solver", "ackeret_fin_check",
+        "--no-log", "--set", "mach=1.0",
+    ]
+    assert _exit_code(argv) == 1
+    assert "supersonic" in capsys.readouterr().err

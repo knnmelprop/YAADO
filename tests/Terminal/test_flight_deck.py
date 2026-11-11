@@ -84,6 +84,7 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
         "point_mass_3dof_boost",
         "heiser_pratt_cycle",
         "barrowman_stability",
+        "ackeret_fin_check",
     ], "Only repaired solvers must be in catalog"
 
     trajectory = REPAIRED_SOLVERS[0]
@@ -927,5 +928,36 @@ def test_stability_run_through_the_app(tmp_path: Path, monkeypatch: pytest.Monke
             assert " cal" in content
             assert "below the required" in content
             assert fd._active_params["cg_from_nose"] == 2.2
+
+    asyncio.run(_test())
+
+
+def test_ackeret_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the Ackeret check from its tile and see both methods in the results."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(140, 42)) as pilot:
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+
+            await pilot.click(fd.query_one("#tile-solver-ackeret_fin_check", SolverTile))
+            await pilot.pause(0.3)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            form.query_one("#param-inp-mach", Input).value = "2.5"
+            form.query_one("#param-inp-cg_from_nose", Input).value = "4.0"
+            await pilot.pause(0.1)
+            await pilot.press("r")
+            await pilot.pause(0.3)
+            content = str(fd.query_one("#flightdeck-results-content", Static).render())
+            assert "Static Margin (Ackeret)" in content
+            assert "Static Margin (Barrowman)" in content
+            assert "Statically unstable" in content
 
     asyncio.run(_test())
