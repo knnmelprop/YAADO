@@ -16,7 +16,10 @@ from Terminal.solvers import (
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
-from YAADO_Core.modules.stability_control.containers import BarrowmanStabilityResults
+from YAADO_Core.modules.stability_control.containers import (
+    AckeretFinResults,
+    BarrowmanStabilityResults,
+)
 
 HARPOON_PATH = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
 ALVRJ_PATH = Path("Hangar/examples/ALVRJ/ALVRJ.toml").resolve()
@@ -206,3 +209,21 @@ def test_execute_stability_flags_an_unstable_vehicle() -> None:
     )
     assert run.results.static_margin < 0.0
     assert any("Statically unstable" in w for w in run.warnings)
+
+
+def test_execute_ackeret_saves_comparison_and_flags_instability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a logged Ackeret run saves the method comparison and warns when unstable."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    monkeypatch.chdir(tmp_path)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "ackeret_fin_check")
+
+    run = execute_solver(descriptor, vehicle, {"mach": 2.5})
+
+    assert isinstance(run.results, AckeretFinResults)
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    assert (run_dir / "figures" / "method_comparison.png").is_file()
+    assert (run_dir / "artifacts" / "method_comparison.csv").is_file()
+    assert any("Statically unstable at Mach 2.5" in w for w in run.warnings)

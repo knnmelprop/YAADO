@@ -22,6 +22,7 @@ ANALYSIS_DISPLAY_NAMES: dict[str, str] = {
     "point_mass_3dof": "Point-Mass 3-DOF",
     "heiser_pratt_cycle": "Heiser & Pratt Ramjet Cycle",
     "barrowman_stability": "Barrowman Static Stability",
+    "ackeret_fin_check": "Ackeret Supersonic Fin Check",
     "aero_polar": "Aero Polars",
     "mass_estimation": "Mass & Inertia",
 }
