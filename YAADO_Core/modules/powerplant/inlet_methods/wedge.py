@@ -6,8 +6,9 @@ Chain at one flight Mach number (Anderson, *Modern Compressible Flow*, Ch. 3-4):
     2. A terminal normal shock at the Mach number after the last ramp.
     3. A subsonic-diffuser total-pressure loss.
 
-The relations are exact for planar ramps and a conservative approximation for a
-multi-cone spike. Without given ramp angles the analysis uses the Oswatitsch
+The relations are exact for planar ramps. Applied to a multi-cone spike they
+overpredict the turning of each stage, so its recovery comes out optimistic; use the
+Taylor-Maccoll conical inlet for a single cone. Without given ramp angles the analysis uses the Oswatitsch
 optimum: every oblique shock has the same normal Mach number, chosen for the
 highest recovery (Oswatitsch, NACA TM 1140; Seddon and Goldsmith, *Intake
 Aerodynamics*, Sec. 4.3).
