@@ -2,7 +2,7 @@
 
 * **Method class**: `HeiserPrattCycleAnalysis` in [`heiser_pratt.py`](heiser_pratt.py)
 * **Fidelity**: Level 2 (1-D station cycle)
-* **Status**: Repaired and verified. The other files in this folder are not repaired.
+* **Status**: Repaired and verified, like the [Mattingly parametric cycle](#mattingly-parametric-cycle) below. `grzywka.py` is not repaired.
 
 This module calculates the thrust of a ramjet at one flight condition. It uses a 1-D station model with one gas in the inlet and a different gas after the combustor. The nozzle has a finite area ratio, so the exit pressure can differ from the ambient pressure.
 
@@ -183,3 +183,51 @@ These tests check the equations. No test compares the module with engine test da
 ## Reference
 
 W. H. Heiser and D. T. Pratt, *Hypersonic Airbreathing Propulsion*, AIAA Education Series, 1994. The station numbers follow this style. The thrust calculation uses exit momentum and exit pressure, not the complete stream-thrust method.
+
+## Mattingly Parametric Cycle
+
+* **Method class**: `MattinglyCycleAnalysis` in [`mattingly.py`](mattingly.py)
+* **Fidelity**: Level 2 (1-D parametric cycle)
+
+This analysis calculates a real ramjet cycle per unit air mass flow, after Mattingly, *Elements of Propulsion: Gas Turbines and Rockets*, 2nd ed., AIAA, 2006, Sec. 7.3 and 7.6. Engine size does not enter. Use it to choose the flight Mach number and the combustor temperature before you size the engine with Heiser & Pratt.
+
+Stations are 0 (freestream), 2 (diffuser exit), 4 (combustor exit) and 9 (nozzle exit). The air uses $\gamma_c$ and the products $\gamma_t$, with the gas constant of air:
+
+$$\tau_r = 1 + \tfrac{\gamma_c - 1}{2} M_0^2, \qquad \tau_\lambda = \frac{c_{p,t} T_{t4}}{c_{p,c} T_0}, \qquad f = \frac{\tau_\lambda - \tau_r}{\eta_b h / (c_{p,c} T_0) - \tau_\lambda}$$
+
+$$\frac{P_{t9}}{P_9} = \frac{P_0}{P_9} \pi_r \pi_d \pi_b \pi_n, \qquad \pi_d = \pi_{d,max} \, \eta_r(M_0)$$
+
+$$\frac{F}{\dot m_0} = a_0 \left[(1 + f)\frac{V_9}{a_0} - M_0 + (1 + f)\frac{T_9 / T_0}{V_9 / a_0}\,\frac{1 - P_0/P_9}{\gamma_c}\right]$$
+
+$\eta_r$ is the MIL-E-5007D ram recovery: $1 - 0.075 (M_0 - 1)^{1.35}$ up to Mach 5 and $800 / (M_0^4 + 935)$ above. The analysis also reports TSFC, specific impulse, and the thermal, propulsive and overall efficiencies.
+
+### Inputs
+
+| TOML field | Setting | If you do not set it |
+| :--- | :--- | :--- |
+| `design_mach` | `mach` | Required field |
+| `combustor_temp` | `tt4` | Required field |
+| `inlet_recovery` | `pi_d_max` | `pi_d_max = inlet_recovery / eta_r(design_mach)`, so the recovery at the design Mach is the TOML value. Placeholder 0.95. |
+| `combustor_pressure_ratio` | `pi_b` | Placeholder 0.8924 |
+| `nozzle_pressure_ratio` | `pi_n` | Placeholder 0.97 |
+| `combustion_efficiency` | `eta_b` | Placeholder 0.95 |
+| `fuel_type` | `gamma_hot`, `fuel_lhv` | Kerosene values. Other fuels must set both. |
+
+The flight altitude (`altitude_m`, default 10,000 m) and the exit pressure ratio (`p0_over_p9`, default 1: perfectly expanded) are settings only. The run lists each placeholder, as Heiser & Pratt does.
+
+A combustor temperature at or below the flight total temperature, or a cycle without net thrust, is an error with a clear message.
+
+### Run Artifacts
+
+A logged run also saves `figures/cycle_vs_mach.png` and `artifacts/cycle_vs_mach.csv`: specific thrust, TSFC, fuel-air ratio and the efficiencies from Mach 1.2 to 5 (or to 1.25 times the run Mach, if higher), at the run's Tt4, altitude and losses. Mach numbers without heat addition or net thrust are left out.
+
+### Verification
+
+The tests in [`test_mattingly_cycle.py`](../../../../tests/YAADO_Core/modules/powerplant/test_mattingly_cycle.py) check:
+
+* the isentropic relations against NACA 1135;
+* the ideal ramjet against a hand calculation;
+* that the lossless one-gas cycle gives $V_9 = V_0 \sqrt{\tau_\lambda / \tau_r}$ with the $(1 + f)$ term;
+* the two-gas energy balance;
+* that every loss lowers the specific thrust;
+* that the ALVRJ fuel-air ratio matches Heiser & Pratt.
