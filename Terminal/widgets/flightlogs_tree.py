@@ -123,7 +123,7 @@ class FlightLogsTree(Tree[Path | None]):
         self.clear()
 
         if not self.logs_root.is_dir():
-            self.root.add_leaf("[dim](No simulation runs yet)[/dim]", data=None)
+            self.root.add_leaf("[dim](No runs yet)[/dim]", data=None)
             return
 
         vehicle_dirs = [
@@ -132,7 +132,7 @@ class FlightLogsTree(Tree[Path | None]):
         ]
 
         if not vehicle_dirs:
-            self.root.add_leaf("[dim](No simulation runs yet)[/dim]", data=None)
+            self.root.add_leaf("[dim](No runs yet)[/dim]", data=None)
             return
 
         has_any_runs = False
@@ -215,7 +215,7 @@ class FlightLogsTree(Tree[Path | None]):
                     run_node.add_leaf(f"[white]{other_f.name}[/white]", data=other_f)
 
         if not has_any_runs:
-            self.root.add_leaf("[dim](No simulation runs yet)[/dim]", data=None)
+            self.root.add_leaf("[dim](No runs yet)[/dim]", data=None)
 
     def select_first_run(self) -> Path | None:
         """Select the first available simulation run leaf in the tree.

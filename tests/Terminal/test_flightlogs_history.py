@@ -406,7 +406,7 @@ def test_flightlogs_tree_action_delete_run(tmp_path: Path) -> None:
 
             # Tree should be repopulated with empty placeholder leaf
             assert len(tree.root.children) == 1
-            assert "(No simulation runs yet)" in str(tree.root.children[0].label)
+            assert "(No runs yet)" in str(tree.root.children[0].label)
             assert tree.root.children[0].data is None
 
     asyncio.run(_test())

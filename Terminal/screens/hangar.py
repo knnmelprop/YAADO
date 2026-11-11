@@ -111,6 +111,18 @@ def _abbreviate_field(field_name: str) -> str:
 
 
 
+def _workspace_header(vehicle: BaseVehicleConfig) -> str:
+    """Vehicle summary line; non-breaking spaces keep each count with its label."""
+    nbsp = "\u00a0"
+    parts = [f"[bold white]{escape(vehicle.name)}[/bold white]"]
+    if vehicle.total_mass is not None:
+        parts.append(f"[bold #94a3b8]{vehicle.total_mass:.1f}{nbsp}kg[/bold #94a3b8]")
+    parts.append(f"[bold #3b82f6]{len(vehicle.bodies)}{nbsp}Body[/bold #3b82f6]")
+    parts.append(f"[bold #0284c7]{len(vehicle.aero_surfaces)}{nbsp}Aero[/bold #0284c7]")
+    parts.append(f"[bold #f59e0b]{len(vehicle.propulsion)}{nbsp}Prop[/bold #f59e0b]")
+    return "  [dim]•[/dim]  ".join(parts)
+
+
 class HangarView(Container):
     """Unified vehicle manager and construction workspace.
 
@@ -166,7 +178,7 @@ class HangarView(Container):
             # Left column: ComponentStore with Collapsible categories and draggable cards
             componentstore_card = Container(id="componentstore-card", classes="cockpit-card")
             componentstore_card.border_title = "Component Store"
-            componentstore_card.border_subtitle = "\\[a] / Double-Click / Drag to Add"
+            componentstore_card.border_subtitle = "a / 2×Click: Add"
             with componentstore_card:
                 yield ComponentStoreView(id="component-store-view")
 
@@ -351,7 +363,8 @@ class HangarView(Container):
             comp: Pydantic component model instance.
 
         Returns:
-            Rich-formatted string aligned into neat columns.
+            Rich-formatted string: badge, name, headline specs, then the type, which a
+            narrow panel cuts first.
         """
         badge_colors = {
             "BODY": "#3b82f6",
@@ -362,12 +375,11 @@ class HangarView(Container):
         color = badge_colors.get(category, "#94a3b8")
         cls_name = comp.__class__.__name__
         specs = self._format_headline_specs(comp)
-        specs_str = f"  [#64748b]│[/#64748b]  [#94a3b8]{specs}[/#94a3b8]" if specs else ""
+        specs_str = f"[#94a3b8]{specs}[/#94a3b8]  " if specs else ""
         return (
             f"[bold {color}]\\[{category}][/bold {color}]  "
             f"[bold]{name:<18}[/bold]  "
-            f"[dim]{cls_name:<16}[/dim]"
-            f"{specs_str}"
+            f"{specs_str}[dim]{cls_name}[/dim]"
         )
 
     def _refresh_workspace(self) -> None:
@@ -391,21 +403,7 @@ class HangarView(Container):
             comp_count += 1
         workspace_card.border_subtitle = f"{comp_count} Components • \\[d] Delete"
 
-        mass_str = (
-            f"  [dim]•[/dim]  [bold #94a3b8]{vehicle.total_mass:.1f} kg[/bold #94a3b8]"
-            if vehicle.total_mass is not None
-            else ""
-        )
-        n_body = len(vehicle.bodies)
-        n_aero = len(vehicle.aero_surfaces)
-        n_prop = len(vehicle.propulsion)
-        header_text = (
-            f"[bold white]{vehicle.name}[/bold white]"
-            f"{mass_str}  [dim]•[/dim]  "
-            f"[bold #3b82f6]{n_body} Body[/bold #3b82f6]  [dim]•[/dim]  "
-            f"[bold #0284c7]{n_aero} Aero[/bold #0284c7]  [dim]•[/dim]  "
-            f"[bold #f59e0b]{n_prop} Prop[/bold #f59e0b]"
-        )
+        header_text = _workspace_header(vehicle)
         workspace_header.update(header_text)
 
         comp_list.clear_options()
@@ -710,21 +708,7 @@ class HangarView(Container):
 
         # Update workspace header without resetting options list
         workspace_header = self.query_one("#workspace-header", Static)
-        mass_str = (
-            f"  [dim]•[/dim]  [bold #94a3b8]{self.active_vehicle.total_mass:.1f} kg[/bold #94a3b8]"
-            if self.active_vehicle.total_mass is not None
-            else ""
-        )
-        n_body = len(self.active_vehicle.bodies)
-        n_aero = len(self.active_vehicle.aero_surfaces)
-        n_prop = len(self.active_vehicle.propulsion)
-        header_text = (
-            f"[bold white]{self.active_vehicle.name}[/bold white]"
-            f"{mass_str}  [dim]•[/dim]  "
-            f"[bold #3b82f6]{n_body} Body[/bold #3b82f6]  [dim]•[/dim]  "
-            f"[bold #0284c7]{n_aero} Aero[/bold #0284c7]  [dim]•[/dim]  "
-            f"[bold #f59e0b]{n_prop} Prop[/bold #f59e0b]"
-        )
+        header_text = _workspace_header(self.active_vehicle)
         workspace_header.update(header_text)
 
         if saved:
