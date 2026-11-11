@@ -40,7 +40,9 @@ from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
     HeiserPrattResults,
     MultiShockInletResults,
+    RamjetCycleResults,
 )
+from YAADO_Core.modules.powerplant.cycle_methods import mattingly
 from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     HeiserPrattCycleAnalysis,
     format_mach_sweep_csv,
@@ -48,6 +50,7 @@ from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     plot_mach_sweep,
     run_mach_sweep,
 )
+from YAADO_Core.modules.powerplant.cycle_methods.mattingly import MattinglyCycleAnalysis
 from YAADO_Core.modules.powerplant.inlet_methods import taylor_maccoll, wedge
 from YAADO_Core.modules.powerplant.inlet_methods.taylor_maccoll import (
     ConicalInletAnalysis,
@@ -417,6 +420,149 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
                 name="gamma_hot",
                 label="Products Gamma",
                 symbol="γ_h",
+                unit="-",
+                param_type=float,
+                default=None,
+                description=(
+                    f"Blank uses {HeiserPrattCycleAnalysis.DEFAULT_GAMMA_HOT} for kerosene. "
+                    "Required for other fuels"
+                ),
+                min_value=1.0,
+                placeholder="kerosene",
+            ),
+            SolverParam(
+                name="fuel_lhv",
+                label="Fuel Heating Value",
+                symbol="LHV",
+                unit="J/kg",
+                param_type=float,
+                default=None,
+                description=f"Blank uses {LHV_KEROSENE:.3g} for kerosene. Required for other fuels",
+                min_value=0.0,
+                placeholder="kerosene",
+            ),
+        ),
+    ),
+    SolverDescriptor(
+        solver_id="mattingly_cycle",
+        name="Parametric Ramjet Cycle (Mattingly)",
+        discipline="PROPULSION",
+        fidelity=MattinglyCycleAnalysis.fidelity,
+        solver_cls=MattinglyCycleAnalysis,
+        description=(
+            "Mattingly's real-ramjet cycle per unit air mass flow: specific thrust, TSFC, "
+            "specific impulse and efficiencies at one flight condition, and their trend with "
+            "Mach. Engine size does not enter: use it to choose Mach and Tt4 before sizing."
+        ),
+        required_components_desc="One ramjet (RamjetEngine). Losses come from it or below.",
+        headline_outputs=(
+            ("specific_thrust", "N*s/kg", "Specific Thrust F/m0"),
+            ("tsfc", "kg/(N*s)", "TSFC"),
+            ("specific_impulse", "s", "Specific Impulse"),
+            ("fuel_air_ratio", "-", "Fuel-Air Ratio"),
+            ("overall_efficiency", "-", "Overall Efficiency"),
+            ("thermal_efficiency", "-", "Thermal Efficiency"),
+            ("propulsive_efficiency", "-", "Propulsive Efficiency"),
+            ("pi_d", "-", "Inlet Recovery Used"),
+            ("mach_exit", "-", "Exit Mach"),
+            ("lossless_specific_thrust", "N*s/kg", "Lossless Specific Thrust"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Flight Mach",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Flight Mach number. Blank uses design_mach",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="altitude_m",
+                label="Flight Altitude",
+                symbol="h",
+                unit="m",
+                param_type=float,
+                default=MattinglyCycleAnalysis.DEFAULT_ALTITUDE_M,
+                description="ISA flight altitude above MSL",
+                min_value=0.0,
+                max_value=80000.0,
+            ),
+            SolverParam(
+                name="tt4",
+                label="Combustor Exit Temp",
+                symbol="Tt₄",
+                unit="K",
+                param_type=float,
+                default=None,
+                description="Combustor-exit total temperature. Blank uses combustor_temp",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="pi_d_max",
+                label="Diffuser pt Ratio (no shocks)",
+                symbol="π_d,max",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="pi_d = pi_d_max x MIL-E-5007D term. Blank derives it from inlet_recovery",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{MattinglyCycleAnalysis.DEFAULT_PI_D_MAX}",
+            ),
+            SolverParam(
+                name="pi_b",
+                label="Combustor pt Ratio",
+                symbol="π_b",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Combustor total-pressure ratio. Blank uses combustor_pressure_ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_PI_CC}",
+            ),
+            SolverParam(
+                name="pi_n",
+                label="Nozzle pt Ratio",
+                symbol="π_n",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Nozzle total-pressure ratio. Blank uses nozzle_pressure_ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_PI_NOZZLE}",
+            ),
+            SolverParam(
+                name="eta_b",
+                label="Combustion Efficiency",
+                symbol="η_b",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Fraction of fuel energy released. Blank uses combustion_efficiency",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_ETA_B}",
+            ),
+            SolverParam(
+                name="p0_over_p9",
+                label="Exit Pressure Ratio",
+                symbol="P0/P9",
+                unit="-",
+                param_type=float,
+                default=1.0,
+                description="Ambient over exit static pressure; 1 is a perfectly expanded nozzle",
+                min_value=0.0,
+            ),
+            SolverParam(
+                name="gamma_hot",
+                label="Products Gamma",
+                symbol="γ_t",
                 unit="-",
                 param_type=float,
                 default=None,
@@ -869,6 +1015,13 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
         return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
+    if descriptor.solver_id == "mattingly_cycle":
+        ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
+        if len(ramjets) != 1:
+            return False, "Needs exactly one ramjet (RamjetEngine)"
+        ramjet_name, ramjet = next(iter(ramjets.items()))
+        return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
+
     if descriptor.solver_id == "multi_shock_inlet":
         ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
         if len(ramjets) != 1:
@@ -969,6 +1122,8 @@ def execute_solver(
         _save_inlet_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, MultiShockInletResults):
         _save_multi_shock_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, RamjetCycleResults):
+        _save_cycle_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, BarrowmanStabilityResults):
         _save_stability_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, AckeretFinResults):
@@ -990,6 +1145,8 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
     """List the conditions that limit how far the user can trust a run."""
     if isinstance(results, HeiserPrattResults) and results.assumed_losses:
         return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
+    if isinstance(results, RamjetCycleResults) and results.assumed:
+        return (f"Placeholder values used for: {', '.join(results.assumed)}",)
     if isinstance(results, (ConicalInletResults, MultiShockInletResults)):
         return results.assumptions
     if isinstance(
@@ -1042,6 +1199,17 @@ def _save_inlet_artifacts(
         taylor_maccoll.plot_recovery_vs_mach(points, results), "recovery_vs_mach.png", show=False
     )
     logger.save_artifact("recovery_vs_mach.csv", taylor_maccoll.format_mach_sweep_csv(points))
+
+
+def _save_cycle_artifacts(
+    logger: FlightLogger, results: RamjetCycleResults, run_sweep: bool
+) -> None:
+    """Save the cycle-vs-Mach figure and CSV of a parametric cycle run."""
+    if not run_sweep:
+        return
+    points = mattingly.run_mach_sweep(results)
+    logger.save_figure(mattingly.plot_mach_sweep(points, results), "cycle_vs_mach.png", show=False)
+    logger.save_artifact("cycle_vs_mach.csv", mattingly.format_mach_sweep_csv(points))
 
 
 def _save_multi_shock_artifacts(

@@ -19,6 +19,7 @@ from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
     HeiserPrattResults,
     MultiShockInletResults,
+    RamjetCycleResults,
 )
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
@@ -328,3 +329,32 @@ def test_execute_multi_shock_inlet_saves_design_curves(
     run_dir = tmp_path / run.output_dir
     assert (run_dir / "figures" / "inlet_design.png").is_file()
     assert (run_dir / "artifacts" / "inlet_design.csv").is_file()
+
+
+def test_execute_mattingly_saves_cycle_sweep_and_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a logged parametric cycle run saves its Mach sweep and lists placeholders."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    monkeypatch.chdir(tmp_path)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "mattingly_cycle")
+
+    run = execute_solver(descriptor, vehicle, {"altitude_m": 12000.0})
+
+    assert isinstance(run.results, RamjetCycleResults)
+    assert run.results.inputs.altitude == 12000.0
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    assert (run_dir / "results.json").is_file()
+    assert (run_dir / "figures" / "cycle_vs_mach.png").is_file()
+    assert (run_dir / "artifacts" / "cycle_vs_mach.csv").is_file()
+    assert any("combustion_efficiency" in w for w in run.warnings)
+
+
+def test_execute_mattingly_without_placeholders_has_no_warning() -> None:
+    """Verify that setting every loss removes the placeholder warning."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "mattingly_cycle")
+    params = {"pi_d_max": 0.95, "pi_b": 0.95, "pi_n": 0.98, "eta_b": 0.97}
+    run = execute_solver(descriptor, vehicle, params, enable_logging=False)
+    assert run.warnings == ()
