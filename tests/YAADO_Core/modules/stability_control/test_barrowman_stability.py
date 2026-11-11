@@ -23,7 +23,6 @@ from YAADO_Core.modules.stability_control.containers import (
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
     BarrowmanStabilityAnalysis,
     compute_stability_at_mach,
-    fin_mach_correction_factor,
     fin_set_cn_alpha_and_cp,
     format_mach_sweep_csv,
     geometry_from_vehicle,
@@ -119,17 +118,50 @@ def test_fin_slope_grows_with_aspect_ratio() -> None:
     assert long / 0.2 > short / 0.1
 
 
-def test_mach_correction_factor() -> None:
-    """1 at Mach 0, Prandtl-Glauert below 0.8, linear supersonic above 1.2, continuous."""
-    assert fin_mach_correction_factor(0.0) == pytest.approx(1.0)
-    assert fin_mach_correction_factor(0.5) == pytest.approx(1.0 / math.sqrt(0.75))  # = 1.15470
-    assert fin_mach_correction_factor(2.0) == pytest.approx(4.0 / math.sqrt(3.0) / (2.0 * math.pi))
-    for edge in (0.8, 1.2):
-        assert fin_mach_correction_factor(edge - 1e-9) == pytest.approx(
-            fin_mach_correction_factor(edge + 1e-9), rel=1e-6
-        )
+def test_subsonic_fin_slope_by_hand() -> None:
+    """Square fins at Mach 0.6: beta = 0.8 scales the aspect-ratio term (Diederich)."""
+    cn_alpha, _ = fin_set_cn_alpha_and_cp(SQUARE_FINS, 0.05, 0.1, mach=0.6)
+    expected = (4.0 / 3.0) * 16.0 / (1.0 + math.sqrt(1.0 + 0.8**2))  # = 9.35417
+    assert cn_alpha == pytest.approx(expected, rel=1e-12)
+    assert cn_alpha == pytest.approx(9.35417, rel=1e-5)
+
+
+def test_low_aspect_ratio_fins_gain_less_than_prandtl_glauert() -> None:
+    """A low-aspect-ratio fin set barely changes with subsonic Mach."""
+    at_rest, _ = fin_set_cn_alpha_and_cp(SQUARE_FINS, 0.05, 0.1)
+    at_m08, _ = fin_set_cn_alpha_and_cp(SQUARE_FINS, 0.05, 0.1, mach=0.79)
+    assert 1.0 < at_m08 / at_rest < 1.0 / math.sqrt(1.0 - 0.79**2)
+
+
+def test_supersonic_fin_slope_by_hand() -> None:
+    """Square fins at Mach 2: Ackeret 4/beta, Puckett tip loss for AR = 2s/c = 2, N/2 panels."""
+    beta = math.sqrt(3.0)  # = 1.732051
+    eta = 1.0 - 1.0 / (2.0 * beta * 2.0)  # = 0.855662
+    a_ref = math.pi / 4.0 * 0.1**2  # = 0.00785398
+    expected = (4.0 / 3.0) * 2.0 * (4.0 / beta) * eta * 0.01 / a_ref  # = 6.70930
+    cn_alpha, _ = fin_set_cn_alpha_and_cp(SQUARE_FINS, 0.05, 0.1, mach=2.0)
+    assert cn_alpha == pytest.approx(expected, rel=1e-12)
+    assert cn_alpha == pytest.approx(6.70930, rel=1e-5)
+
+
+def test_tip_loss_is_held_at_its_floor_close_to_mach_one() -> None:
+    """Below beta * AR = 1 the tip-loss factor stays at 1/2."""
+    narrow = replace(SQUARE_FINS, span=0.02)  # AR = 0.4, beta * AR < 1 at Mach 1.6
+    beta = math.sqrt(1.6**2 - 1.0)
+    a_ref = math.pi / 4.0 * 0.1**2
+    expected = (1.0 + 0.05 / 0.07) * 2.0 * (4.0 / beta) * 0.5 * 0.002 / a_ref
+    assert fin_set_cn_alpha_and_cp(narrow, 0.05, 0.1, mach=1.6)[0] == pytest.approx(expected)
+
+
+def test_transonic_bridge_is_continuous_and_rejects_negative_mach() -> None:
+    """The bridge meets both regimes at its ends; the CP does not move with Mach."""
+    for edge in (0.8, 1.5):
+        below, x_below = fin_set_cn_alpha_and_cp(SQUARE_FINS, 0.05, 0.1, mach=edge - 1e-9)
+        above, x_above = fin_set_cn_alpha_and_cp(SQUARE_FINS, 0.05, 0.1, mach=edge + 1e-9)
+        assert below == pytest.approx(above, rel=1e-6)
+        assert x_below == x_above
     with pytest.raises(ValueError):
-        fin_mach_correction_factor(-0.1)
+        fin_set_cn_alpha_and_cp(SQUARE_FINS, 0.05, 0.1, mach=-0.1)
 
 
 def test_total_cp_and_static_margin_by_hand() -> None:
@@ -243,11 +275,14 @@ def _run(path: Path, **settings: float) -> BarrowmanStabilityResults:
 
 
 def test_analysis_on_alvrj_matches_hand_build_up() -> None:
-    """ALVRJ at Mach 0.3: nose + Prandtl-Glauert-corrected tail fins."""
+    """ALVRJ at Mach 0.3: nose + tail fins with the Diederich term."""
     results = _run(ALVRJ_PATH)
 
-    cn_fin = 5.155888 / math.sqrt(1.0 - 0.3**2)  # = 5.40481
-    x_cp = (2.0 * 0.466 * 0.95 + cn_fin * 4.224990) / (2.0 + cn_fin)  # = 3.20338
+    # Barrowman numerator K_fb * 4N (s/d)^2 and the beta-scaled l_F term at Mach 0.3
+    numerator = (1.0 + 0.1905 / 0.4705) * 16.0 * (0.28 / 0.381) ** 2  # = 12.14025
+    lf_term = 2.0 * math.sqrt(1.0 - 0.3**2) * 0.365530 / 0.8  # = 0.871733
+    cn_fin = numerator / (1.0 + math.sqrt(1.0 + lf_term**2))  # = 5.21794
+    x_cp = (2.0 * 0.466 * 0.95 + cn_fin * 4.224990) / (2.0 + cn_fin)  # = 3.19390
     assert results.fidelity == FidelityLevel.LEVEL_0
     assert results.mach == 0.3
     assert results.cn_alpha == pytest.approx(2.0 + cn_fin, rel=1e-5)
@@ -273,7 +308,7 @@ def test_analysis_settings_override_vehicle_values() -> None:
     results = _run(ALVRJ_PATH, mach=1.5, cg_from_nose=2.6, sm_required=0.5)
     assert results.cg == 2.6
     assert results.sm_required == 0.5
-    assert results.static_margin < _run(ALVRJ_PATH, cg_from_nose=2.6).static_margin
+    assert results.cn_alpha > _run(ALVRJ_PATH, cg_from_nose=2.6).cn_alpha  # supersonic fins
     assert any("subsonic method" in a for a in results.assumptions)
 
 

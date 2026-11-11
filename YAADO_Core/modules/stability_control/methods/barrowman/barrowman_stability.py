@@ -6,13 +6,14 @@ Center of Pressure*, NARAM-8, 1966:
 
     nose      CN_alpha = 2 * (d_base / d_ref)^2,   CP = k_nose * L_nose
     shoulder  CN_alpha = 2 * (1 - (d_base / d_ref)^2), at the nose base (a step)
-    fins      CN_alpha = K_fb * 4 N (s/d)^2 / (1 + sqrt(1 + (2 l_F / (C_r + C_t))^2))
-              K_fb = 1 + R / (s + R), l_F = length of the fin mid-chord line
+    fins      CN_alpha = K_fb * 4 N (s/d)^2 / (1 + sqrt(1 + (2 beta l_F / (C_r + C_t))^2))
+              K_fb = 1 + R / (s + R), l_F = length of the fin mid-chord line,
+              beta = sqrt(1 - M^2) (Diederich, as in OpenRocket; 1 at Mach 0)
 
 Every fin set of the vehicle contributes, so canards and mid-body wings shift the
-CP forward. Only the fin slope depends on Mach: Prandtl-Glauert below Mach 0.8,
-linearized supersonic theory above Mach 1.2 and a linear bridge in between. The
-method is validated for subsonic flight; supersonic values are estimates only.
+CP forward. Only the fin slope depends on Mach. Above Mach 1.5 it is the linear
+supersonic slope with Puckett tip loss; between Mach 0.8 and 1.5 a linear bridge.
+The method is validated for subsonic flight; supersonic values are estimates.
 """
 
 from __future__ import annotations
@@ -154,64 +155,103 @@ def transition_cn_alpha_and_cp(geometry: RocketGeometry) -> tuple[float, float]:
     return cn_alpha, geometry.nose_length
 
 
+def subsonic_fin_cn_alpha(
+    fins: FinSetGeometry, body_radius: float, d_ref: float, mach: float
+) -> float:
+    """Barrowman fin-set ``CN_alpha`` [1/rad] with the Diederich compressibility term.
+
+    ``beta = sqrt(1 - M^2)`` scales the aspect-ratio term in the denominator, which
+    is the subsonic form used by OpenRocket. At Mach 0 it is Barrowman's equation;
+    a low-aspect-ratio fin barely changes with Mach, a high-aspect-ratio one
+    tends to Prandtl-Glauert.
+
+    Raises:
+        ValueError: If ``mach`` is not in ``[0, 1)``.
+    """
+    if not 0.0 <= mach < 1.0:
+        raise ValueError(f"Subsonic fin slope needs 0 <= mach < 1, got {mach}")
+    s, cr, ct = fins.span, fins.root_chord, fins.tip_chord
+    mid_chord_line = math.hypot(s, fins.sweep_length + 0.5 * ct - 0.5 * cr)
+    beta = math.sqrt(1.0 - mach**2)
+    k_fb = 1.0 + body_radius / (s + body_radius)
+    return (
+        k_fb
+        * 4.0
+        * fins.count
+        * (s / d_ref) ** 2
+        / (1.0 + math.sqrt(1.0 + (2.0 * beta * mid_chord_line / (cr + ct)) ** 2))
+    )
+
+
+def supersonic_tip_loss(fins: FinSetGeometry, mach: float) -> float:
+    """Puckett tip-loss factor ``1 - 1/(2 beta AR)`` of the exposed wing, unclamped.
+
+    The exposed wing is the two panels joined at the root: ``AR = 2 s / c_mean``.
+    """
+    beta = math.sqrt(mach**2 - 1.0)
+    return 1.0 - 1.0 / (2.0 * beta * 2.0 * fins.span / fins.mean_chord)
+
+
+def supersonic_fin_cn_alpha(
+    fins: FinSetGeometry, body_radius: float, reference_area: float, mach: float
+) -> float:
+    """Linear supersonic fin-set ``CN_alpha`` [1/rad].
+
+    ``K_fb * (N/2) * (4/beta) * eta * A_panel / A_ref``: Ackeret section slope with
+    the Puckett tip-loss factor ``eta``, held at ``TIP_LOSS_FLOOR`` where
+    ``beta * AR < 1``. ``N/2`` panels carry load at any roll angle.
+
+    Raises:
+        ValueError: If ``mach <= 1``.
+    """
+    if mach <= 1.0:
+        raise ValueError(f"Supersonic fin slope needs mach > 1, got {mach}")
+    eta = max(BarrowmanStabilityAnalysis.TIP_LOSS_FLOOR, supersonic_tip_loss(fins, mach))
+    k_fb = 1.0 + body_radius / (fins.span + body_radius)
+    slope_2d = 4.0 / math.sqrt(mach**2 - 1.0)
+    return k_fb * (fins.count / 2.0) * slope_2d * eta * fins.panel_area / reference_area
+
+
 def fin_set_cn_alpha_and_cp(
-    fins: FinSetGeometry, body_radius: float, d_ref: float
+    fins: FinSetGeometry, body_radius: float, d_ref: float, mach: float = 0.0
 ) -> tuple[float, float]:
-    """Incompressible fin-set ``CN_alpha`` [1/rad] and CP [m from the nose tip].
+    """Fin-set ``CN_alpha`` [1/rad] and Barrowman CP [m from the nose tip].
+
+    Subsonic slope below ``MACH_SUBSONIC_LIMIT``, supersonic slope above
+    ``MACH_SUPERSONIC_LIMIT`` and a linear bridge between the two. The CP is
+    Barrowman's subsonic value at every Mach number.
 
     Args:
         fins: Fin set geometry.
         body_radius: Body radius at the fins [m].
         d_ref: Reference diameter [m].
+        mach: Freestream Mach number (>= 0).
 
     Returns:
         Tuple of (CN_alpha including body interference, x_cp).
-    """
-    s, cr, ct, x_r = fins.span, fins.root_chord, fins.tip_chord, fins.sweep_length
-    mid_chord_line = math.hypot(s, x_r + 0.5 * ct - 0.5 * cr)
-
-    k_fb = 1.0 + body_radius / (s + body_radius)
-    cn_alpha = (
-        k_fb
-        * 4.0
-        * fins.count
-        * (s / d_ref) ** 2
-        / (1.0 + math.sqrt(1.0 + (2.0 * mid_chord_line / (cr + ct)) ** 2))
-    )
-    x_from_root_le = x_r * (cr + 2.0 * ct) / (3.0 * (cr + ct)) + (
-        cr + ct - cr * ct / (cr + ct)
-    ) / 6.0
-    return cn_alpha, fins.root_le_x + x_from_root_le
-
-
-def fin_mach_correction_factor(mach: float) -> float:
-    """Multiplier on the incompressible fin ``CN_alpha`` at a given Mach number.
-
-    Prandtl-Glauert ``1/sqrt(1 - M^2)`` below ``MACH_SUBSONIC_LIMIT``; linearized
-    supersonic ``(4/sqrt(M^2 - 1)) / (2 pi)`` above ``MACH_SUPERSONIC_LIMIT``; linear
-    interpolation in between.
 
     Raises:
         ValueError: If ``mach`` is negative.
     """
     if mach < 0.0:
         raise ValueError(f"mach must be >= 0, got {mach}")
-
     lower = BarrowmanStabilityAnalysis.MACH_SUBSONIC_LIMIT
     upper = BarrowmanStabilityAnalysis.MACH_SUPERSONIC_LIMIT
-
-    def subsonic(m: float) -> float:
-        return 1.0 / math.sqrt(1.0 - m**2)
-
-    def supersonic(m: float) -> float:
-        return 4.0 / math.sqrt(m**2 - 1.0) / (2.0 * math.pi)
-
+    reference_area = math.pi / 4.0 * d_ref**2
     if mach < lower:
-        return subsonic(mach)
-    if mach > upper:
-        return supersonic(mach)
-    frac = (mach - lower) / (upper - lower)
-    return subsonic(lower) + frac * (supersonic(upper) - subsonic(lower))
+        cn_alpha = subsonic_fin_cn_alpha(fins, body_radius, d_ref, mach)
+    elif mach > upper:
+        cn_alpha = supersonic_fin_cn_alpha(fins, body_radius, reference_area, mach)
+    else:
+        cn_lower = subsonic_fin_cn_alpha(fins, body_radius, d_ref, lower)
+        cn_upper = supersonic_fin_cn_alpha(fins, body_radius, reference_area, upper)
+        cn_alpha = cn_lower + (mach - lower) / (upper - lower) * (cn_upper - cn_lower)
+
+    cr, ct, x_r = fins.root_chord, fins.tip_chord, fins.sweep_length
+    x_from_root_le = x_r * (cr + 2.0 * ct) / (3.0 * (cr + ct)) + (
+        cr + ct - cr * ct / (cr + ct)
+    ) / 6.0
+    return cn_alpha, fins.root_le_x + x_from_root_le
 
 
 def compute_stability_at_mach(geometry: RocketGeometry, mach: float) -> StabilityResult:
@@ -231,10 +271,9 @@ def compute_stability_at_mach(geometry: RocketGeometry, mach: float) -> Stabilit
     if cn_shoulder > 0.0:
         components.append(ComponentContribution("shoulder", cn_shoulder, x_shoulder))
 
-    mach_factor = fin_mach_correction_factor(mach)
     for fins in geometry.fin_sets:
-        cn_fin, x_fin = fin_set_cn_alpha_and_cp(fins, geometry.body_radius, geometry.d_ref)
-        components.append(ComponentContribution(fins.name, cn_fin * mach_factor, x_fin))
+        cn_fin, x_fin = fin_set_cn_alpha_and_cp(fins, geometry.body_radius, geometry.d_ref, mach)
+        components.append(ComponentContribution(fins.name, cn_fin, x_fin))
 
     cn_alpha_total = sum(c.cn_alpha for c in components)
     x_cp = sum(c.cn_alpha * c.x_cp for c in components) / cn_alpha_total
@@ -325,9 +364,13 @@ class BarrowmanStabilityAnalysis(BaseAnalysis[BarrowmanStabilityResults]):
         "hemispherical": 1.0 / 3.0,
     }
 
-    #: Edges of the transonic bridge on the fin slope [-].
+    #: Edges of the transonic bridge on the fin slope [-]. Linear supersonic theory
+    #: is poor close to Mach 1, so the bridge ends at 1.5.
     MACH_SUBSONIC_LIMIT: ClassVar[float] = 0.8
-    MACH_SUPERSONIC_LIMIT: ClassVar[float] = 1.2
+    MACH_SUPERSONIC_LIMIT: ClassVar[float] = 1.5
+
+    #: Floor of the supersonic tip-loss factor, its value at ``beta * AR = 1`` [-].
+    TIP_LOSS_FLOOR: ClassVar[float] = 0.5
 
     #: Below this length/diameter, slender-body theory is not valid [-].
     MIN_FINENESS_RATIO: ClassVar[float] = 5.0

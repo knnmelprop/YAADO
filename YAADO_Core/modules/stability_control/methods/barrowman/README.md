@@ -25,9 +25,11 @@ The vehicle CP is the slope-weighted mean, and the static margin is $(x_{CP} - x
 
 Only the fin slopes change with Mach number:
 
-* Below Mach 0.8: Prandtl-Glauert, $1/\sqrt{1 - M^2}$.
-* Above Mach 1.2: linearized supersonic theory, $\left(4/\sqrt{M^2 - 1}\right) / 2\pi$.
-* Between the two, a linear bridge.
+* Below Mach 0.8: the Barrowman equation with $\beta = \sqrt{1 - M^2}$ on the aspect-ratio term, $2 \beta l_F / (C_r + C_t)$ (Diederich, as in OpenRocket). A low-aspect-ratio fin barely changes with Mach; plain Prandtl-Glauert would overpredict it by up to 50 % at Mach 0.8.
+* Above Mach 1.5: linear supersonic theory, $K_{fb} \frac{N}{2} \frac{4}{\beta} \eta \frac{A_{panel}}{A_{ref}}$ with $\beta = \sqrt{M^2 - 1}$. The Puckett tip-loss factor $\eta = 1 - 1/(2 \beta AR)$ uses the two exposed panels joined at the root, $AR = 2s/\bar c$, and is held at 1/2 where $\beta AR < 1$.
+* Between the two, a linear bridge. Linear supersonic theory is poor close to Mach 1.
+
+The fin CP stays at Barrowman's subsonic value at every Mach number. Supersonic loading moves it aft toward the planform centroid; the Ackeret fin check reports that shift.
 
 Barrowman is a subsonic method. Above Mach 0.8, the run warns that the result is an estimate.
 
