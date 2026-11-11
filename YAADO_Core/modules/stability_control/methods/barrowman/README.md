@@ -71,7 +71,7 @@ Linear theory gives a cylinder no normal force. A real body at an angle of attac
 
 $$C_{N,body} = K \, \frac{A_{plan}}{A_{ref}} \, \sin^2\alpha, \qquad K = 1.1$$
 
-The term acts at the planform centroid. The nose profile (cone, tangent ogive or ellipse) is integrated numerically, and the rest of the body is a cylinder. The term grows with $\alpha^2$, so it is zero at $\alpha = 0$, and it moves the CP toward the planform centroid at the angle of attack of a gust or of a launch in wind. It joins the build-up as the secant slope $C_{N,body}/\alpha$.
+See Galejs, *What Barrowman Left Out* (High Power Rocketry, 1998), and Niskanen, *Development of an Open Source Model Rocket Simulation Software* (M.Sc. thesis, 2009), section "Effect of body lift". The term acts at the planform centroid. The nose profile (cone, tangent ogive or ellipse) is integrated numerically, and the rest of the body is a cylinder. The term grows with $\alpha^2$, so it is zero at $\alpha = 0$, and it moves the CP toward the planform centroid at the angle of attack of a gust or of a launch in wind. It joins the build-up as the secant slope $C_{N,body}/\alpha$.
 
 ### Tail-Fin Span Sizing
 

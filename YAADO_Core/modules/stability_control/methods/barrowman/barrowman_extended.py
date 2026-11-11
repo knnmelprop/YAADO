@@ -13,6 +13,11 @@ components.
 
 The analysis also sizes the tail fins: the span at which the static margin with
 body lift reaches the required value, and the span at which it reaches zero.
+
+References: Galejs, R., *What Barrowman Left Out*, High Power Rocketry 9(3), 1998
+(``alpha^2`` form, K about 1.0 to 1.1); Niskanen, S., *Development of an Open
+Source Model Rocket Simulation Software*, M.Sc. thesis, Helsinki University of
+Technology, 2009, section "Effect of body lift" (``sin^2`` form, K = 1.1).
 """
 
 from __future__ import annotations
