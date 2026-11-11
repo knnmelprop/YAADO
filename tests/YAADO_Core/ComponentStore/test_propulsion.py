@@ -91,3 +91,13 @@ def test_ramjet_loss_fields_are_optional_fractions(field: str) -> None:
         with pytest.raises(ValueError):
             RamjetEngine(**base, **{field: invalid})
 
+
+
+def test_ramjet_spike_half_angle_is_optional_and_bounded():
+    """The spike half-angle defaults to None and must lie in (0, 60) deg."""
+    base = {"design_mach": 2.5, "combustor_temp": 2000.0, "nozzle_area_ratio": 1.5}
+    assert RamjetEngine(**base).spike_half_angle is None
+    assert RamjetEngine(**base, spike_half_angle=21.0).spike_half_angle == 21.0
+    assert RamjetEngine.UNITS["spike_half_angle"] == "deg"
+    with pytest.raises(ValidationError):
+        RamjetEngine(**base, spike_half_angle=75.0)

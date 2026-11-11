@@ -83,6 +83,7 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
     assert ids == [
         "point_mass_3dof_boost",
         "heiser_pratt_cycle",
+        "conical_inlet",
         "barrowman_stability",
         "barrowman_extended",
         "datcom_class_stability",
@@ -1027,5 +1028,38 @@ def test_extended_run_through_the_app(tmp_path: Path, monkeypatch: pytest.Monkey
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Static Margin (with body lift)" in content
             assert "Tail Fin Span for Required Margin" in content
+
+    asyncio.run(_test())
+
+
+def test_conical_inlet_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set the spike angle in the form, run the inlet and see its recovery."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(140, 42)) as pilot:
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+
+            tile = fd.query_one("#tile-solver-conical_inlet", SolverTile)
+            tile.scroll_visible(animate=False)
+            await pilot.pause(0.1)
+            await pilot.click(tile)
+            await pilot.pause(0.3)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            assert form.query_one("#param-inp-cone_half_angle_deg", Input).placeholder == "TOML"
+            form.query_one("#param-inp-cone_half_angle_deg", Input).value = "21"
+            await pilot.pause(0.1)
+            await pilot.press("r")
+            await pilot.pause(0.5)
+            content = str(fd.query_one("#flightdeck-results-content", Static).render())
+            assert "Total-Pressure Recovery" in content
+            assert "Conical Shock Angle" in content
 
     asyncio.run(_test())

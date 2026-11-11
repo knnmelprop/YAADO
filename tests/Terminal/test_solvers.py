@@ -15,7 +15,10 @@ from Terminal.solvers import (
 )
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
-from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
+from YAADO_Core.modules.powerplant.containers import (
+    ConicalInletResults,
+    HeiserPrattResults,
+)
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
     BarrowmanExtendedResults,
@@ -275,3 +278,25 @@ def test_extended_warns_when_no_span_meets_the_rule() -> None:
     run = execute_solver(descriptor, vehicle, {"sm_required": 50.0}, enable_logging=False)
     assert run.results.required_tail_span is None
     assert any("No tail fin span" in w for w in run.warnings)
+
+
+def test_execute_conical_inlet_saves_recovery_sweep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a logged inlet run saves the recovery sweep and lists its flags."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    monkeypatch.chdir(tmp_path)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "conical_inlet")
+
+    ready, message = check_solver_compatibility(descriptor, vehicle)
+    assert ready
+    assert "set it below" in message
+
+    run = execute_solver(descriptor, vehicle, {"cone_half_angle_deg": 21.0})
+
+    assert isinstance(run.results, ConicalInletResults)
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    assert (run_dir / "figures" / "recovery_vs_mach.png").is_file()
+    assert (run_dir / "artifacts" / "recovery_vs_mach.csv").is_file()
+    assert any("placeholder" in w for w in run.warnings)

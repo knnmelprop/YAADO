@@ -163,6 +163,7 @@ class RamjetEngine(BaseModel):
         nozzle_area_ratio: Nozzle exit/throat area ratio. (>= 1)
         nozzle_throat_diameter: Nozzle throat diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)
         nozzle_exit_diameter: Nozzle exit diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)
+        spike_half_angle: Half-angle of the external conical inlet spike in degrees. Defaults to None. (0 to 60)
         inlet_recovery: Inlet total-pressure recovery pt2/pt0 at design_mach. Defaults to None. (0 to 1]
         combustor_pressure_ratio: Combustor total-pressure ratio pt4/pt2. Defaults to None. (0 to 1]
         nozzle_pressure_ratio: Nozzle total-pressure ratio. Defaults to None. (0 to 1]
@@ -178,6 +179,7 @@ class RamjetEngine(BaseModel):
         "nozzle_area_ratio": "-",
         "nozzle_throat_diameter": "m",
         "nozzle_exit_diameter": "m",
+        "spike_half_angle": "deg",
         "inlet_recovery": "-",
         "combustor_pressure_ratio": "-",
         "nozzle_pressure_ratio": "-",
@@ -225,6 +227,14 @@ class RamjetEngine(BaseModel):
         gt=0.0,
         examples=[0.375],
         description='''Nozzle exit diameter in meters, if known from a dimensioned drawing. Defaults to None. (> 0)'''
+    )
+
+    spike_half_angle: float | None = Field(
+        default=None,
+        gt=0.0,
+        lt=60.0,
+        examples=[21.0],
+        description='''Half-angle of the external conical inlet spike in degrees. Defaults to None. (0 to 60)'''
     )
 
     inlet_recovery: float | None = Field(

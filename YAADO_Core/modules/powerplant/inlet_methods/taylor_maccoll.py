@@ -1,66 +1,59 @@
-"""Taylor-Maccoll conical-inlet performance.
+"""Single-cone external-compression inlet with the Taylor-Maccoll conical shock.
 
-Method: full Taylor-Maccoll conical-flow integration for the external cone
-(oblique conical shock -> isentropic compression to the cone surface),
-followed by a terminal normal shock to subsonic and a subsonic-diffuser loss.
+Chain at one flight Mach number:
 
-References:
-- Anderson, *Modern Compressible Flow*, 3rd ed. (Taylor-Maccoll, Ch. 10; 
-  oblique/normal shocks, Ch. 3-4)
-- MIL-E-5007D total-pressure-recovery standard
+    1. Attached conical shock on the spike, from the Taylor-Maccoll equation
+       (Anderson, *Modern Compressible Flow*, 3rd ed., Ch. 10).
+    2. Terminal normal shock at the Mach number just behind the conical shock.
+       The flow compresses further toward the cone surface, so this is the
+       conservative end of the conical flow field.
+    3. Subsonic-diffuser total-pressure loss.
+
+A spike too blunt for an attached shock at the flight Mach number is bounded by a
+normal (bow) shock at the flight Mach number. The recovery is compared with the
+MIL-E-5007D reference ``1 - 0.075 (M - 1)^1.35``.
 """
 
 from __future__ import annotations
 
 import csv
+import io
 import math
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from dataclasses import astuple, fields
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.optimize import brentq
+from scipy.optimize import brentq, minimize_scalar
 
-if __name__ == "__main__" and __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
+from YAADO_Core.ComponentStore import RAMJET_COMPONENTS
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
 from YAADO_Core.Foundation.constants import GAMMA_AIR
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.powerplant.containers import (
+    ConicalInletResults,
+    ConicalShock,
+    InletMachPoint,
+)
 
-_HERE = Path(__file__).resolve().parent
-CSV_PATH = _HERE / "inlet_performance_v2.csv"
-
-#: MIL-E-5007D reference-recovery coefficients (M > 1).
-MIL_E_5007_COEFF: float = 0.075
-MIL_E_5007_EXP: float = 1.35
-
-#: As-drawn external cone half-angle [deg] and its included-angle reading.
-CONE_HALF_ANGLE_DEG: float = 42.0
-CONE_HALF_ANGLE_ALT_DEG: float = 21.0  # 42 deg read as the included angle
-
-#: Design and off-design flight Mach numbers.
-DESIGN_MACH: float = 2.5
-OFF_DESIGN_MACH: tuple[float, ...] = (2.0, 3.0)
-
-#: PROVISIONAL subsonic-diffuser total-pressure ratio applied after the
-#: terminal normal shock. source: typical short annular diffuser ~0.97;
-#: replace when the internal duct area schedule (60 deg cowl) is modeled.
-PI_SUBSONIC_DIFFUSER: float = 0.97
+#: Smallest and largest offsets of the shock-angle scan from the Mach angle [rad].
+#: The cone angle grows roughly with the square root of the offset, so a
+#: geometric scan resolves thin cones (about 1 deg at Mach 2 for 1e-6 rad).
+_SCAN_OFFSET_MIN: float = 1e-6
+_SCAN_GEOMETRIC_POINTS: int = 25
+_SCAN_LINEAR_POINTS: int = 60
+_SCAN_SPLIT_OFFSET: float = 0.02
+_SHOCK_ANGLE_MAX: float = math.radians(89.0)
 
 
 def mil_e_5007d_recovery(mach: float) -> float:
-    """MIL-E-5007D reference total-pressure recovery for M > 1.
-
-    Args:
-        mach: Freestream Mach number.
-
-    Returns:
-        Reference recovery pt2/pt0 [-] (1.0 for M <= 1).
-    """
+    """MIL-E-5007D reference total-pressure recovery (1 for ``mach <= 1``)."""
     if mach <= 1.0:
         return 1.0
-    return 1.0 - MIL_E_5007_COEFF * (mach - 1.0) ** MIL_E_5007_EXP
+    return 1.0 - 0.075 * (mach - 1.0) ** 1.35
 
 
 def _theta_from_beta(mach1: float, beta_rad: float, gamma: float) -> float:
@@ -71,305 +64,368 @@ def _theta_from_beta(mach1: float, beta_rad: float, gamma: float) -> float:
     return math.atan(2.0 / math.tan(beta_rad) * num / den)
 
 
+def _pt_ratio_normal(mach_n: float, gamma: float) -> float:
+    """Total-pressure ratio across a normal shock of upstream normal Mach ``mach_n``."""
+    m2 = mach_n * mach_n
+    return (
+        ((gamma + 1.0) * m2 / ((gamma - 1.0) * m2 + 2.0)) ** (gamma / (gamma - 1.0))
+        * ((gamma + 1.0) / (2.0 * gamma * m2 - (gamma - 1.0))) ** (1.0 / (gamma - 1.0))
+    )
+
+
+def _mach_behind_normal(mach_n: float, gamma: float) -> float:
+    """Normal Mach number behind a normal shock."""
+    m2 = mach_n * mach_n
+    return math.sqrt((1.0 + 0.5 * (gamma - 1.0) * m2) / (gamma * m2 - 0.5 * (gamma - 1.0)))
+
+
 def oblique_shock(mach1: float, beta_rad: float, gamma: float) -> tuple[float, float, float]:
-    """Oblique-shock deflection, downstream Mach, and total-pressure ratio.
-
-    Args:
-        mach1: Upstream Mach.
-        beta_rad: Shock angle [rad].
-        gamma: Ratio of specific heats.
-
-    Returns:
-        Tuple ``(delta_rad, mach2, pt2_over_pt1)``.
-    """
+    """Oblique-shock deflection [rad], downstream Mach and total-pressure ratio."""
     m1n = mach1 * math.sin(beta_rad)
     delta = _theta_from_beta(mach1, beta_rad, gamma)
-    m2n = math.sqrt((1.0 + 0.5 * (gamma - 1.0) * m1n * m1n) / (gamma * m1n * m1n - 0.5 * (gamma - 1.0)))
-    mach2 = m2n / math.sin(beta_rad - delta)
-    ptr = (
-        ((gamma + 1.0) * m1n * m1n / ((gamma - 1.0) * m1n * m1n + 2.0)) ** (gamma / (gamma - 1.0))
-        * ((gamma + 1.0) / (2.0 * gamma * m1n * m1n - (gamma - 1.0))) ** (1.0 / (gamma - 1.0))
-    )
-    return delta, mach2, ptr
+    mach2 = _mach_behind_normal(m1n, gamma) / math.sin(beta_rad - delta)
+    return delta, mach2, _pt_ratio_normal(m1n, gamma)
 
 
 def normal_shock(mach: float, gamma: float) -> tuple[float, float]:
-    """Normal-shock downstream Mach and total-pressure ratio.
-
-    Args:
-        mach: Upstream (supersonic) Mach.
-        gamma: Ratio of specific heats.
-
-    Returns:
-        Tuple ``(mach2, pt2_over_pt1)``. Returns ``(mach, 1.0)`` if M <= 1.
-    """
+    """Normal-shock downstream Mach and total-pressure ratio (no shock for ``mach <= 1``)."""
     if mach <= 1.0:
         return mach, 1.0
-    m2 = math.sqrt((1.0 + 0.5 * (gamma - 1.0) * mach * mach) / (gamma * mach * mach - 0.5 * (gamma - 1.0)))
-    ptr = (
-        ((gamma + 1.0) * mach * mach / ((gamma - 1.0) * mach * mach + 2.0)) ** (gamma / (gamma - 1.0))
-        * ((gamma + 1.0) / (2.0 * gamma * mach * mach - (gamma - 1.0))) ** (1.0 / (gamma - 1.0))
-    )
-    return m2, ptr
+    return _mach_behind_normal(mach, gamma), _pt_ratio_normal(mach, gamma)
 
 
-def _nd_speed_from_mach(mach: float, gamma: float) -> float:
-    """Non-dimensional speed V/Vmax for a given Mach."""
-    return 1.0 / math.sqrt(1.0 + 2.0 / ((gamma - 1.0) * mach * mach))
+def _mach_from_speed(speed: float, gamma: float) -> float:
+    """Mach number from the speed ``V / V_max``."""
+    return math.sqrt(2.0 / (gamma - 1.0) * speed * speed / (1.0 - speed * speed))
 
 
-def _tm_rhs(theta: float, y: list[float], gamma: float) -> list[float]:
-    """Taylor-Maccoll ODE right-hand side (nondim velocities)."""
+def _tm_rhs(theta: float, y: np.ndarray, gamma: float) -> list[float]:
+    """Taylor-Maccoll equation in ``V_r``, ``V_theta`` (speeds over ``V_max``)."""
     v_r, v_t = y
     a2 = 0.5 * (gamma - 1.0) * (1.0 - v_r * v_r - v_t * v_t)
-    dv_r = v_t
     dv_t = (v_r * v_t * v_t - a2 * (2.0 * v_r + v_t / math.tan(theta))) / (a2 - v_t * v_t)
-    return [dv_r, dv_t]
+    return [v_t, dv_t]
 
 
-def cone_angle_for_beta(mach1: float, beta_rad: float, gamma: float) -> tuple[float | None, float]:
-    """Cone half-angle produced by a given conical-shock angle (Taylor-Maccoll).
+def cone_for_shock_angle(
+    mach1: float, beta_rad: float, gamma: float
+) -> tuple[float, float] | None:
+    """Cone half-angle [rad] and cone-surface Mach for a given conical-shock angle.
 
-    Integrates the Taylor-Maccoll equation from the shock inward until the
-    normal velocity component vanishes (flow parallel to the cone surface).
-
-    Args:
-        mach1: Freestream Mach.
-        beta_rad: Conical-shock angle [rad].
-        gamma: Ratio of specific heats.
+    Integrates the Taylor-Maccoll equation from the shock toward the axis until
+    ``V_theta = 0``, where the flow is parallel to the cone surface.
 
     Returns:
-        Tuple ``(cone_half_angle_rad or None, pt2_over_pt1)``. ``None`` if the
-        integration finds no tangency (no cone for this shock angle).
+        ``(cone_half_angle, mach_cone_surface)``, or None if the flow never turns
+        parallel before the axis.
     """
-    delta, mach2, ptr = oblique_shock(mach1, beta_rad, gamma)
-    w2 = _nd_speed_from_mach(mach2, gamma)
-    v_r0 = w2 * math.cos(beta_rad - delta)
-    v_t0 = -w2 * math.sin(beta_rad - delta)
+    delta, mach2, _ = oblique_shock(mach1, beta_rad, gamma)
+    speed = 1.0 / math.sqrt(1.0 + 2.0 / ((gamma - 1.0) * mach2 * mach2))
+    y0 = [speed * math.cos(beta_rad - delta), -speed * math.sin(beta_rad - delta)]
 
-    def _event(theta: float, y: list[float], gamma: float = gamma) -> float:
-        return y[1]
+    def parallel_flow(theta: float, y: np.ndarray, gamma: float) -> float:
+        return float(y[1])
 
-    _event.terminal = True  # type: ignore[attr-defined]
-    _event.direction = 1  # type: ignore[attr-defined]  # V_theta rises to 0
+    setattr(parallel_flow, "terminal", True)  # noqa: B010
+    setattr(parallel_flow, "direction", 1)  # noqa: B010
     sol = solve_ivp(
-        _tm_rhs, [beta_rad, 1e-4], [v_r0, v_t0], args=(gamma,),
-        events=_event, max_step=0.002, rtol=1e-8, atol=1e-11,
+        _tm_rhs, [beta_rad, 1e-6], y0, args=(gamma,), events=parallel_flow,
+        max_step=0.02, rtol=1e-8, atol=1e-11,
     )
-    if sol.t_events[0].size > 0:
-        return float(sol.t_events[0][0]), ptr
-    return None, ptr
+    if sol.t_events[0].size == 0:
+        return None
+    return float(sol.t_events[0][0]), _mach_from_speed(float(sol.y_events[0][0][0]), gamma)
 
 
-def max_attached_cone_half_angle(mach1: float, gamma: float, n_scan: int = 60) -> float:
-    """Maximum cone half-angle with an attached conical shock at ``mach1``.
-
-    Args:
-        mach1: Freestream Mach.
-        gamma: Ratio of specific heats.
-        n_scan: Scan resolution over the shock-angle range.
-
-    Returns:
-        Maximum attached cone half-angle [rad].
-    """
+def _shock_angle_scan(mach1: float) -> np.ndarray:
+    """Shock angles from just above the Mach angle to 89 deg, dense near the Mach angle."""
     mach_angle = math.asin(1.0 / mach1)
-    best = 0.0
-    for beta in np.linspace(mach_angle + 0.02, math.radians(89.0), n_scan):
-        tc, _ = cone_angle_for_beta(mach1, float(beta), gamma)
-        if tc is not None and tc > best:
-            best = tc
-    return best
+    near = mach_angle + np.geomspace(_SCAN_OFFSET_MIN, _SCAN_SPLIT_OFFSET, _SCAN_GEOMETRIC_POINTS)
+    far = np.linspace(mach_angle + _SCAN_SPLIT_OFFSET, _SHOCK_ANGLE_MAX, _SCAN_LINEAR_POINTS)
+    return np.concatenate([near[:-1], far])
+
+
+def max_attached_cone_half_angle(mach1: float, gamma: float = GAMMA_AIR) -> float:
+    """Largest cone half-angle [rad] with an attached conical shock at ``mach1``."""
+    betas = _shock_angle_scan(mach1)
+    cones = [cone_for_shock_angle(mach1, float(b), gamma) for b in betas]
+    angles = [-1.0 if c is None else c[0] for c in cones]
+    i = int(np.argmax(angles))
+    lo, hi = float(betas[max(i - 1, 0)]), float(betas[min(i + 1, len(betas) - 1)])
+
+    def negative_cone_angle(beta: float) -> float:
+        cone = cone_for_shock_angle(mach1, beta, gamma)
+        return 0.0 if cone is None else -cone[0]
+
+    best = minimize_scalar(negative_cone_angle, bounds=(lo, hi), method="bounded",
+                           options={"xatol": 1e-7})
+    return max(angles[i], -float(best.fun))
 
 
 def solve_conical_shock(
-    mach1: float, cone_half_angle_rad: float, gamma: float, n_scan: int = 60
-) -> tuple[float, float, float] | None:
-    """Solve for the attached conical-shock angle at a given cone half-angle.
+    mach1: float, cone_half_angle_rad: float, gamma: float = GAMMA_AIR
+) -> ConicalShock | None:
+    """Weak attached conical shock on a cone of the given half-angle.
+
+    The scan starts just above the Mach angle, so the first crossing is the weak
+    solution, also for thin cones.
 
     Args:
-        mach1: Freestream Mach.
-        cone_half_angle_rad: Target cone half-angle [rad].
+        mach1: Freestream Mach number (> 1).
+        cone_half_angle_rad: Cone half-angle [rad].
         gamma: Ratio of specific heats.
-        n_scan: Bracket-scan resolution.
 
     Returns:
-        ``(beta_rad, mach_behind_shock, pt2_over_pt1)`` for the weak
-        (attached) solution, or ``None`` if the shock is detached.
+        The shock, or None if no attached shock exists (detached bow shock).
     """
-    mach_angle = math.asin(1.0 / mach1)
-    betas = np.linspace(mach_angle + 0.02, math.radians(89.0), n_scan)
-    prev_tc: float | None = None
-    prev_beta: float | None = None
-    for beta in betas:
-        tc, _ = cone_angle_for_beta(mach1, float(beta), gamma)
-        if tc is None:
-            continue
-        if prev_tc is not None and (prev_tc - cone_half_angle_rad) * (tc - cone_half_angle_rad) <= 0.0:
-            beta_sol = brentq(
-                lambda b: cone_angle_for_beta(mach1, b, gamma)[0] - cone_half_angle_rad,
-                prev_beta, float(beta), xtol=1e-7,
+    def gap(beta: float) -> float:
+        cone = cone_for_shock_angle(mach1, beta, gamma)
+        return (-1.0 if cone is None else cone[0]) - cone_half_angle_rad
+
+    betas = _shock_angle_scan(mach1)
+    previous: tuple[float, float] | None = None
+    for b in betas:
+        beta = float(b)
+        value = gap(beta)
+        if previous is not None and -1.0 < value < previous[1]:
+            return None  # past the largest attached cone without a crossing
+        if previous is not None and previous[1] < 0.0 <= value:
+            root = brentq(gap, previous[0], beta, xtol=1e-10)
+            surface = cone_for_shock_angle(mach1, root, gamma)
+            _, mach2, pt_ratio = oblique_shock(mach1, root, gamma)
+            return ConicalShock(
+                shock_angle=math.degrees(root),
+                mach_behind_shock=mach2,
+                mach_cone_surface=mach2 if surface is None else surface[1],
+                pt_ratio=pt_ratio,
             )
-            delta, mach2, ptr = oblique_shock(mach1, beta_sol, gamma)
-            return beta_sol, mach2, ptr
-        prev_tc, prev_beta = tc, float(beta)
+        previous = (beta, value)
     return None
 
 
-@dataclass
-class InletResult:
-    """Conical-inlet recovery result at one flight condition and cone angle."""
-
-    mach0: float
-    cone_half_angle_deg: float
-    attached: bool
-    beta_deg: float | None
-    mach_behind_cone: float | None
-    pt_conical: float | None
-    mach_before_terminal: float | None
-    pt_terminal_normal: float | None
-    pt_subsonic_diffuser: float
-    overall_recovery: float | None
-    mil_e_5007d_reference: float
-    meets_reference_goal: bool | None
-    failure_modes: list[str] = field(default_factory=list)
-
-
-def evaluate_inlet(
-    mach0: float, cone_half_angle_deg: float, gamma: float = GAMMA_AIR
-) -> InletResult:
-    """Evaluate conical-inlet total-pressure recovery at a flight condition.
-
-    Args:
-        mach0: Freestream Mach.
-        cone_half_angle_deg: External cone half-angle [deg].
-        gamma: Ratio of specific heats (cold air).
+def inlet_recovery(
+    mach: float, cone_half_angle_deg: float, pt_diffuser: float, gamma: float = GAMMA_AIR
+) -> tuple[ConicalShock | None, float, float]:
+    """Inlet recovery chain at one flight Mach number.
 
     Returns:
-        An :class:`InletResult` with the recovery chain and failure-mode flags.
+        The conical shock (None if detached), the normal-shock total-pressure
+        ratio, and the overall recovery pt2/pt0.
     """
-    mil = mil_e_5007d_recovery(mach0)
-    failure: list[str] = []
-    theta_c = math.radians(cone_half_angle_deg)
-    theta_max = max_attached_cone_half_angle(mach0, gamma)
+    shock = solve_conical_shock(mach, math.radians(cone_half_angle_deg), gamma)
+    if shock is None:
+        _, pt_normal = normal_shock(mach, gamma)
+        return None, pt_normal, pt_normal * pt_diffuser
+    _, pt_normal = normal_shock(shock.mach_behind_shock, gamma)
+    return shock, pt_normal, shock.pt_ratio * pt_normal * pt_diffuser
 
-    if theta_c > theta_max:
-        # Detached bow shock: no attached conical solution. Bound the recovery
-        # with a normal shock at the flight Mach (a strong-shock lower bound).
-        _, ptr_normal = normal_shock(mach0, gamma)
-        failure.append(
-            f"DETACHED_SHOCK: cone half-angle {cone_half_angle_deg:.0f} deg exceeds "
-            f"the attached limit {math.degrees(theta_max):.1f} deg at M{mach0:.1f} "
-            f"-> bow shock, subcritical/spillage, buzz risk"
-        )
-        return InletResult(
-            mach0=mach0, cone_half_angle_deg=cone_half_angle_deg, attached=False,
-            beta_deg=None, mach_behind_cone=None, pt_conical=None,
-            mach_before_terminal=None, pt_terminal_normal=ptr_normal,
-            pt_subsonic_diffuser=PI_SUBSONIC_DIFFUSER,
-            overall_recovery=ptr_normal * PI_SUBSONIC_DIFFUSER,
-            mil_e_5007d_reference=mil,
-            meets_reference_goal=(ptr_normal * PI_SUBSONIC_DIFFUSER) >= mil,
-            failure_modes=failure,
-        )
 
-    sol = solve_conical_shock(mach0, theta_c, gamma)
-    if sol is None:  # pragma: no cover - guarded by theta_max check above
-        failure.append("NO_ATTACHED_SOLUTION")
-        return InletResult(
-            mach0=mach0, cone_half_angle_deg=cone_half_angle_deg, attached=False,
-            beta_deg=None, mach_behind_cone=None, pt_conical=None,
-            mach_before_terminal=None, pt_terminal_normal=None,
-            pt_subsonic_diffuser=PI_SUBSONIC_DIFFUSER, overall_recovery=None,
-            mil_e_5007d_reference=mil, meets_reference_goal=None, failure_modes=failure,
-        )
-
-    beta, mach_behind, pt_conical = sol
-    # Terminal normal shock from the (still supersonic) post-cone Mach.
-    _, pt_normal = normal_shock(mach_behind, gamma)
-    overall = pt_conical * pt_normal * PI_SUBSONIC_DIFFUSER
-
-    # Failure-mode / limitation flags (research finding Section 3).
-    margin_to_detach = math.degrees(theta_max) - cone_half_angle_deg
-    if margin_to_detach < 6.0:
-        failure.append(
-            f"NEAR_DETACHMENT: only {margin_to_detach:.1f} deg of margin to the "
-            f"attached-shock limit at M{mach0:.1f} -> strong near-normal conical "
-            f"shock (beta={math.degrees(beta):.1f} deg), high loss, buzz-sensitive"
-        )
-    if overall < mil:
-        failure.append(
-            f"BELOW_MIL_E_5007D: recovery {overall:.3f} < reference goal {mil:.3f} "
-            f"(single external cone + terminal normal shock cannot stage the "
-            f"compression enough; cf. the 4-cone chain 0.874, A9)"
-        )
-    failure.append(
-        "NO_BLEED_MODELED: no boundary-layer bleed included -> recovery is "
-        "OPTIMISTIC (real recovery lower)"
+def run_mach_sweep(results: ConicalInletResults) -> list[InletMachPoint]:
+    """Recovery of the run's spike from ``SWEEP_MACH_MIN`` to 1.5 times the run Mach."""
+    machs = np.linspace(
+        ConicalInletAnalysis.SWEEP_MACH_MIN,
+        max(1.5 * results.mach, ConicalInletAnalysis.SWEEP_MACH_MIN + 1.0),
+        ConicalInletAnalysis.SWEEP_POINTS,
     )
-    failure.append(
-        "SHOCK_ON_LIP_UNVERIFIED: cowl-lip position not in the drawing data "
-        "-> shock-on-lip match at design is PROVISIONAL"
-    )
-
-    return InletResult(
-        mach0=mach0, cone_half_angle_deg=cone_half_angle_deg, attached=True,
-        beta_deg=math.degrees(beta), mach_behind_cone=mach_behind, pt_conical=pt_conical,
-        mach_before_terminal=mach_behind, pt_terminal_normal=pt_normal,
-        pt_subsonic_diffuser=PI_SUBSONIC_DIFFUSER, overall_recovery=overall,
-        mil_e_5007d_reference=mil, meets_reference_goal=overall >= mil,
-        failure_modes=failure,
-    )
+    points = []
+    for m in machs:
+        mach = float(m)
+        shock, _, recovery = inlet_recovery(mach, results.cone_half_angle, results.pt_diffuser)
+        points.append(InletMachPoint(mach, recovery, mil_e_5007d_recovery(mach), shock is not None))
+    return points
 
 
-def run_matrix() -> list[dict[str, Any]]:
-    """Evaluate the design + off-design Mach x cone-interpretation matrix."""
-    rows: list[dict[str, Any]] = []
-    machs = (DESIGN_MACH,) + OFF_DESIGN_MACH
-    for cone in (CONE_HALF_ANGLE_DEG, CONE_HALF_ANGLE_ALT_DEG):
-        for mach in machs:
-            r = evaluate_inlet(mach, cone)
-            rows.append(
-                {
-                    "mach0": mach,
-                    "cone_half_angle_deg": cone,
-                    "attached": r.attached,
-                    "beta_deg": r.beta_deg,
-                    "mach_behind_cone": r.mach_behind_cone,
-                    "pt_conical": r.pt_conical,
-                    "pt_terminal_normal": r.pt_terminal_normal,
-                    "overall_recovery": r.overall_recovery,
-                    "mil_e_5007d_reference": r.mil_e_5007d_reference,
-                    "meets_reference_goal": r.meets_reference_goal,
-                    "failure_modes": " | ".join(r.failure_modes),
-                }
+def format_mach_sweep_csv(points: list[InletMachPoint]) -> str:
+    """CSV text of the recovery sweep."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(f.name for f in fields(InletMachPoint))
+    writer.writerows(astuple(p) for p in points)
+    return buffer.getvalue()
+
+
+def plot_recovery_vs_mach(points: list[InletMachPoint], results: ConicalInletResults) -> Figure:
+    """Plot inlet recovery and the MIL-E-5007D reference against Mach number.
+
+    Args:
+        points: Output of :func:`run_mach_sweep`.
+        results: Results of the run, marked on the plot.
+
+    Returns:
+        The matplotlib Figure instance.
+    """
+    import matplotlib.pyplot as plt
+
+    machs = [p.mach for p in points]
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    ax.plot(machs, [p.recovery for p in points], lw=2.0,
+            label=f"{results.cone_half_angle:g} deg spike")
+    ax.plot(machs, [p.mil_e_5007d_recovery for p in points], ls="--", label="MIL-E-5007D")
+    detached = [p.mach for p in points if not p.attached]
+    if detached:
+        ax.axvspan(min(detached), max(detached), color="tab:red", alpha=0.1,
+                   label="Detached shock (normal-shock bound)")
+    ax.plot(results.mach, results.recovery, "o", color="k", label="Run")
+    ax.set_ylim(0.0, 1.05)
+    ax.set_xlabel("Flight Mach number [-]")
+    ax.set_ylabel("Total-pressure recovery pt2/pt0 [-]")
+    ax.set_title("Single-cone inlet recovery")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    return fig
+
+
+class ConicalInletAnalysis(BaseAnalysis[ConicalInletResults]):
+    """Recovery of a single-cone external-compression ramjet inlet.
+
+    Example:
+        analysis = ConicalInletAnalysis()
+        analysis.setup(vehicle, cone_half_angle_deg=21.0)
+        results = analysis.execute()
+        recovery = results.recovery
+    """
+
+    fidelity = FidelityLevel.LEVEL_0
+
+    #: Placeholder subsonic-diffuser total-pressure ratio; results flag its use.
+    DEFAULT_PI_DIFFUSER: ClassVar[float] = 0.97
+
+    #: Margin to shock detachment below which the run warns [deg].
+    DETACHMENT_MARGIN_WARNING_DEG: ClassVar[float] = 6.0
+
+    SWEEP_MACH_MIN: ClassVar[float] = 1.2
+    SWEEP_POINTS: ClassVar[int] = 17
+
+    def __init__(self, name: str = "conical_inlet") -> None:
+        super().__init__(name)
+        self._mach = 0.0
+        self._cone_half_angle = 0.0
+        self._pi_diffuser = self.DEFAULT_PI_DIFFUSER
+        self._assumptions: list[str] = []
+
+    def _setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        *,
+        engine_name: str | None = None,
+        mach: float | None = None,
+        cone_half_angle_deg: float | None = None,
+        pi_diffuser: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Resolve the ramjet's spike and the flight condition.
+
+        Args:
+            vehicle: Vehicle with a ramjet propulsion component.
+            engine_name: Ramjet to use if the vehicle has more than one.
+            mach: Flight Mach number (> 1). Defaults to the ramjet's ``design_mach``.
+            cone_half_angle_deg: Spike half-angle [deg]. Defaults to the ramjet's
+                ``spike_half_angle``.
+            pi_diffuser: Subsonic-diffuser total-pressure ratio. Defaults to a
+                placeholder that the results flag.
+            **kwargs: Not accepted; present for the ``BaseAnalysis`` signature.
+
+        Raises:
+            TypeError: If an unknown setting is passed.
+            ValueError: If the vehicle has no ramjet, no spike angle is known, or a
+                setting is out of range.
+        """
+        if kwargs:
+            raise TypeError(f"Unknown settings for '{self.name}': {sorted(kwargs)}")
+        engine = vehicle.find_single_component(RAMJET_COMPONENTS, engine_name)
+
+        cone = engine.spike_half_angle if cone_half_angle_deg is None else cone_half_angle_deg
+        if cone is None:
+            raise ValueError(
+                f"Vehicle '{vehicle.name}': set spike_half_angle on the ramjet or pass "
+                "cone_half_angle_deg."
             )
-    return rows
+        if not 0.0 < cone < 90.0:
+            raise ValueError(f"cone_half_angle_deg must be in (0, 90), got {cone}")
+        flight_mach = engine.design_mach if mach is None else mach
+        if flight_mach <= 1.0:
+            raise ValueError(f"The conical shock needs a supersonic Mach number, got {flight_mach}")
 
+        assumptions: list[str] = []
+        if pi_diffuser is None:
+            pi_diffuser = self.DEFAULT_PI_DIFFUSER
+            assumptions.append(
+                f"Subsonic-diffuser pressure ratio is a placeholder ({pi_diffuser:g})."
+            )
+        elif not 0.0 < pi_diffuser <= 1.0:
+            raise ValueError(f"pi_diffuser must be in (0, 1], got {pi_diffuser}")
 
-def write_csv(rows: list[dict[str, Any]], path: Path = CSV_PATH) -> None:
-    """Write the recovery matrix to CSV."""
-    with path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
+        self._mach = flight_mach
+        self._cone_half_angle = cone
+        self._pi_diffuser = pi_diffuser
+        self._assumptions = assumptions
+        self.logger.info(
+            "Configured conical inlet for vehicle '%s' (M=%.2f, spike half-angle=%.1f deg)",
+            vehicle.name,
+            flight_mach,
+            cone,
+        )
 
+    def _compute(self, **kwargs: Any) -> ConicalInletResults:
+        """Solve the shock chain at the flight Mach number."""
+        shock, pt_normal, recovery = inlet_recovery(
+            self._mach, self._cone_half_angle, self._pi_diffuser
+        )
+        max_angle = math.degrees(max_attached_cone_half_angle(self._mach))
+        reference = mil_e_5007d_recovery(self._mach)
 
-def main() -> list[dict[str, Any]]:
-    """Run the matrix, write CSV, and print a short table."""
-    rows = run_matrix()
-    write_csv(rows)
-    print(f"{'M0':>4} {'cone':>5} {'att':>4} {'beta':>6} {'M_be':>6} "
-          f"{'pt_con':>7} {'overall':>8} {'MIL':>6} {'goal':>5}")
-    for r in rows:
-        beta = f"{r['beta_deg']:.1f}" if r['beta_deg'] is not None else "  -  "
-        mbe = f"{r['mach_behind_cone']:.3f}" if r['mach_behind_cone'] is not None else "  -  "
-        ptc = f"{r['pt_conical']:.4f}" if r['pt_conical'] is not None else "  -   "
-        ov = f"{r['overall_recovery']:.4f}" if r['overall_recovery'] is not None else "  -   "
-        print(f"{r['mach0']:>4.1f} {r['cone_half_angle_deg']:>5.0f} {str(r['attached']):>4} "
-              f"{beta:>6} {mbe:>6} {ptc:>7} {ov:>8} {r['mil_e_5007d_reference']:>6.3f} "
-              f"{str(r['meets_reference_goal']):>5}")
-    return rows
+        assumptions = list(self._assumptions)
+        if shock is None:
+            assumptions.append(
+                f"Detached shock: the {self._cone_half_angle:g} deg spike exceeds the attached "
+                f"limit of {max_angle:.1f} deg at Mach {self._mach:g}; recovery is the "
+                "normal-shock bound, and the inlet will spill and may buzz."
+            )
+        elif max_angle - self._cone_half_angle < self.DETACHMENT_MARGIN_WARNING_DEG:
+            assumptions.append(
+                f"Only {max_angle - self._cone_half_angle:.1f} deg from shock detachment: "
+                "strong conical shock, sensitive to Mach and angle of attack."
+            )
+        if recovery < reference:
+            assumptions.append(
+                f"Recovery {recovery:.3f} is below the MIL-E-5007D reference {reference:.3f}."
+            )
 
+        results = ConicalInletResults(
+            name=self.name,
+            fidelity=self.fidelity,
+            mach=self._mach,
+            cone_half_angle=self._cone_half_angle,
+            max_attached_half_angle=max_angle,
+            shock=shock,
+            pt_normal_shock=pt_normal,
+            pt_diffuser=self._pi_diffuser,
+            recovery=recovery,
+            mil_e_5007d_recovery=reference,
+            recovery_margin=recovery - reference,
+            assumptions=tuple(assumptions),
+        )
+        self.logger.info(
+            "Recovery %.4f (MIL-E-5007D %.4f), shock angle %s deg",
+            recovery,
+            reference,
+            "detached" if shock is None else f"{shock.shock_angle:.2f}",
+        )
+        return results
 
-if __name__ == "__main__":
-    main()
+    def validate_results(self, results: ConicalInletResults) -> bool:
+        """Check that every pressure ratio lies in (0, 1] and the shock is weak.
+
+        Args:
+            results: Results produced by :meth:`execute`.
+
+        Returns:
+            True if all checks pass.
+        """
+        ratios = [results.pt_normal_shock, results.pt_diffuser, results.recovery]
+        if results.shock is not None:
+            ratios.append(results.shock.pt_ratio)
+            if results.shock.mach_behind_shock <= 1.0:
+                return False
+        return all(0.0 < r <= 1.0 + 1e-12 for r in ratios)

@@ -7,6 +7,7 @@ from typing import ClassVar
 
 from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults
 from YAADO_Core.Foundation.units import (
+    Degrees,
     Dimensionless,
     JoulesPerKilogram,
     Kelvin,
@@ -170,3 +171,80 @@ class MachSweepPoint:
     fuel_air_ratio: Dimensionless
     capture_area: SquareMeters
     p_exit_over_p0: Dimensionless
+
+
+@dataclass(frozen=True)
+class ConicalShock:
+    """Attached conical shock on a cone in supersonic flow (Taylor-Maccoll).
+
+    Attributes:
+        shock_angle: Shock angle from the cone axis.
+        mach_behind_shock: Mach number just behind the shock.
+        mach_cone_surface: Mach number on the cone surface, after the isentropic
+            compression between shock and cone.
+        pt_ratio: Total-pressure ratio across the shock.
+    """
+
+    shock_angle: Degrees
+    mach_behind_shock: Dimensionless
+    mach_cone_surface: Dimensionless
+    pt_ratio: Dimensionless
+
+
+@dataclass(frozen=True)
+class ConicalInletResults(BaseAnalysisResults):
+    """Total-pressure recovery of a single-cone external-compression inlet.
+
+    The chain is conical shock, terminal normal shock at the Mach number behind
+    the conical shock, and a subsonic-diffuser loss. A detached shock is bounded
+    by a normal shock at the flight Mach number.
+
+    Attributes:
+        mach: Flight Mach number.
+        cone_half_angle: Spike half-angle.
+        max_attached_half_angle: Largest half-angle with an attached shock at ``mach``.
+        shock: Conical shock, or None if it is detached.
+        pt_normal_shock: Total-pressure ratio of the terminal (or bow) normal shock.
+        pt_diffuser: Total-pressure ratio of the subsonic diffuser.
+        recovery: Overall total-pressure recovery pt2/pt0.
+        mil_e_5007d_recovery: MIL-E-5007D reference recovery at ``mach``.
+        recovery_margin: ``recovery - mil_e_5007d_recovery``.
+        assumptions: Modeling assumptions and flags for this run.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "recovery",
+        "mil_e_5007d_recovery",
+        "max_attached_half_angle",
+    )
+
+    mach: Dimensionless
+    cone_half_angle: Degrees
+    max_attached_half_angle: Degrees
+    shock: ConicalShock | None
+    pt_normal_shock: Dimensionless
+    pt_diffuser: Dimensionless
+    recovery: Dimensionless
+    mil_e_5007d_recovery: Dimensionless
+    recovery_margin: Dimensionless
+    assumptions: tuple[str, ...] = ()
+
+    @property
+    def shock_angle(self) -> Degrees | None:
+        """Conical shock angle, or None if the shock is detached."""
+        return None if self.shock is None else self.shock.shock_angle
+
+    @property
+    def mach_behind_shock(self) -> Dimensionless | None:
+        """Mach number behind the conical shock, or None if it is detached."""
+        return None if self.shock is None else self.shock.mach_behind_shock
+
+
+@dataclass(frozen=True)
+class InletMachPoint:
+    """Recovery of a fixed spike at one flight Mach number."""
+
+    mach: Dimensionless
+    recovery: Dimensionless
+    mil_e_5007d_recovery: Dimensionless
+    attached: bool
