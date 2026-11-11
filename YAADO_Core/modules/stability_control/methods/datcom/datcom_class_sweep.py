@@ -1,449 +1,334 @@
-"""DATCOM-class supersonic component-buildup static stability (Generic Vehicle, vehicle).
+"""DATCOM-class supersonic static stability by component build-up.
 
-Replaces the out-of-regime Barrowman supersonic result as the CDR stability gate.
-Implements a DATCOM / RASAero-style slender-body + fin component CN_alpha and CP
-buildup valid in the supersonic regime (Mach 1.2–3.0), sweeping across CG and
-Mach to establish static margin bounds.
+An in-house build-up in the style of Missile DATCOM, not a wrapper around the
+USAF Digital DATCOM program. All slopes refer to ``A_ref = pi d^2 / 4``.
 
-Rationale for retirement of Barrowman supersonic values
---------------------------------------------------------
-The Barrowman method in barrowman_stability.py produces +8.99 cal (basic) / +4.594 cal
-(extended) static margin at supersonic speeds. These results are HISTORICAL / OUT-OF-REGIME:
+Body: slender-body nose and shoulder terms, which do not depend on Mach number
+(nose ``CN_alpha = 2 (d_base/d)^2`` with the CP for its shape). The viscous
+cross-flow term grows with ``alpha^2`` and adds nothing to the slope at
+``alpha = 0``.
 
-1. Barrowman slender-body theory is validated only to ~Mach 0.7; the vehicle cruise
-   condition is Mach 2.5.
-2. The vehicle fins violate the small-fin assumption: fin semi-span 0.550 m / body
-   diameter 0.200 m = 2.75 (fin extends ~2.67× a body diameter from the centerline).
-   Classical Barrowman assumes fins are "small perturbations" on the body.
+Each fin set: the two exposed panels joined at the root form the exposed wing,
+of aspect ratio ``AR = 2 s / c_mean``.
 
-The Barrowman supersonic result is therefore NOT reconciled with the Teltik CFD
--2.75 cal @ Ma2.5 value; instead, this DATCOM-class method provides a regime-correct
-intermediate-fidelity replacement.
+    a_2D      = 4 / beta,  beta = sqrt(M^2 - 1)            Ackeret section slope
+    eta       = max(1/2, 1 - 1 / (2 beta AR))               Puckett rectangular tip loss
+    CN_alpha  = K_fb * (N / 2) * a_2D * eta * A_panel / A_ref,  K_fb = 1 + R / (s + R)
+    CP        = planform centroid, i.e. half the MAC at the MAC station
 
-Theory references
------------------
-- Missile-DATCOM (1997) slender-body normal-force / wave-drag correlations.
-- RASAero II (subsonic/supersonic component buildup) methodology.
-- Puckett (1946), linearized supersonic lifting-surface tip-loss approximation.
-- Hoerner & Borst, *Fluid-Dynamic Lift* (fin-body interference).
-- Ackeret (1925), linearized supersonic thin-airfoil slope ``4/sqrt(M^2-1)``.
-
-Component model (all CN_alpha per radian, ref S_ref = pi/4 * d_body^2; x_cp in meters from nose)
---------------------------------------------------------------------------------------------------
-1. **BODY** (slender-body, Mach-independent area terms — valid supersonically for
-   the area-change contribution):
-   - Nose cone: ``CN_alpha = 2 * (d_nose_base / d)^2`` ref S_ref;
-     ``x_cp = (2/3) * L_nose`` [CONE supersonic value, NOT 0.466 ogive factor].
-   - Shoulder transition (0.150 -> 0.200 m): reused from barrowman_stability.py,
-     ``CN_alpha = 2 * (1 - (d_nb/d)^2)``, its x_cp formula.
-   - **Body viscous cross-flow (Allen-Perkins) term is proportional to alpha^2**
-     (non-linear side-force on a cylinder in crossflow). Its contribution to the
-     **static (linear, alpha->0) CN_alpha slope is zero** and it does NOT move
-     the static-margin CP. This is a known DATCOM result and is explicitly
-     stated here, not silently omitted.
-
-2. **FINS** (supersonic linearized lifting-surface, regime-correct):
-   - ``beta = sqrt(M^2 - 1)``; 2-D Ackeret section slope ``a_2D = 4/beta`` per rad.
-   - Finite-span supersonic tip loss (DATCOM/Puckett rectangular-tip approximation):
-     exposed-panel MAC ``c_mac = (2/3) * (cr + ct - cr*ct/(cr+ct))`` (planform-averaged);
-     panel aspect ratio ``AR_e = s / c_mac``;
-     tip-loss factor ``eta = max(0.5, 1 - 1/(2*beta*AR_e))``.
-     Fin-panel slope ``slope_fin = a_2D * eta``.
-     **This is an engineering supersonic finite-AR correction**, flagged PROVISIONAL
-     (not full lifting-line or vortex-lattice theory).
-   - Fin-body carryover interference ``K_fb = 1 + R/(s+R)``, ``R = d/2`` (same as
-     Barrowman; note supersonic carryover is somewhat lower — this is an approximation).
-   - Effective panels producing pitch-plane normal force for a 4-fin "+" set = 2.
-     Panel area ``A_f = c_mac * s``.
-     Fin-set ``CN_alpha`` (ref S_ref) = ``K_fb * 2 * slope_fin * (A_f / S_ref)``.
-   - **Fin CP (SUPERSONIC)**: chordwise at 50% of MAC (supersonic flat-plate
-     uniform-pressure center of pressure, NOT the subsonic ~60% MAC value).
-     Streamwise ``x_cp_fin = fin_root_le_x + y_mac*tan(sweep_LE) + 0.5*c_mac``,
-     where ``y_mac = (s/3)*((cr+2ct)/(cr+ct))`` (spanwise centroid of trapezoidal panel).
-
-3. **TOTAL**: ``CN_alpha_total = sum(CN_alpha_i)``; ``x_cp_total = sum(CN_alpha_i * x_cp_i) / CN_alpha_total``.
-   Static margin ``SM = (x_cp_total - x_cg) / d_body`` [calibers, positive = stable].
-
-Sweep ranges
-------------
-- Mach: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]. Method is **supersonic** — for M<=1 the
-  result is emitted but tagged ``"SUBSONIC_OUT_OF_METHOD_REGIME"`` (not authoritative).
-- CG sweep (fraction of total length): [0.37, 0.45, 0.55, 0.64].
-  Justification:
-  - 0.37 = config/ramjet-forward anchor (``cg_from_nose_m=1.6084 / L=4.35501``).
-  - Aft values (0.45–0.64) bound the booster-attached / pre-burn CG envelope.
-  **CG is UNCERTAIN (TBD_PHYSICAL_PARAM) — do NOT use a single value as definitive.**
-
-Output
-------
-- CSV: ``datcom_class_sweep.csv`` with columns:
-  ``mach``, ``cg_frac``, ``cg_from_nose_m``, ``cn_alpha_total``, ``x_cp_m``,
-  ``static_margin_cal``, ``stable_bool``.
-- PNG: ``datcom_class_sweep.png`` (SM vs Mach, one line per CG).
-- JSON: ``datcom_class_sweep_summary.json`` (method, geometry, sweep grid, results).
+The slope is the supersonic slope of the Barrowman build-up; this method differs
+by its supersonic fin CP and by staying in supersonic flow. The tip-loss factor
+is exact for a rectangular wing with ``beta AR >= 1``; for swept or tapered
+panels it is an approximation.
 """
 
 from __future__ import annotations
 
 import csv
-import json
+import io
 import math
-import sys
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
-if __name__ == "__main__" and __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
+import numpy as np
 
-import matplotlib
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-from YAADO_Core.modules.stability_control.containers import RocketGeometry
+from YAADO_Core.modules.stability_control.containers import (
+    ComponentContribution,
+    DatcomFinSlope,
+    DatcomStabilityResults,
+    FinSetGeometry,
+    RocketGeometry,
+)
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
+    BarrowmanStabilityAnalysis,
+    geometry_assumptions,
     geometry_from_vehicle,
+    nose_cn_alpha_and_cp,
+    supersonic_fin_cn_alpha,
+    supersonic_tip_loss,
     transition_cn_alpha_and_cp,
 )
 
-RESULTS_DIR = Path(__file__).resolve().parents[5] / "FlightLogs"
-CSV_PATH = RESULTS_DIR / "datcom_class_sweep.csv"
-PNG_PATH = RESULTS_DIR / "datcom_class_sweep.png"
-JSON_PATH = RESULTS_DIR / "datcom_class_sweep_summary.json"
 
-# CG sweep: fraction of total length.
-# TBD_PHYSICAL_PARAM: CG is UNCERTAIN. Do NOT use a single value as definitive.
-CG_FRACTIONS = [0.37, 0.45, 0.55, 0.64]
+def datcom_fin_set(
+    fins: FinSetGeometry, mach: float, body_radius: float, reference_area: float
+) -> DatcomFinSlope:
+    """Supersonic normal-force slope and CP of one fin set.
 
-# Mach sweep: method is supersonic (M>1.2); M<=1 results tagged out-of-regime.
-MACH_SWEEP = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
-
-
-def nose_cone_cn_alpha_and_cp_supersonic(geometry: RocketGeometry) -> tuple[float, float]:
-    """Conical-nose CN_alpha and CP location (SUPERSONIC cone value).
-
-    ``CN_alpha = 2 * (d_nose_base / d)^2`` ref S_ref;
-    ``x_cp = (2/3) * L_nose`` (cone supersonic center of pressure, NOT 0.466 ogive).
-
-    Reference:
-        DATCOM slender-body cone CN_alpha; supersonic cone CP factor 2/3 from
-        linearized conical-flow theory (Kopal 1947).
+    The slope is the supersonic slope of the Barrowman build-up; the CP is the
+    planform centroid instead of Barrowman's subsonic fin CP.
 
     Args:
-        geometry: Rocket geometry.
+        fins: Fin set geometry.
+        mach: Freestream Mach number (> 1).
+        body_radius: Body radius at the fins [m].
+        reference_area: Area the slope refers to [m^2].
 
     Returns:
-        Tuple of (CN_alpha [1/rad, ref. S_ref], x_cp [m from nose]).
-    """
-    area_ratio = (geometry.nose_base_diameter / geometry.d_ref) ** 2
-    cn_alpha = 2.0 * area_ratio
-    x_cp = (2.0 / 3.0) * geometry.nose_length  # Supersonic cone CP factor.
-    return cn_alpha, x_cp
-
-
-def fin_cn_alpha_and_cp_supersonic(
-    geometry: RocketGeometry, mach: float
-) -> tuple[float, float]:
-    """Fin-set CN_alpha and CP location (DATCOM-class supersonic).
-
-    Supersonic linearized lifting-surface (Ackeret slope with Puckett tip-loss),
-    body interference, and supersonic 50%-MAC CP location.
-
-    Reference:
-        DATCOM supersonic fin normal-force slope, Puckett (1946) rectangular-wing
-        tip-loss approximation, Hoerner fin-body interference, supersonic flat-plate
-        CP at 50% chord.
-
-    Args:
-        geometry: Rocket geometry.
-        mach: Freestream Mach number (>= 1.0 for supersonic regime).
-
-    Returns:
-        Tuple of (CN_alpha [1/rad, ref. S_ref], x_cp [m from nose]).
+        The fin-set slope and its CP.
 
     Raises:
-        ValueError: If mach < 1.0 (subsonic, out of method regime).
+        ValueError: If ``mach <= 1``.
     """
     if mach <= 1.0:
-        raise ValueError(
-            f"fin_cn_alpha_and_cp_supersonic requires mach > 1.0 (strictly supersonic, beta>0); got {mach}"
-        )
+        raise ValueError(f"The DATCOM-class method needs a supersonic Mach number, got {mach}")
 
-    s = geometry.tail_fins.span
-    cr = geometry.tail_fins.root_chord
-    ct = geometry.tail_fins.tip_chord
-    n = geometry.tail_fins.count
-    r = geometry.body_radius
-    d = geometry.d_ref
-    sweep_rad = math.radians(geometry.tail_fins.sweep)
-
-    # Beta (supersonic Mach parameter).
-    beta = math.sqrt(mach**2 - 1.0)
-
-    # 2D Ackeret section slope [1/rad].
-    a_2d = 4.0 / beta
-
-    # Finite-span tip loss (DATCOM/Puckett rectangular-tip approximation).
-    # Exposed-panel MAC (planform-averaged chord).
-    c_mac = (2.0 / 3.0) * (cr + ct - cr * ct / (cr + ct))
-    ar_e = s / c_mac  # Panel aspect ratio.
-    # PROVISIONAL: engineering supersonic finite-AR correction.
-    tip_loss_factor = max(0.5, 1.0 - 1.0 / (2.0 * beta * ar_e))
-    slope_fin = a_2d * tip_loss_factor
-
-    # Fin-body carryover interference (same as Barrowman; supersonic carryover
-    # is somewhat lower — this is an approximation).
-    k_fb = 1.0 + r / (s + r)
-
-    # Effective panels producing pitch-plane normal force (4-fin "+" set).
-    n_effective = 2
-
-    # Panel area.
-    a_f = c_mac * s
-
-    # Fin-set CN_alpha (ref S_ref).
-    s_ref = math.pi / 4.0 * d**2
-    cn_alpha = k_fb * n_effective * slope_fin * (a_f / s_ref)
-
-    # Fin CP (SUPERSONIC): 50% MAC chordwise, streamwise accounting for sweep.
-    # Spanwise centroid of trapezoidal panel.
-    y_mac = (s / 3.0) * ((cr + 2.0 * ct) / (cr + ct))
-    x_cp = geometry.tail_fins.root_le_x + y_mac * math.tan(sweep_rad) + 0.5 * c_mac
-
-    return cn_alpha, x_cp
+    tip_loss = supersonic_tip_loss(fins, mach)
+    floor = BarrowmanStabilityAnalysis.TIP_LOSS_FLOOR
+    cr, ct = fins.root_chord, fins.tip_chord
+    mac = (2.0 / 3.0) * (cr + ct - cr * ct / (cr + ct))
+    y_mac = (fins.span / 3.0) * (cr + 2.0 * ct) / (cr + ct)
+    return DatcomFinSlope(
+        name=fins.name,
+        slope_2d=4.0 / math.sqrt(mach**2 - 1.0),
+        exposed_aspect_ratio=2.0 * fins.span / fins.mean_chord,
+        tip_loss_factor=max(floor, tip_loss),
+        tip_loss_limited=tip_loss < floor,
+        cn_alpha=supersonic_fin_cn_alpha(fins, body_radius, reference_area, mach),
+        x_cp=fins.root_le_x + y_mac * math.tan(math.radians(fins.sweep)) + 0.5 * mac,
+    )
 
 
-def compute_static_margin_datcom(
-    geometry: RocketGeometry, mach: float, cg_from_nose_m: float
-) -> dict[str, Any]:
-    """Compute DATCOM-class static margin at a single Mach and CG location.
+def datcom_build_up(
+    geometry: RocketGeometry, mach: float
+) -> tuple[tuple[DatcomFinSlope, ...], tuple[ComponentContribution, ...]]:
+    """Fin-set slopes and the whole-vehicle build-up at one Mach number."""
+    fin_sets = tuple(
+        datcom_fin_set(f, mach, geometry.body_radius, geometry.reference_area)
+        for f in geometry.fin_sets
+    )
+    cn_nose, x_nose = nose_cn_alpha_and_cp(geometry)
+    components = [ComponentContribution("nose", cn_nose, x_nose)]
+    cn_shoulder, x_shoulder = transition_cn_alpha_and_cp(geometry)
+    if cn_shoulder > 0.0:
+        components.append(ComponentContribution("shoulder", cn_shoulder, x_shoulder))
+    components.extend(ComponentContribution(f.name, f.cn_alpha, f.x_cp) for f in fin_sets)
+    return fin_sets, tuple(components)
 
-    Args:
-        geometry: Rocket geometry.
-        mach: Freestream Mach number.
-        cg_from_nose_m: CG location [m from nose tip]. TBD_PHYSICAL_PARAM.
+
+def total_cp(components: tuple[ComponentContribution, ...]) -> tuple[float, float]:
+    """Total slope and slope-weighted CP of a build-up."""
+    cn_alpha = sum(c.cn_alpha for c in components)
+    return cn_alpha, sum(c.cn_alpha * c.x_cp for c in components) / cn_alpha
+
+
+def run_mach_sweep(geometry: RocketGeometry, mach_max: float) -> list[tuple[float, float, float]]:
+    """Total slope and CP from ``SWEEP_MACH_MIN`` to ``mach_max``.
 
     Returns:
-        Dict with keys: ``cn_alpha_nose``, ``cn_alpha_transition``, ``cn_alpha_fins``,
-        ``cn_alpha_total``, ``x_cp_nose``, ``x_cp_transition``, ``x_cp_fins``,
-        ``x_cp_total``, ``static_margin_cal``, ``stable_bool``, ``regime_flag``.
+        ``(mach, cn_alpha, x_cp)`` per point.
     """
-    # Nose (supersonic cone CP factor).
-    cn_nose, x_nose = nose_cone_cn_alpha_and_cp_supersonic(geometry)
-
-    # Transition (reused from barrowman_stability; Mach-independent).
-    cn_trans, x_trans = transition_cn_alpha_and_cp(geometry)
-
-    # Fins (supersonic).
-    # Guard: beta = sqrt(M^2-1) -> 0 at M=1; fin formula requires M>1 (strictly supersonic).
-    if mach > 1.0:
-        cn_fin, x_fin = fin_cn_alpha_and_cp_supersonic(geometry, mach)
-        regime_flag = (
-            "SUPERSONIC_REGIME" if mach >= 1.2 else "TRANSONIC_OUT_OF_METHOD_REGIME"
-        )
-    else:
-        # For M<=1, method is out of regime; emit a placeholder zero-contribution
-        # (do NOT use subsonic Barrowman fin formula here — this is a supersonic-only method).
-        cn_fin, x_fin = 0.0, 0.0
-        regime_flag = "SUBSONIC_OUT_OF_METHOD_REGIME"
-
-    # Total.
-    cn_alpha_total = cn_nose + cn_trans + cn_fin
-    if cn_alpha_total > 0:
-        x_cp_total = (
-            cn_nose * x_nose + cn_trans * x_trans + cn_fin * x_fin
-        ) / cn_alpha_total
-    else:
-        x_cp_total = 0.0
-
-    # Static margin [calibers].
-    static_margin_cal = (x_cp_total - cg_from_nose_m) / geometry.d_ref
-    stable_bool = static_margin_cal > 0.0
-
-    return {
-        "cn_alpha_nose": cn_nose,
-        "cn_alpha_transition": cn_trans,
-        "cn_alpha_fins": cn_fin,
-        "cn_alpha_total": cn_alpha_total,
-        "x_cp_nose": x_nose,
-        "x_cp_transition": x_trans,
-        "x_cp_fins": x_fin,
-        "x_cp_total": x_cp_total,
-        "static_margin_cal": static_margin_cal,
-        "stable_bool": stable_bool,
-        "regime_flag": regime_flag,
-    }
+    machs = np.linspace(
+        DatcomStabilityAnalysis.SWEEP_MACH_MIN, mach_max, DatcomStabilityAnalysis.SWEEP_POINTS
+    )
+    points = []
+    for m in machs:
+        cn_alpha, x_cp = total_cp(datcom_build_up(geometry, float(m))[1])
+        points.append((float(m), cn_alpha, x_cp))
+    return points
 
 
-def run_sweep(
-    geometry: RocketGeometry,
-    mach_values: list[float] = MACH_SWEEP,
-    cg_fractions: list[float] = CG_FRACTIONS,
-) -> list[dict[str, Any]]:
-    """Run DATCOM-class stability sweep over Mach and CG.
+def format_mach_sweep_csv(points: list[tuple[float, float, float]], geometry: RocketGeometry) -> str:
+    """CSV text of the Mach sweep, with the static margin at the geometry's CG."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["mach", "cn_alpha_total_per_rad", "x_cp_m", "static_margin_cal"])
+    writer.writerows(
+        (m, cn, x, (x - geometry.cg_from_nose) / geometry.d_ref) for m, cn, x in points
+    )
+    return buffer.getvalue()
+
+
+def plot_cp_vs_mach(points: list[tuple[float, float, float]], geometry: RocketGeometry) -> Figure:
+    """Plot the supersonic CP and static margin against Mach number.
 
     Args:
-        geometry: Rocket geometry.
-        mach_values: Mach sweep (method is supersonic; M<=1 tagged out-of-regime).
-        cg_fractions: CG sweep (fraction of total length). TBD_PHYSICAL_PARAM.
+        points: Output of :func:`run_mach_sweep`.
+        geometry: Geometry the sweep used.
 
     Returns:
-        List of result dicts, one per (Mach, CG) grid point.
+        The matplotlib Figure instance.
     """
-    results = []
-    for mach in mach_values:
-        for cg_frac in cg_fractions:
-            cg_from_nose_m = cg_frac * geometry.total_length  # TBD_PHYSICAL_PARAM
-            res = compute_static_margin_datcom(geometry, mach, cg_from_nose_m)
-            results.append(
-                {
-                    "mach": mach,
-                    "cg_frac": cg_frac,
-                    "cg_from_nose_m": cg_from_nose_m,  # TBD_PHYSICAL_PARAM
-                    **res,
-                }
-            )
-    return results
+    import matplotlib.pyplot as plt
 
+    machs = [p[0] for p in points]
+    cps = [p[2] for p in points]
+    fig, (ax_cp, ax_sm) = plt.subplots(2, 1, figsize=(8.0, 7.0), sharex=True)
 
-def write_csv(results: list[dict[str, Any]], output_path: Path = CSV_PATH) -> None:
-    """Write sweep results to CSV.
+    ax_cp.plot(machs, cps, color="tab:blue", lw=2.0, label="CP")
+    ax_cp.axhline(geometry.cg_from_nose, color="tab:red", ls="--", label="CG")
+    ax_cp.set_ylim(0.0, geometry.total_length)
+    ax_cp.invert_yaxis()
+    ax_cp.set_ylabel("Position from nose tip [m]")
+    ax_cp.set_title("Center of pressure and center of gravity")
+    ax_cp.legend(loc="best", fontsize=8)
 
-    Args:
-        results: List of result dicts from :func:`run_sweep`.
-        output_path: CSV output path.
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", newline="", encoding="utf-8") as fh:
-        fieldnames = [
-            "mach",
-            "cg_frac",
-            "cg_from_nose_m",
-            "cn_alpha_total",
-            "x_cp_m",
-            "static_margin_cal",
-            "stable_bool",
-            "regime_flag",
-        ]
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
-        writer.writeheader()
-        for res in results:
-            writer.writerow(
-                {
-                    "mach": res["mach"],
-                    "cg_frac": res["cg_frac"],
-                    "cg_from_nose_m": res["cg_from_nose_m"],  # TBD_PHYSICAL_PARAM
-                    "cn_alpha_total": res["cn_alpha_total"],
-                    "x_cp_m": res["x_cp_total"],
-                    "static_margin_cal": res["static_margin_cal"],
-                    "stable_bool": res["stable_bool"],
-                    "regime_flag": res["regime_flag"],
-                }
-            )
+    ax_sm.plot(machs, [(x - geometry.cg_from_nose) / geometry.d_ref for x in cps], color="tab:green", lw=2.0)
+    ax_sm.axhline(0.0, color="k", lw=0.8)
+    ax_sm.set_xlabel("Mach number [-]")
+    ax_sm.set_ylabel("Static margin [cal]")
+    ax_sm.set_title("Static margin (positive is stable)")
 
-
-def write_json(
-    results: list[dict[str, Any]], geometry: RocketGeometry, output_path: Path = JSON_PATH
-) -> None:
-    """Write sweep summary to JSON.
-
-    Args:
-        results: List of result dicts from :func:`run_sweep`.
-        geometry: Rocket geometry.
-        output_path: JSON output path.
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    summary = {
-        "method": "DATCOM-class supersonic component buildup",
-        "geometry": {
-            "d_ref_m": geometry.d_ref,
-            "total_length_m": geometry.total_length,
-            "nose_length_m": geometry.nose_length,
-            "nose_base_diameter_m": geometry.nose_base_diameter,
-            "fin_span_m": geometry.tail_fins.span,
-            "fin_root_chord_m": geometry.tail_fins.root_chord,
-            "fin_tip_chord_m": geometry.tail_fins.tip_chord,
-            "fin_sweep_deg": geometry.tail_fins.sweep,
-        },
-        "sweep_grid": {
-            "mach": MACH_SWEEP,
-            "cg_fractions": CG_FRACTIONS,  # TBD_PHYSICAL_PARAM
-        },
-        "results": results,
-        "notes": [
-            "CG is UNCERTAIN (TBD_PHYSICAL_PARAM) — do NOT use a single value as definitive.",
-            "Method is SUPERSONIC (M>1.2); M<=1 results tagged SUBSONIC_OUT_OF_METHOD_REGIME.",
-            "Body viscous cross-flow (Allen-Perkins) term ~ alpha^2; zero static CN_alpha contribution.",
-            "Fin tip-loss (Puckett) is PROVISIONAL; supersonic carryover K_fb approximation.",
-        ],
-    }
-    with output_path.open("w", encoding="utf-8") as fh:
-        json.dump(summary, fh, indent=2)
-
-
-def plot_sm_vs_mach(results: list[dict[str, Any]], output_path: Path = PNG_PATH) -> None:
-    """Plot static margin vs Mach, one line per CG.
-
-    Args:
-        results: List of result dicts from :func:`run_sweep`.
-        output_path: PNG output path (150 DPI).
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Group by CG fraction.
-    cg_groups: dict[float, list[dict[str, Any]]] = {}
-    for res in results:
-        cg_frac = res["cg_frac"]
-        if cg_frac not in cg_groups:
-            cg_groups[cg_frac] = []
-        cg_groups[cg_frac].append(res)
-
-    fig, ax = plt.subplots(figsize=(8.0, 5.0), dpi=150)
-
-    for cg_frac in sorted(cg_groups.keys()):
-        group = sorted(cg_groups[cg_frac], key=lambda r: r["mach"])
-        mach_vals = [r["mach"] for r in group]
-        sm_vals = [r["static_margin_cal"] for r in group]
-        ax.plot(mach_vals, sm_vals, marker="o", label=f"CG = {cg_frac:.2f} L")
-
-    ax.axhline(0.0, color="red", linestyle="--", linewidth=1.0, label="SM = 0 (neutral)")
-    ax.set_xlabel("Mach number [-]")
-    ax.set_ylabel("Static margin [calibers, (CP-CG)/d_body]")
-    ax.set_title("MELprop vehicle — DATCOM-class supersonic static margin vs Mach")
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc="best", fontsize=8)
+    for ax in (ax_cp, ax_sm):
+        ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
+    return fig
 
 
-def main(vehicle: BaseVehicleConfig) -> dict[str, Any]:
-    """Run the full DATCOM-class sweep: compute, write CSV/JSON/PNG.
+class DatcomStabilityAnalysis(BaseAnalysis[DatcomStabilityResults]):
+    """DATCOM-class supersonic CP and static margin at one Mach number.
 
-    Args:
-        vehicle: Vehicle configuration.
-
-    Returns:
-        Summary dict (also written to JSON).
+    Example:
+        analysis = DatcomStabilityAnalysis()
+        analysis.setup(vehicle, mach=2.5)
+        results = analysis.execute()
+        stable = results.static_margin > 0.0
     """
-    geometry = geometry_from_vehicle(vehicle)
-    results = run_sweep(geometry)
-    write_csv(results, CSV_PATH)
-    write_json(results, geometry, JSON_PATH)
-    plot_sm_vs_mach(results, PNG_PATH)
 
-    print(f"DATCOM-class sweep complete: {len(results)} grid points.")
-    print(f"CSV: {CSV_PATH}")
-    print(f"JSON: {JSON_PATH}")
-    print(f"PNG: {PNG_PATH}")
+    fidelity = FidelityLevel.LEVEL_1
 
-    # Return a summary for programmatic use.
-    return {
-        "method": "DATCOM-class supersonic component buildup",
-        "results_count": len(results),
-        "csv_path": str(CSV_PATH),
-        "json_path": str(JSON_PATH),
-        "png_path": str(PNG_PATH),
-    }
+    DEFAULT_MACH: ClassVar[float] = 2.0
 
+    #: Below this Mach number linear supersonic theory is poor [-].
+    MIN_RELIABLE_MACH: ClassVar[float] = 1.2
+
+    #: Design rule: static margin of at least this fraction of the body length.
+    SM_REQUIRED_LENGTH_FRACTION: ClassVar[float] = 0.10
+
+    #: Mach sweep for the CP-vs-Mach figure.
+    SWEEP_MACH_MIN: ClassVar[float] = 1.2
+    SWEEP_MACH_MAX: ClassVar[float] = 3.0
+    SWEEP_POINTS: ClassVar[int] = 37
+
+    def __init__(self, name: str = "datcom_class_stability") -> None:
+        super().__init__(name)
+        self._geometry: RocketGeometry | None = None
+        self._mach = self.DEFAULT_MACH
+        self._sm_required = 0.0
+        self._assumptions: tuple[str, ...] = ()
+
+    @property
+    def geometry(self) -> RocketGeometry:
+        """Geometry bound by :meth:`setup`.
+
+        Raises:
+            RuntimeError: Before :meth:`setup`.
+        """
+        if self._geometry is None:
+            raise RuntimeError(f"Analysis '{self.name}' has not been setup yet.")
+        return self._geometry
+
+    def _setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        *,
+        body_name: str | None = None,
+        mach: float = DEFAULT_MACH,
+        cg_from_nose: float | None = None,
+        sm_required: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Resolve the geometry and the evaluation settings.
+
+        Args:
+            vehicle: Vehicle with one axisymmetric body and at least one fin set.
+            body_name: Body to use if the vehicle has more than one.
+            mach: Evaluation Mach number (> 1).
+            cg_from_nose: Center of gravity [m]. Defaults to the vehicle's.
+            sm_required: Required static margin [cal]. Defaults to
+                ``SM_REQUIRED_LENGTH_FRACTION`` of the body length.
+            **kwargs: Not accepted; present for the ``BaseAnalysis`` signature.
+
+        Raises:
+            TypeError: If an unknown setting is passed.
+            ValueError: If ``mach <= 1`` or the vehicle lacks what the method needs.
+        """
+        if kwargs:
+            raise TypeError(f"Unknown settings for '{self.name}': {sorted(kwargs)}")
+        if mach <= 1.0:
+            raise ValueError(f"The DATCOM-class method needs a supersonic Mach number, got {mach}")
+
+        geometry = geometry_from_vehicle(vehicle, body_name=body_name, cg_from_nose=cg_from_nose)
+        assumptions = geometry_assumptions(vehicle, geometry)
+        if mach < self.MIN_RELIABLE_MACH:
+            assumptions.append(
+                f"Mach {mach:g} is below {self.MIN_RELIABLE_MACH:g}: linear supersonic theory "
+                "is poor close to Mach 1."
+            )
+        for fin in datcom_build_up(geometry, mach)[0]:
+            if fin.tip_loss_limited:
+                assumptions.append(
+                    f"Fin set '{fin.name}': beta * AR < 1, so the tip-loss factor is held at "
+                    f"{fin.tip_loss_factor:g} and its slope is approximate."
+                )
+
+        self._geometry = geometry
+        self._mach = mach
+        self._sm_required = (
+            self.SM_REQUIRED_LENGTH_FRACTION * geometry.fineness_ratio
+            if sm_required is None
+            else sm_required
+        )
+        self._assumptions = tuple(assumptions)
+        self.logger.info(
+            "Configured DATCOM-class stability for vehicle '%s' (M=%.2f, CG=%.3f m)",
+            vehicle.name,
+            mach,
+            geometry.cg_from_nose,
+        )
+        for assumption in self._assumptions:
+            self.logger.warning(assumption)
+
+    def _compute(self, **kwargs: Any) -> DatcomStabilityResults:
+        """Evaluate the build-up at the evaluation Mach number."""
+        geometry = self.geometry
+        fin_sets, components = datcom_build_up(geometry, self._mach)
+        cn_alpha, cp = total_cp(components)
+        static_margin = (cp - geometry.cg_from_nose) / geometry.d_ref
+        results = DatcomStabilityResults(
+            name=self.name,
+            fidelity=self.fidelity,
+            geometry=geometry,
+            mach=self._mach,
+            fin_sets=fin_sets,
+            components=components,
+            cn_alpha=cn_alpha,
+            cp=cp,
+            cg=geometry.cg_from_nose,
+            static_margin=static_margin,
+            sm_required=self._sm_required,
+            margin=static_margin - self._sm_required,
+            assumptions=self._assumptions,
+        )
+        self.logger.info(
+            "CN_alpha=%.3f /rad, CP=%.3f m, CG=%.3f m, static margin=%.2f cal (required %.2f)",
+            results.cn_alpha,
+            results.cp,
+            results.cg,
+            results.static_margin,
+            results.sm_required,
+        )
+        return results
+
+    def validate_results(self, results: DatcomStabilityResults) -> bool:
+        """Check that the slopes are positive and the CP lies on the vehicle.
+
+        Args:
+            results: Results produced by :meth:`execute`.
+
+        Returns:
+            True if all checks pass.
+        """
+        if not all(math.isfinite(value) for value in results.scalars().values()):
+            return False
+        if any(c.cn_alpha < 0.0 for c in results.components) or results.cn_alpha <= 0.0:
+            return False
+        aft_end = max(
+            results.geometry.total_length,
+            *(f.root_le_x + f.sweep_length + f.tip_chord for f in results.geometry.fin_sets),
+        )
+        return 0.0 <= results.cp <= aft_end
