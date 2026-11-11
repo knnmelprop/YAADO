@@ -219,7 +219,7 @@ def test_execute_ackeret_saves_comparison_and_flags_instability(
     monkeypatch.chdir(tmp_path)
     descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "ackeret_fin_check")
 
-    run = execute_solver(descriptor, vehicle, {"mach": 2.5})
+    run = execute_solver(descriptor, vehicle, {"mach": 2.5, "cg_from_nose": 4.0})
 
     assert isinstance(run.results, AckeretFinResults)
     assert run.output_dir is not None

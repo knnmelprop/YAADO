@@ -187,9 +187,8 @@ class AckeretFinSlope:
     Attributes:
         name: Fin set name.
         slope_2d: Ackeret 2-D section slope ``4 / beta``.
-        panel_aspect_ratio: Exposed panel span over mean chord.
-        cn_alpha: Fin-set slope with finite-span and body-interference factors,
-            referred to the body cross-section area.
+        cn_alpha: Fin-set slope with body interference, referred to the body
+            cross-section area.
         x_cp: Planform centroid from the nose tip (uniform loading).
         normal_mach_le: Mach number normal to the leading edge, ``M cos(sweep)``.
             Below 1 the leading edge is subsonic and 2-D Ackeret theory overpredicts.
@@ -197,7 +196,6 @@ class AckeretFinSlope:
 
     name: str
     slope_2d: PerRadian
-    panel_aspect_ratio: Dimensionless
     cn_alpha: PerRadian
     x_cp: Meters
     normal_mach_le: Dimensionless
@@ -216,10 +214,10 @@ class AckeretSweepPoint:
 
 @dataclass(frozen=True)
 class AckeretFinResults(BaseAnalysisResults):
-    """Supersonic static stability with Ackeret fins, checked against Barrowman.
+    """Supersonic static stability with 2-D Ackeret fins, checked against Barrowman.
 
     The nose and shoulder use the slender-body terms of the Barrowman build-up;
-    every fin set uses linearized supersonic (Ackeret) theory.
+    every fin set uses two-dimensional Ackeret theory without tip loss.
 
     Attributes:
         geometry: Geometry the analysis used.

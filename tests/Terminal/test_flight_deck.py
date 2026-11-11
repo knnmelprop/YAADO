@@ -951,6 +951,7 @@ def test_ackeret_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyP
             await pilot.pause(0.3)
             form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
             form.query_one("#param-inp-mach", Input).value = "2.5"
+            form.query_one("#param-inp-cg_from_nose", Input).value = "4.0"
             await pilot.pause(0.1)
             await pilot.press("r")
             await pilot.pause(0.3)

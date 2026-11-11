@@ -40,18 +40,16 @@ A_REF_ALVRJ = math.pi / 4.0 * 0.381**2  # = 0.114009
 
 
 def test_fin_set_slope_by_hand() -> None:
-    """ALVRJ tail at Mach 2.5: a_2D = 4/beta, AR = s/c_mean, N/2 loaded panels."""
+    """ALVRJ tail at Mach 2.5: a_2D = 4/beta on N/2 loaded panels, no tip loss."""
     beta = math.sqrt(2.5**2 - 1.0)  # = 2.291288
-    slope = (4.0 / beta) / (1.0 + 2.0 / (0.28 / 0.4))  # = 0.452600
     k_fb = 1.0 + 0.1905 / (0.28 + 0.1905)  # = 1.404888
-    expected = k_fb * 2.0 * slope * (0.28 * 0.4) / A_REF_ALVRJ  # = 1.249294
+    expected = k_fb * 2.0 * (4.0 / beta) * (0.28 * 0.4) / A_REF_ALVRJ  # = 4.818705
 
     fin = ackeret_fin_set(ALVRJ_FINS, 2.5, R_ALVRJ, A_REF_ALVRJ)
 
     assert fin.slope_2d == pytest.approx(4.0 / beta, rel=1e-12)
-    assert fin.panel_aspect_ratio == pytest.approx(0.7, rel=1e-12)
     assert fin.cn_alpha == pytest.approx(expected, rel=1e-12)
-    assert fin.cn_alpha == pytest.approx(1.249294, rel=1e-5)
+    assert fin.cn_alpha == pytest.approx(4.818705, rel=1e-5)
 
 
 def test_fin_set_cp_is_the_planform_centroid() -> None:
@@ -123,14 +121,15 @@ def _run(path: Path, **settings: float) -> AckeretFinResults:
 def test_analysis_on_alvrj_matches_hand_build_up() -> None:
     """ALVRJ at Mach 2.5: nose + Ackeret tail fins, CG from the TOML."""
     results = _run(ALVRJ_PATH, mach=2.5)
-    cn_fin = 1.249294
-    x_cp = (2.0 * 0.4427 + cn_fin * 4.338011) / (2.0 + cn_fin)  # = 1.940379
+    cn_fin = 4.818705
+    x_cp = (2.0 * 0.4427 + cn_fin * 4.338011) / (2.0 + cn_fin)  # = 3.195535
     assert results.fidelity == FidelityLevel.LEVEL_0
     assert results.cn_alpha == pytest.approx(2.0 + cn_fin, rel=1e-5)
     assert results.cp == pytest.approx(x_cp, rel=1e-5)
-    assert results.static_margin == pytest.approx((x_cp - 2.1) / 0.381, rel=1e-4)  # = -0.419
-    assert results.barrowman_static_margin > results.static_margin
-    assert abs(results.tail_fin_cp_difference) < AckeretFinAnalysis.CP_DIFFERENCE_WARNING
+    assert results.static_margin == pytest.approx((x_cp - 2.1) / 0.381, rel=1e-4)  # = 2.875
+    # No tip loss and a centroid CP: Ackeret sits above Barrowman.
+    assert results.static_margin > results.barrowman_static_margin
+    assert results.tail_fin_cp_difference == pytest.approx((4.338011 - 4.224990) / 0.381, rel=1e-5)
 
 
 def test_analysis_flags_subsonic_leading_edges_and_low_mach() -> None:

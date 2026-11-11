@@ -1,18 +1,17 @@
-"""Supersonic fin check with linearized (Ackeret) thin-airfoil theory.
+"""Supersonic fin check with two-dimensional Ackeret thin-airfoil theory.
 
-An independent supersonic estimate of each fin set, used to check the Barrowman
-build-up above Mach 1. For each fin set:
+An independent, closed-form check of the fin terms of the Barrowman build-up
+above Mach 1. For each fin set:
 
-    a_2D      = 4 / sqrt(M^2 - 1)                     Ackeret section slope
-    slope     = a_2D / (1 + 2 / AR),  AR = s / c_mean  finite-span factor
-    CN_alpha  = K_fb * (N / 2) * slope * A_panel / A_ref,  K_fb = 1 + R / (s + R)
+    a_2D      = 4 / sqrt(M^2 - 1)                      Ackeret section slope
+    CN_alpha  = K_fb * (N / 2) * a_2D * A_panel / A_ref,  K_fb = 1 + R / (s + R)
     CP        = planform centroid (uniform supersonic loading)
 
 ``N / 2`` is the number of panels that carry load at any roll angle
-(``sum sin^2(phi_i) = N / 2`` for ``N >= 3``). The nose and shoulder use the
-slender-body terms of the Barrowman build-up. The finite-span factor is the
-classical low-aspect-ratio downwash correction; it is not a supersonic tip-cone
-correction, so treat the result as a cross-check, not as a design value.
+(``sum sin^2(phi_i) = N / 2`` for ``N >= 3``). Without tip loss the slope is an
+upper bound on linear theory; the Barrowman build-up applies the Puckett tip
+loss and keeps the subsonic fin CP. The gap between the two shows how much
+those two effects move the static margin.
 """
 
 from __future__ import annotations
@@ -68,23 +67,14 @@ def ackeret_fin_set(
         raise ValueError(f"Ackeret theory needs a supersonic Mach number, got {mach}")
 
     slope_2d = 4.0 / math.sqrt(mach**2 - 1.0)
-    aspect_ratio = fins.span / fins.mean_chord
     k_fb = 1.0 + body_radius / (fins.span + body_radius)
-    cn_alpha = (
-        k_fb
-        * (fins.count / 2.0)
-        * slope_2d
-        / (1.0 + 2.0 / aspect_ratio)
-        * fins.panel_area
-        / reference_area
-    )
+    cn_alpha = k_fb * (fins.count / 2.0) * slope_2d * fins.panel_area / reference_area
 
     cr, ct = fins.root_chord, fins.tip_chord
     x_centroid = (fins.sweep_length * (cr + 2.0 * ct) + cr**2 + cr * ct + ct**2) / (3.0 * (cr + ct))
     return AckeretFinSlope(
         name=fins.name,
         slope_2d=slope_2d,
-        panel_aspect_ratio=aspect_ratio,
         cn_alpha=cn_alpha,
         x_cp=fins.root_le_x + x_centroid,
         normal_mach_le=mach * math.cos(math.radians(fins.sweep)),
