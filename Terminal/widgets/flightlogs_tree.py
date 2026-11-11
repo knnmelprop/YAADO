@@ -71,6 +71,7 @@ class FlightLogsTree(Tree[Path | None]):
         "point_mass_3dof_boost": "3-DOF Boost",
         "point_mass_3dof": "Point Mass 3-DOF",
         "heiser_pratt_cycle": "Ramjet Cycle",
+        "barrowman_stability": "Barrowman Stability",
         "aero_polar": "Aero Polars",
         "mass_estimation": "Mass & Inertia",
     }

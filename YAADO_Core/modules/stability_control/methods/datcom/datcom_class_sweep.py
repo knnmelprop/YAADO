@@ -99,20 +99,12 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 
-# Reuse the RocketGeometry dataclass and load_geometry from barrowman_stability.
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.stability_control.containers import RocketGeometry
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
-    RocketGeometry,
-    load_geometry,
+    geometry_from_vehicle,
     transition_cn_alpha_and_cp,
-)
-
-DEFAULT_VEHICLE_CONFIG = (
-    Path(__file__).resolve().parents[5]
-    / "Hangar"
-    / "generic_vehicle"
-    / "vehicle_config.yaml"
 )
 
 RESULTS_DIR = Path(__file__).resolve().parents[5] / "FlightLogs"
@@ -144,9 +136,9 @@ def nose_cone_cn_alpha_and_cp_supersonic(geometry: RocketGeometry) -> tuple[floa
     Returns:
         Tuple of (CN_alpha [1/rad, ref. S_ref], x_cp [m from nose]).
     """
-    area_ratio = (geometry.nose_base_diameter_m / geometry.d_ref_m) ** 2
+    area_ratio = (geometry.nose_base_diameter / geometry.d_ref) ** 2
     cn_alpha = 2.0 * area_ratio
-    x_cp = (2.0 / 3.0) * geometry.nose_length_m  # Supersonic cone CP factor.
+    x_cp = (2.0 / 3.0) * geometry.nose_length  # Supersonic cone CP factor.
     return cn_alpha, x_cp
 
 
@@ -178,13 +170,13 @@ def fin_cn_alpha_and_cp_supersonic(
             f"fin_cn_alpha_and_cp_supersonic requires mach > 1.0 (strictly supersonic, beta>0); got {mach}"
         )
 
-    s = geometry.fin_span_m
-    cr = geometry.fin_root_chord_m
-    ct = geometry.fin_tip_chord_m
-    n = geometry.fin_count
-    r = geometry.body_radius_m
-    d = geometry.d_ref_m
-    sweep_rad = math.radians(geometry.fin_sweep_deg)
+    s = geometry.tail_fins.span
+    cr = geometry.tail_fins.root_chord
+    ct = geometry.tail_fins.tip_chord
+    n = geometry.tail_fins.count
+    r = geometry.body_radius
+    d = geometry.d_ref
+    sweep_rad = math.radians(geometry.tail_fins.sweep)
 
     # Beta (supersonic Mach parameter).
     beta = math.sqrt(mach**2 - 1.0)
@@ -217,7 +209,7 @@ def fin_cn_alpha_and_cp_supersonic(
     # Fin CP (SUPERSONIC): 50% MAC chordwise, streamwise accounting for sweep.
     # Spanwise centroid of trapezoidal panel.
     y_mac = (s / 3.0) * ((cr + 2.0 * ct) / (cr + ct))
-    x_cp = geometry.fin_root_le_x_m + y_mac * math.tan(sweep_rad) + 0.5 * c_mac
+    x_cp = geometry.tail_fins.root_le_x + y_mac * math.tan(sweep_rad) + 0.5 * c_mac
 
     return cn_alpha, x_cp
 
@@ -266,7 +258,7 @@ def compute_static_margin_datcom(
         x_cp_total = 0.0
 
     # Static margin [calibers].
-    static_margin_cal = (x_cp_total - cg_from_nose_m) / geometry.d_ref_m
+    static_margin_cal = (x_cp_total - cg_from_nose_m) / geometry.d_ref
     stable_bool = static_margin_cal > 0.0
 
     return {
@@ -302,7 +294,7 @@ def run_sweep(
     results = []
     for mach in mach_values:
         for cg_frac in cg_fractions:
-            cg_from_nose_m = cg_frac * geometry.total_length_m  # TBD_PHYSICAL_PARAM
+            cg_from_nose_m = cg_frac * geometry.total_length  # TBD_PHYSICAL_PARAM
             res = compute_static_margin_datcom(geometry, mach, cg_from_nose_m)
             results.append(
                 {
@@ -365,14 +357,14 @@ def write_json(
     summary = {
         "method": "DATCOM-class supersonic component buildup",
         "geometry": {
-            "d_ref_m": geometry.d_ref_m,
-            "total_length_m": geometry.total_length_m,
-            "nose_length_m": geometry.nose_length_m,
-            "nose_base_diameter_m": geometry.nose_base_diameter_m,
-            "fin_span_m": geometry.fin_span_m,
-            "fin_root_chord_m": geometry.fin_root_chord_m,
-            "fin_tip_chord_m": geometry.fin_tip_chord_m,
-            "fin_sweep_deg": geometry.fin_sweep_deg,
+            "d_ref_m": geometry.d_ref,
+            "total_length_m": geometry.total_length,
+            "nose_length_m": geometry.nose_length,
+            "nose_base_diameter_m": geometry.nose_base_diameter,
+            "fin_span_m": geometry.tail_fins.span,
+            "fin_root_chord_m": geometry.tail_fins.root_chord,
+            "fin_tip_chord_m": geometry.tail_fins.tip_chord,
+            "fin_sweep_deg": geometry.tail_fins.sweep,
         },
         "sweep_grid": {
             "mach": MACH_SWEEP,
@@ -426,16 +418,16 @@ def plot_sm_vs_mach(results: list[dict[str, Any]], output_path: Path = PNG_PATH)
     plt.close(fig)
 
 
-def main(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> dict[str, Any]:
+def main(vehicle: BaseVehicleConfig) -> dict[str, Any]:
     """Run the full DATCOM-class sweep: compute, write CSV/JSON/PNG.
 
     Args:
-        config_path: Path to the ramjet-rocket ``vehicle_config.yaml``.
+        vehicle: Vehicle configuration.
 
     Returns:
         Summary dict (also written to JSON).
     """
-    geometry = load_geometry(config_path)
+    geometry = geometry_from_vehicle(vehicle)
     results = run_sweep(geometry)
     write_csv(results, CSV_PATH)
     write_json(results, geometry, JSON_PATH)
@@ -455,7 +447,3 @@ def main(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> dict[str, Any]:
         "png_path": str(PNG_PATH),
     }
 
-
-if __name__ == "__main__":
-    summary = main()
-    print(json.dumps(summary, indent=2))

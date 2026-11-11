@@ -177,6 +177,8 @@ class Fins(BaseModel):
         sweep: Leading-edge sweep angle in degrees. (Range: 0.0 to 75.0)
         chord_root: Root chord length in meters. Defaults to None. (> 0)
         chord_tip: Tip chord length in meters. Defaults to None. (>= 0)
+        root_le_from_nose: Axial position of the root leading edge, measured from the nose
+            tip in meters. Defaults to None: fins flush with the aft end of the body. (>= 0)
         control_surfaces: List of control surfaces attached to the trailing edge of these fins.
         mass: Mass Properties
     """
@@ -188,6 +190,7 @@ class Fins(BaseModel):
         "sweep": "deg",
         "chord_root": "m",
         "chord_tip": "m",
+        "root_le_from_nose": "m",
     }
     HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("span", "count", "sweep")
 
@@ -225,6 +228,13 @@ class Fins(BaseModel):
         ge=0.0,
         examples=[0.15],
         description='''Tip chord length in meters. Defaults to None. (>= 0)'''
+    )
+
+    root_le_from_nose: float | None = Field(
+        default=None,
+        ge=0.0,
+        examples=[3.31],
+        description='''Axial position of the root leading edge, measured from the nose tip in meters. Defaults to None: fins flush with the aft end of the body. (>= 0)'''
     )
 
     control_surfaces: list[ControlSurface] = Field(

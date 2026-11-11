@@ -85,3 +85,9 @@ Degrees = Annotated[float, "deg"]
 
 #: Dimensionless ratio, Mach number, or aerodynamic coefficient [-]
 Dimensionless = Annotated[float, "-"]
+
+#: Lift- or normal-force-curve slope per radian of angle of attack [1/rad]
+PerRadian = Annotated[float, "1/rad"]
+
+#: Length in body diameters, e.g. a static margin [cal]
+Calibers = Annotated[float, "cal"]

@@ -42,6 +42,10 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boo
 # Ramjet cycle: Mach, combustor temperature and mass flow come from the vehicle unless set
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle \
          --set altitude_m=12000 --set eta_inlet=0.8
+
+# Static stability: static margin at Mach 0.5 with the burnout CG
+yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver barrowman_stability \
+         --set mach=0.5 --set cg_from_nose=2.2
 ```
 
 | Option | Effect |
@@ -55,5 +59,7 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle 
 | `--list-solvers` | List the solver catalog, then exit. |
 
 For the ramjet cycle, set real losses on the engine in the vehicle TOML (see the [module README](../YAADO_Core/modules/powerplant/cycle_methods/README.md)). `--set` overrides them, and the run warns about each loss that falls back to a placeholder.
+
+For static stability, give each fin set its position with `root_le_from_nose` in the vehicle TOML (see the [module README](../YAADO_Core/modules/stability_control/methods/barrowman/README.md)). A single fin set without it is placed flush with the aft end of the body, and the run says so.
 
 Logged runs are saved to `FlightLogs/<vehicle>/<solver>_<timestamp>/` under the current directory. Exit status is `0` on success, `1` if the vehicle cannot be loaded or the solver fails, and `2` for invalid arguments. Errors go to stderr, so stdout stays clean for piping.
