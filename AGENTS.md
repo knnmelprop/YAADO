@@ -14,7 +14,6 @@ While the repository currently contains reference configurations in `Hangar/exam
 ## Civilian Focus (Mandatory)
 YAADO is a civilian design tool for science clubs. Keep code, docstrings, comments, docs, tests, examples, commit messages and PR descriptions focused on civilian vehicles: research and sounding rockets, experimental ramjets, drones and aircraft.
 * **Avoid militaristic terminology.** Do not write terms like strike, target, attack, warhead, terminal dive, sea-skimming, intercept or anti-ship. Use neutral engineering terms instead: mission phase, cruise, descent, payload, recovery.
-* **Do not add new military vehicles or references.** New reference configurations in `Hangar/examples/` must be civilian or research vehicles with public data.
 
 ## Architecture
 
