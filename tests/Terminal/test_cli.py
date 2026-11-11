@@ -176,3 +176,16 @@ def test_bare_ramjet_rejects_vehicle_without_ramjet(capsys: pytest.CaptureFixtur
 def test_bare_ramjet_rejects_out_of_range_value() -> None:
     """Verify --set applies the parameter bounds as a usage error."""
     assert _exit_code([*RAMJET_RUN, "--no-log", "--set", "mach=0.5"]) == 2
+
+
+def test_bare_stability_run(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify the Barrowman solver runs from the bare CLI with a Mach override."""
+    argv = [
+        "-b", "--vehicle", str(HARPOON_PATH), "--solver", "barrowman_stability",
+        "--no-log", "--json", "--set", "mach=0.5",
+    ]
+    assert _exit_code(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["params"]["mach"] == 0.5
+    assert payload["units"]["static_margin"] == "cal"
+    assert payload["results"]["cp"] > payload["results"]["cg"]

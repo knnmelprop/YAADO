@@ -44,6 +44,12 @@ from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     plot_mach_sweep,
     run_mach_sweep,
 )
+from YAADO_Core.modules.stability_control.containers import BarrowmanStabilityResults
+from YAADO_Core.modules.stability_control.methods.barrowman import barrowman_stability
+from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
+    BarrowmanStabilityAnalysis,
+    geometry_from_vehicle,
+)
 
 _TRUE_STRINGS = frozenset({"true", "1", "yes"})
 _FALSE_STRINGS = frozenset({"false", "0", "no"})
@@ -395,6 +401,68 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
             ),
         ),
     ),
+    SolverDescriptor(
+        solver_id="barrowman_stability",
+        name="Barrowman Static Stability",
+        discipline="STABILITY & CONTROL",
+        fidelity=BarrowmanStabilityAnalysis.fidelity,
+        solver_cls=BarrowmanStabilityAnalysis,
+        description=(
+            "Barrowman component build-up of the normal-force slope and center of pressure "
+            "of a slender finned rocket, and its static margin at one Mach number. Every fin "
+            "set counts. Subsonic method: values above Mach 0.8 are estimates."
+        ),
+        required_components_desc=(
+            "One axisymmetric body with nose_length, at least one fin set (Fins) with "
+            "chord_root and chord_tip, and a CG (mass_properties or set below)."
+        ),
+        headline_outputs=(
+            ("static_margin", "cal", "Static Margin"),
+            ("sm_required", "cal", "Required Static Margin"),
+            ("margin", "cal", "Margin Above Required"),
+            ("cp", "m", "Center of Pressure"),
+            ("cg", "m", "Center of Gravity"),
+            ("cn_alpha", "1/rad", "Normal-Force Slope"),
+            ("fineness_ratio", "-", "Fineness Ratio L/d"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Mach Number",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=BarrowmanStabilityAnalysis.DEFAULT_MACH,
+                description="Mach number of the evaluation. Barrowman is valid below 0.8",
+                min_value=0.0,
+                max_value=5.0,
+            ),
+            SolverParam(
+                name="cg_from_nose",
+                label="CG Position",
+                symbol="x_cg",
+                unit="m",
+                param_type=float,
+                default=None,
+                description="CG from the nose tip, e.g. at burnout. Blank uses mass_properties",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="sm_required",
+                label="Required Static Margin",
+                symbol="SM_req",
+                unit="cal",
+                param_type=float,
+                default=None,
+                description=(
+                    "Design rule for the margin. Blank uses "
+                    f"{BarrowmanStabilityAnalysis.SM_REQUIRED_LENGTH_FRACTION:.0%} of the body length"
+                ),
+                placeholder=f"{BarrowmanStabilityAnalysis.SM_REQUIRED_LENGTH_FRACTION:.0%} L",
+            ),
+        ),
+    ),
 )
 
 
@@ -448,6 +516,14 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
         return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
+    if descriptor.solver_id == "barrowman_stability":
+        try:
+            geometry = geometry_from_vehicle(vehicle)
+        except ValueError as exc:
+            return False, str(exc)
+        fin_names = ", ".join(f.name for f in geometry.fin_sets)
+        return True, f"Ready ({fin_names}, CG {geometry.cg_from_nose:.2f} m)"
+
     return False, "Unknown solver compatibility rule"
 
 
@@ -484,7 +560,8 @@ def execute_solver(
         vehicle: Vehicle configuration to analyze.
         params: Parameter overrides, merged over ``descriptor.default_params``.
         enable_logging: Whether FlightLogger writes results, figures and artifacts to disk.
-        run_sweep: Whether a logged run also computes and saves the launch angle sweep.
+        run_sweep: Whether a logged run also computes and saves the solver's sweep (launch
+            angle, Mach number).
 
     Returns:
         The typed results, the parameters used, and the run directory.
@@ -514,6 +591,8 @@ def execute_solver(
         _save_point_mass_artifacts(solver.logger, vehicle, results, exec_params, run_sweep)
     elif isinstance(results, HeiserPrattResults):
         _save_ramjet_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, BarrowmanStabilityResults):
+        _save_stability_artifacts(solver.logger, results, run_sweep)
     solver.logger.save_results(results)
     return SolverRun(
         results=results,
@@ -527,7 +606,31 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
     """List the conditions that limit how far the user can trust a run."""
     if isinstance(results, HeiserPrattResults) and results.assumed_losses:
         return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
+    if isinstance(results, BarrowmanStabilityResults):
+        warnings = list(results.assumptions)
+        if results.static_margin < 0.0:
+            warnings.append(f"Statically unstable at Mach {results.mach:g}: CP is ahead of the CG.")
+        elif results.margin < 0.0:
+            warnings.append(
+                f"Static margin {results.static_margin:.2f} cal is below the required "
+                f"{results.sm_required:.2f} cal."
+            )
+        return tuple(warnings)
     return ()
+
+
+def _save_stability_artifacts(
+    logger: FlightLogger, results: BarrowmanStabilityResults, run_sweep: bool
+) -> None:
+    """Save the CP-vs-Mach figure and its CSV for a stability run."""
+    if not run_sweep:
+        return
+    mach_max = max(BarrowmanStabilityAnalysis.SWEEP_MACH_MAX, results.mach)
+    points = barrowman_stability.run_mach_sweep(results.geometry, mach_max)
+    logger.save_figure(
+        barrowman_stability.plot_cp_vs_mach(points, results.geometry), "cp_vs_mach.png", show=False
+    )
+    logger.save_artifact("cp_vs_mach.csv", barrowman_stability.format_mach_sweep_csv(points))
 
 
 def _save_ramjet_artifacts(

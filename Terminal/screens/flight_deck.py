@@ -211,6 +211,7 @@ class SolversStoreView(VerticalScroll):
         "FLIGHT DYNAMICS",
         "PROPULSION",
         "AERODYNAMICS",
+        "STABILITY & CONTROL",
         "STRUCTURES & MASS",
     )
 

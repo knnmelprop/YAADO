@@ -10,11 +10,13 @@ from Terminal.solvers import (
     REPAIRED_SOLVERS,
     SolverDescriptor,
     SolverParam,
+    check_solver_compatibility,
     execute_solver,
 )
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
+from YAADO_Core.modules.stability_control.containers import BarrowmanStabilityResults
 
 HARPOON_PATH = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
 ALVRJ_PATH = Path("Hangar/examples/ALVRJ/ALVRJ.toml").resolve()
@@ -158,3 +160,49 @@ def test_execute_ramjet_warns_until_every_loss_is_set() -> None:
     params = {"eta_inlet": 0.8, "pi_cc": 0.9, "pi_nozzle": 0.95, "eta_b": 0.9}
     assert execute_solver(desc, vehicle, params, enable_logging=False).warnings == ()
 
+
+
+def _stability_descriptor() -> SolverDescriptor:
+    return next(d for d in REPAIRED_SOLVERS if d.solver_id == "barrowman_stability")
+
+
+def test_stability_compatibility_reports_the_method_error() -> None:
+    """Verify the readiness check reuses the geometry validation of the method."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    ready, message = check_solver_compatibility(_stability_descriptor(), vehicle)
+    assert ready
+    assert "aft_control_fins" in message
+
+    vehicle.aero_surfaces.pop("aft_control_fins")
+    ready, message = check_solver_compatibility(_stability_descriptor(), vehicle)
+    assert not ready
+    assert "no fin set" in message
+
+
+def test_execute_stability_saves_cp_sweep_and_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a logged stability run saves the CP sweep and flags a low margin."""
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+
+    run = execute_solver(_stability_descriptor(), vehicle, {"mach": 0.5})
+
+    assert isinstance(run.results, BarrowmanStabilityResults)
+    assert run.results.mach == 0.5
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    assert (run_dir / "results.json").is_file()
+    assert (run_dir / "figures" / "cp_vs_mach.png").is_file()
+    assert (run_dir / "artifacts" / "cp_vs_mach.csv").is_file()
+    assert any("below the required" in w for w in run.warnings)
+
+
+def test_execute_stability_flags_an_unstable_vehicle() -> None:
+    """Verify a CG behind the CP gives an instability warning."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    run = execute_solver(
+        _stability_descriptor(), vehicle, {"cg_from_nose": 4.0}, enable_logging=False
+    )
+    assert run.results.static_margin < 0.0
+    assert any("Statically unstable" in w for w in run.warnings)

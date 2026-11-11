@@ -39,6 +39,9 @@ from YAADO_Core.modules.powerplant.containers import HeiserPrattResults
 from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     HeiserPrattCycleAnalysis,
 )
+from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
+    BarrowmanStabilityAnalysis,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALVRJ_TOML = REPO_ROOT / "Hangar" / "examples" / "ALVRJ" / "ALVRJ.toml"
@@ -77,7 +80,11 @@ def _assert_no_emojis(text: str) -> None:
 def test_repaired_solvers_catalog_contains_only_repaired() -> None:
     """Verify that REPAIRED_SOLVERS strictly exposes only verified solvers."""
     ids = [s.solver_id for s in REPAIRED_SOLVERS]
-    assert ids == ["point_mass_3dof_boost", "heiser_pratt_cycle"], "Only repaired solvers must be in catalog"
+    assert ids == [
+        "point_mass_3dof_boost",
+        "heiser_pratt_cycle",
+        "barrowman_stability",
+    ], "Only repaired solvers must be in catalog"
 
     trajectory = REPAIRED_SOLVERS[0]
     assert trajectory.solver_cls is PointMass3DOFBoostAnalysis
@@ -88,6 +95,10 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
     assert ramjet.solver_cls is HeiserPrattCycleAnalysis
     assert ramjet.fidelity == FidelityLevel.LEVEL_2
     assert ramjet.discipline == "PROPULSION"
+
+    stability = next(s for s in REPAIRED_SOLVERS if s.solver_id == "barrowman_stability")
+    assert stability.solver_cls is BarrowmanStabilityAnalysis
+    assert stability.discipline in SolversStoreView.DISCIPLINES
 
     # Verify no unverified methods exist
     for unverified in ("avl", "xfoil", "su2", "ramjet", "openvsp", "datcom"):
@@ -881,5 +892,40 @@ def test_optional_parameter_input_validation() -> None:
             await pilot.pause(0.1)
             assert altitude.has_class("-invalid")
             assert fd._active_params["altitude_m"] == 10000.0
+
+    asyncio.run(_test())
+
+
+def test_stability_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Select, tune and run the Barrowman solver with the real key bindings."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(140, 42)) as pilot:
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(HARPOON_TOML), HARPOON_TOML)
+            await pilot.pause(0.2)
+
+            tile = fd.query_one("#tile-solver-barrowman_stability", SolverTile)
+            await pilot.click(tile)
+            await pilot.pause(0.3)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            assert form.query_one("#param-inp-mach", Input).value == "0.3"
+            assert form.query_one("#param-inp-cg_from_nose", Input).placeholder == "TOML"
+
+            form.query_one("#param-inp-cg_from_nose", Input).value = "2.2"
+            await pilot.pause(0.1)
+            await pilot.press("r")
+            await pilot.pause(0.3)
+            content = str(fd.query_one("#flightdeck-results-content", Static).render())
+            assert "Static Margin" in content
+            assert " cal" in content
+            assert "below the required" in content
+            assert fd._active_params["cg_from_nose"] == 2.2
 
     asyncio.run(_test())
