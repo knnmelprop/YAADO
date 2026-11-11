@@ -38,11 +38,13 @@ from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
 )
 from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
+    GrzywkaCycleResults,
     HeiserPrattResults,
     MultiShockInletResults,
     RamjetCycleResults,
 )
-from YAADO_Core.modules.powerplant.cycle_methods import mattingly
+from YAADO_Core.modules.powerplant.cycle_methods import grzywka, mattingly
+from YAADO_Core.modules.powerplant.cycle_methods.grzywka import GrzywkaNozzleAnalysis
 from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     HeiserPrattCycleAnalysis,
     format_mach_sweep_csv,
@@ -587,6 +589,164 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="grzywka_nozzle",
+        name="Combustor and Nozzle Sizing (Grzywka)",
+        discipline="PROPULSION",
+        fidelity=GrzywkaNozzleAnalysis.fidelity,
+        solver_cls=GrzywkaNozzleAnalysis,
+        description=(
+            "Sizes the choked throat and the exit that fully expands the flow at one flight "
+            "condition, with ideal, combustor-loss and real thrust (Grzywka stations 1-2-21-3). "
+            "Put the sized diameters on the ramjet, then use Heiser & Pratt off design."
+        ),
+        required_components_desc=(
+            "One ramjet (RamjetEngine), and a capture area or air flow set below unless the "
+            "ramjet has nozzle_throat_diameter."
+        ),
+        headline_outputs=(
+            ("thrust_real", "N", "Net Thrust (real)"),
+            ("thrust_ideal", "N", "Ideal Thrust"),
+            ("specific_impulse", "s", "Specific Impulse"),
+            ("throat_diameter", "m", "Throat Diameter"),
+            ("exit_diameter", "m", "Exit Diameter (full expansion)"),
+            ("area_ratio", "-", "Area Ratio A3/A21"),
+            ("mdot_air", "kg/s", "Air Mass Flow"),
+            ("capture_area", "m^2", "Capture Area"),
+            ("fuel_air_ratio", "-", "Fuel-Air Ratio"),
+            ("mach_exit", "-", "Exit Mach"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Flight Mach",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Flight Mach number (> 1). Blank uses design_mach",
+                min_value=1.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="altitude_m",
+                label="Flight Altitude",
+                symbol="h",
+                unit="m",
+                param_type=float,
+                default=GrzywkaNozzleAnalysis.DEFAULT_ALTITUDE_M,
+                description="ISA flight altitude above MSL",
+                min_value=0.0,
+                max_value=80000.0,
+            ),
+            SolverParam(
+                name="tt4",
+                label="Combustor Exit Temp",
+                symbol="Tt₄",
+                unit="K",
+                param_type=float,
+                default=None,
+                description="Combustor-exit total temperature. Blank uses combustor_temp",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="capture_area",
+                label="Capture Area",
+                symbol="A_c",
+                unit="m^2",
+                param_type=float,
+                default=None,
+                description="Inlet capture area, full capture. Blank uses the TOML throat",
+                min_value=0.0,
+                placeholder="throat",
+            ),
+            SolverParam(
+                name="mdot_air",
+                label="Air Mass Flow",
+                symbol="ṁ_air",
+                unit="kg/s",
+                param_type=float,
+                default=None,
+                description="Air mass flow instead of a capture area. Blank uses the TOML throat",
+                min_value=0.0,
+                placeholder="throat",
+            ),
+            SolverParam(
+                name="eta_inlet",
+                label="Inlet Recovery",
+                symbol="η_i",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Inlet total-pressure recovery. Blank uses inlet_recovery",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_ETA_INLET}",
+            ),
+            SolverParam(
+                name="pi_cc",
+                label="Combustor pt Ratio",
+                symbol="π_cc",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Combustor total-pressure ratio. Blank uses combustor_pressure_ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_PI_CC}",
+            ),
+            SolverParam(
+                name="pi_nozzle",
+                label="Nozzle pt Ratio",
+                symbol="π_n",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Nozzle total-pressure ratio. Blank uses nozzle_pressure_ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_PI_NOZZLE}",
+            ),
+            SolverParam(
+                name="eta_b",
+                label="Combustion Efficiency",
+                symbol="η_b",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Fraction of fuel energy released. Blank uses combustion_efficiency",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"TOML/{HeiserPrattCycleAnalysis.DEFAULT_ETA_B}",
+            ),
+            SolverParam(
+                name="gamma_hot",
+                label="Products Gamma",
+                symbol="γ_t",
+                unit="-",
+                param_type=float,
+                default=None,
+                description=(
+                    f"Blank uses {HeiserPrattCycleAnalysis.DEFAULT_GAMMA_HOT} for kerosene. "
+                    "Required for other fuels"
+                ),
+                min_value=1.0,
+                placeholder="kerosene",
+            ),
+            SolverParam(
+                name="fuel_lhv",
+                label="Fuel Heating Value",
+                symbol="LHV",
+                unit="J/kg",
+                param_type=float,
+                default=None,
+                description=f"Blank uses {LHV_KEROSENE:.3g} for kerosene. Required for other fuels",
+                min_value=0.0,
+                placeholder="kerosene",
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="conical_inlet",
         name="Conical Spike Inlet (Taylor-Maccoll)",
         discipline="PROPULSION",
@@ -1022,6 +1182,15 @@ def check_solver_compatibility(
         ramjet_name, ramjet = next(iter(ramjets.items()))
         return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
+    if descriptor.solver_id == "grzywka_nozzle":
+        ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
+        if len(ramjets) != 1:
+            return False, "Needs exactly one ramjet (RamjetEngine)"
+        ramjet_name, ramjet = next(iter(ramjets.items()))
+        if ramjet.nozzle_throat_diameter is None:
+            return True, f"Ready ({ramjet_name}); no nozzle throat, so set a capture area or air flow"
+        return True, f"Ready ({ramjet_name}, throat {ramjet.nozzle_throat_diameter:g} m)"
+
     if descriptor.solver_id == "multi_shock_inlet":
         ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
         if len(ramjets) != 1:
@@ -1124,6 +1293,8 @@ def execute_solver(
         _save_multi_shock_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, RamjetCycleResults):
         _save_cycle_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, GrzywkaCycleResults):
+        _save_nozzle_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, BarrowmanStabilityResults):
         _save_stability_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, AckeretFinResults):
@@ -1147,6 +1318,11 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
         return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
     if isinstance(results, RamjetCycleResults) and results.assumed:
         return (f"Placeholder values used for: {', '.join(results.assumed)}",)
+    if isinstance(results, GrzywkaCycleResults):
+        warnings = list(results.notes)
+        if results.assumed_losses:
+            warnings.append(f"Placeholder values used for: {', '.join(results.assumed_losses)}")
+        return tuple(warnings)
     if isinstance(results, (ConicalInletResults, MultiShockInletResults)):
         return results.assumptions
     if isinstance(
@@ -1210,6 +1386,17 @@ def _save_cycle_artifacts(
     points = mattingly.run_mach_sweep(results)
     logger.save_figure(mattingly.plot_mach_sweep(points, results), "cycle_vs_mach.png", show=False)
     logger.save_artifact("cycle_vs_mach.csv", mattingly.format_mach_sweep_csv(points))
+
+
+def _save_nozzle_artifacts(
+    logger: FlightLogger, results: GrzywkaCycleResults, run_sweep: bool
+) -> None:
+    """Save the nozzle-sizing-vs-Mach figure and CSV."""
+    if not run_sweep:
+        return
+    points = grzywka.run_mach_sweep(results)
+    logger.save_figure(grzywka.plot_mach_sweep(points, results), "nozzle_vs_mach.png", show=False)
+    logger.save_artifact("nozzle_vs_mach.csv", grzywka.format_mach_sweep_csv(points))
 
 
 def _save_multi_shock_artifacts(

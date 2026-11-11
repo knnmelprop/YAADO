@@ -272,3 +272,16 @@ def test_bare_mattingly_rejects_a_cold_combustor(capsys: pytest.CaptureFixture[s
     ]
     assert _exit_code(argv) == 1
     assert "adds no heat" in capsys.readouterr().err
+
+
+def test_bare_grzywka_nozzle_with_capture_area(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify the nozzle sizing runs from the bare CLI with a capture area."""
+    argv = [
+        "-b", "--vehicle", str(ALVRJ_PATH), "--solver", "grzywka_nozzle",
+        "--no-log", "--json", "--set", "capture_area=0.05",
+    ]
+    assert _exit_code(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["results"]["capture_area"] == pytest.approx(0.05)
+    assert payload["units"]["exit_diameter"] == "m"
+    assert payload["results"]["area_ratio"] > 1.0

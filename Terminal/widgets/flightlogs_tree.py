@@ -72,6 +72,7 @@ class FlightLogsTree(Tree[Path | None]):
         "point_mass_3dof": "Point Mass 3-DOF",
         "heiser_pratt_cycle": "Ramjet Cycle",
         "mattingly_cycle": "Parametric Cycle",
+        "grzywka_nozzle": "Nozzle Sizing",
         "conical_inlet": "Conical Inlet",
         "multi_shock_inlet": "Multi-Ramp Inlet",
         "barrowman_stability": "Barrowman Stability",

@@ -46,6 +46,9 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle 
 # Parametric cycle per unit air flow: specific thrust, TSFC and efficiencies at Mach 3
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver mattingly_cycle --set mach=3 --set tt4=2200
 
+# Nozzle throat and exit sized for full expansion, for a 0.05 m^2 inlet capture area
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver grzywka_nozzle --set capture_area=0.05
+
 # Inlet recovery of a 21 deg conical spike at the ramjet's design Mach
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver conical_inlet --set cone_half_angle_deg=21
 
