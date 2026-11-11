@@ -249,3 +249,26 @@ def test_bare_multi_shock_inlet_with_given_ramps(capsys: pytest.CaptureFixture[s
     payload = json.loads(capsys.readouterr().out)
     assert payload["params"]["deflections_deg"] == [8.0, 9.0, 10.0]
     assert payload["results"]["total_turning"] == pytest.approx(27.0)
+
+
+def test_bare_mattingly_cycle_run(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify the parametric cycle runs from the bare CLI with overrides."""
+    argv = [
+        "-b", "--vehicle", str(ALVRJ_PATH), "--solver", "mattingly_cycle",
+        "--no-log", "--json", "--set", "mach=3.0", "--set", "tt4=2200",
+    ]
+    assert _exit_code(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["params"]["mach"] == 3.0
+    assert payload["units"]["specific_thrust"] == "N*s/kg"
+    assert payload["results"]["specific_thrust"] > 0.0
+
+
+def test_bare_mattingly_rejects_a_cold_combustor(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify a combustor temperature below the flight total temperature is a clear error."""
+    argv = [
+        "-b", "--vehicle", str(ALVRJ_PATH), "--solver", "mattingly_cycle",
+        "--no-log", "--set", "mach=6", "--set", "tt4=1500",
+    ]
+    assert _exit_code(argv) == 1
+    assert "adds no heat" in capsys.readouterr().err

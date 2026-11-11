@@ -43,6 +43,9 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver point_mass_3dof_boo
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver heiser_pratt_cycle \
          --set altitude_m=12000 --set eta_inlet=0.8
 
+# Parametric cycle per unit air flow: specific thrust, TSFC and efficiencies at Mach 3
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver mattingly_cycle --set mach=3 --set tt4=2200
+
 # Inlet recovery of a 21 deg conical spike at the ramjet's design Mach
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver conical_inlet --set cone_half_angle_deg=21
 
