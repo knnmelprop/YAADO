@@ -43,6 +43,10 @@ YAADO is a civilian design tool for science clubs. Keep code, docstrings, commen
 3. **Google-style docstrings** (in English) for every public class and method.
 4. **Inheritance for Solvers, Composition for Data:** Extend solvers by inheriting from `BaseAnalysis`. However, vehicles and Pydantic schemas must be built using Composition (Lego bricks), not deep inheritance trees.
 5. After every change, run tests: `uv run pytest --tb=short`.
+6. **Math in Markdown must render on GitHub.** GitHub processes Markdown before math, so bare `$$…$$` and `$…$` lose `_`, `*` and backslash escapes such as `\,`.
+   * Write display equations as a ```` ```math ```` fenced block with blank lines around it. Do not put one inside a list item that also contains inline math; place it after the list.
+   * Write inline math as `` $`…`$ ``, and write `<` and `>` in math as `\lt` and `\gt`.
+   * Check the result with `gh api markdown -f mode=gfm -F text=@<file>.md`. Every formula must come back unchanged inside a `<math-renderer>` element.
 
 ## Obligatory Coding Principles (Mandatory)
 
