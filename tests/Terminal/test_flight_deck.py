@@ -8,6 +8,7 @@ that zero emojis are used anywhere in the Flight Deck UI.
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -287,7 +288,8 @@ def test_flight_deck_run_solver_execution() -> None:
 def test_number_formatting() -> None:
     """Verify formatting of numerical output telemetry."""
     assert FlightDeckView._format_number(0.0) == "0"
-    assert FlightDeckView._format_number(125000.0, "Pa") == "125.00"
+    assert FlightDeckView._format_number(125000.0, "Pa") == "125,000"
+    assert FlightDeckView._format_number(2.5e7, "Pa") == "2.500e+07"
     assert FlightDeckView._format_number(285.456, "m/s") == "285.5"
     assert FlightDeckView._format_number(0.8734, "-") == "0.873"
     assert FlightDeckView._format_number("text") == "text"
@@ -622,10 +624,10 @@ def test_flight_deck_solver_form_scrollable() -> None:
             assert form is not None
             assert not form.has_class("-hidden")
 
-            # Check that header contains requirements
-            header = form.query_one("#solver-form-header", Static)
-            header_text = str(header.render())
-            assert "booster motor" in header_text.lower() and "solidmotor" in header_text.lower()
+            # Requirements follow the parameters, in the footer
+            footer = form.query_one("#solver-form-footer", Static)
+            footer_text = str(footer.render())
+            assert "booster motor" in footer_text.lower() and "solidmotor" in footer_text.lower()
 
             # Verify that form content overflows visible height and is scrollable
             assert form.virtual_size.height > form.size.height
@@ -1168,5 +1170,38 @@ def test_grzywka_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyP
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Exit Diameter (full expansion)" in content
             assert "Throat Diameter" in content
+
+    asyncio.run(_test())
+
+
+def test_parameter_hints_wrap_instead_of_being_cut(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """At the minimum terminal size, every hint is shown in full on its own wrapping line."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(110, 28)) as pilot:
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            for desc in REPAIRED_SOLVERS:
+                tile = fd.query_one(f"#tile-solver-{desc.solver_id}", SolverTile)
+                tile.scroll_visible(animate=False)
+                await pilot.pause(0.05)
+                await pilot.click(tile)
+                await app.workers.wait_for_complete()
+                await pilot.pause(0.2)
+                for param in desc.parameters:
+                    hint = form.query_one(f"#param-hint-{param.name}", Static)
+                    width = hint.content_size.width
+                    assert width >= 20, (desc.solver_id, param.name, width)
+                    needed = len(textwrap.wrap(param.description, width))
+                    assert str(hint.render()) == param.description
+                    assert hint.content_size.height >= needed, (desc.solver_id, param.name)
 
     asyncio.run(_test())

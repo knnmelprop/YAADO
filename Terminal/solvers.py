@@ -505,12 +505,15 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
             ),
             SolverParam(
                 name="pi_d_max",
-                label="Diffuser pt Ratio (no shocks)",
+                label="Diffuser pt Ratio",
                 symbol="π_d,max",
                 unit="-",
                 param_type=float,
                 default=None,
-                description="pi_d = pi_d_max x MIL-E-5007D term. Blank derives it from inlet_recovery",
+                description=(
+                    "Diffuser ratio without shock losses; pi_d = pi_d_max x MIL-E-5007D term. "
+                    "Blank derives it from inlet_recovery"
+                ),
                 min_value=0.0,
                 max_value=1.0,
                 placeholder=f"TOML/{MattinglyCycleAnalysis.DEFAULT_PI_D_MAX}",

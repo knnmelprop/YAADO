@@ -119,8 +119,6 @@ class SolverParamsForm(VerticalScroll):
                 f"[dim]{descriptor.discipline}[/dim]"
             )
 
-        header_lines.append("")
-
         if vehicle_name:
             status_tag = (
                 f"[bold #10b981][READY][/bold #10b981]  [dim]{escape(compatibility_msg)}[/dim]"
@@ -136,12 +134,6 @@ class SolverParamsForm(VerticalScroll):
             )
 
         header_lines.append("")
-        header_lines.append("[bold cyan]Description:[/bold cyan]")
-        header_lines.append(f"  {descriptor.description}")
-        header_lines.append("")
-        header_lines.append("[bold cyan]Requirements:[/bold cyan]")
-        header_lines.append(f"  {descriptor.required_components_desc}")
-        header_lines.append("")
         header_lines.append("[bold cyan]Solver Parameters (Tune & Run):[/bold cyan]")
         return "\n".join(header_lines)
 
@@ -150,7 +142,15 @@ class SolverParamsForm(VerticalScroll):
         descriptor: SolverDescriptor,
         stage_index: int | None,
     ) -> str:
-        output_lines: list[str] = ["", "[bold cyan]Primary Outputs:[/bold cyan]"]
+        output_lines: list[str] = [
+            "[bold cyan]Description:[/bold cyan]",
+            f"  {escape(descriptor.description)}",
+            "",
+            "[bold cyan]Requirements:[/bold cyan]",
+            f"  {escape(descriptor.required_components_desc)}",
+            "",
+            "[bold cyan]Primary Outputs:[/bold cyan]",
+        ]
         for _, f_unit, f_label in descriptor.headline_outputs:
             u_str = f" [{f_unit}]" if f_unit and f_unit != "-" else ""
             output_lines.append(f"  • {f_label}{u_str}")
@@ -298,16 +298,22 @@ class SolverParamsForm(VerticalScroll):
                 )
 
             unit_str = param.unit if param.unit != "bool" else ""
-            hint_str = escape(param.description)
 
             row = Horizontal(
                 Static(label_text, classes="form-label", markup=False),
                 input_widget,
-                Static(unit_str, classes="form-unit"),
-                Static(hint_str, classes="form-hint"),
+                Static(unit_str, classes="form-unit", markup=False),
                 classes="form-row",
             )
             widgets_to_mount.append(row)
+            widgets_to_mount.append(
+                Static(
+                    param.description,
+                    id=f"param-hint-{param.name}",
+                    classes="form-hint",
+                    markup=False,
+                )
+            )
             widgets_to_mount.append(
                 Static("", id=f"param-err-{param.name}", classes="form-error -hidden")
             )

@@ -579,7 +579,7 @@ ComponentTile.-dragging {
     background: transparent;
     color: $yaado-text-muted;
     text-style: bold;
-    padding: 0 1;
+    padding: 0;
     margin-right: 1;
     text-align: center;
 }
@@ -632,10 +632,11 @@ ComponentTile.-dragging {
 
 #flightdeck-pipeline-card {
     height: 1fr;
+    min-height: 9;
 }
 
 #flightdeck-results-card {
-    height: 1fr;
+    height: 2fr;
     margin-bottom: 1;
 }
 
@@ -821,8 +822,10 @@ PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--o
 }
 
 #flightdeck-params-form .form-label {
-    width: 28;
-    height: 1;
+    width: 1fr;
+    min-width: 14;
+    max-width: 32;
+    height: auto;
     color: $yaado-text-muted;
     text-style: bold;
 }
@@ -884,9 +887,12 @@ PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--o
 }
 
 #flightdeck-params-form .form-hint {
-    height: 1;
+    width: 100%;
+    height: auto;
     color: $yaado-text-disabled;
-    padding-left: 1;
+    padding-left: 2;
+    margin-bottom: 0;
+    text-wrap: wrap;
 }
 
 #flightdeck-params-form .form-error {

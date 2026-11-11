@@ -462,7 +462,7 @@ class FlightDeckView(Container):
             # Right column: Previous runs & historical logs
             runs_card = Container(id="flightdeck-runs-card", classes="cockpit-card")
             runs_card.border_title = "FlightLogs History"
-            runs_card.border_subtitle = "↵ View  o Open  f Folder  d Delete"
+            runs_card.border_subtitle = "↵ View  o  f  d"
             with runs_card:
                 yield FlightLogsTree(id="flightdeck-runs-tree", logs_root=self.logs_root)
 
@@ -651,7 +651,9 @@ class FlightDeckView(Container):
 
             if run_dir is not None:
                 lines.append("")
-                lines.append(f"[bold cyan]Artifacts Saved:[/bold cyan] [dim]{run_dir}[/dim]")
+                lines.append("[bold cyan]Artifacts Saved:[/bold cyan]")
+                lines.append(f"  [dim]{escape(str(run_dir.parent))}/[/dim]")
+                lines.append(f"  [dim]{escape(run_dir.name)}[/dim]")
 
             lines.append("")
             lines.append(
@@ -713,10 +715,10 @@ class FlightDeckView(Container):
         num = float(val)
         if num == 0.0:
             return "0"
-        if unit == "Pa" and abs(num) >= 1000:
-            return f"{num / 1000:.2f}"
-        if abs(num) < 0.001 or abs(num) >= 1e6:
+        if abs(num) < 0.001 or abs(num) >= 1e7:
             return f"{num:.3e}"
+        if abs(num) >= 1000:
+            return f"{num:,.0f}"
         if abs(num) >= 100:
             return f"{num:.1f}"
         if abs(num) < 0.1:
@@ -751,7 +753,7 @@ class FlightDeckView(Container):
             if not self.pipeline:
                 pipeline_list.add_option(
                     Option(
-                        "[dim]Pipeline is empty. Highlight a solver and press ↵ Enter to stage.[/dim]",
+                        "[dim]Empty. Select a solver, press a to stage.[/dim]",
                         id="empty",
                         disabled=True,
                     )

@@ -77,7 +77,7 @@ class MainView(Container):
 
                 flightlogs_card = Container(id="flightlogs-card", classes="cockpit-card")
                 flightlogs_card.border_title = "FlightLogs"
-                flightlogs_card.border_subtitle = "↵ View  o Open  f Folder  d Delete"
+                flightlogs_card.border_subtitle = "↵ View  o Open  f Dir  d Del"
                 with flightlogs_card:
                     yield FlightLogsTree(id="flightlogs-tree")
                     btn_fl = Button("+ Run Analysis", id="new-analysis-btn")
