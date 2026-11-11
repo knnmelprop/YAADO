@@ -18,6 +18,7 @@ from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
     HeiserPrattResults,
+    MultiShockInletResults,
 )
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
@@ -300,3 +301,30 @@ def test_execute_conical_inlet_saves_recovery_sweep(
     assert (run_dir / "figures" / "recovery_vs_mach.png").is_file()
     assert (run_dir / "artifacts" / "recovery_vs_mach.csv").is_file()
     assert any("placeholder" in w for w in run.warnings)
+
+
+def test_tuple_param_parses_a_comma_list_with_bounds() -> None:
+    """Verify a tuple parameter reads comma-separated floats and checks each bound."""
+    param = _param(tuple, min_value=0.0, max_value=45.0)
+    assert param.parse("7.6, 8.5,9") == (7.6, 8.5, 9.0)
+    with pytest.raises(ValueError):
+        param.parse("7.6, 50")
+    with pytest.raises(ValueError):
+        param.parse(" , ")
+
+
+def test_execute_multi_shock_inlet_saves_design_curves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a logged multi-ramp run saves the design figure and CSV."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    monkeypatch.chdir(tmp_path)
+    descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "multi_shock_inlet")
+
+    run = execute_solver(descriptor, vehicle, {"n_oblique_shocks": 4})
+
+    assert isinstance(run.results, MultiShockInletResults)
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    assert (run_dir / "figures" / "inlet_design.png").is_file()
+    assert (run_dir / "artifacts" / "inlet_design.csv").is_file()

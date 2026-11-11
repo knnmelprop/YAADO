@@ -248,3 +248,72 @@ class InletMachPoint:
     recovery: Dimensionless
     mil_e_5007d_recovery: Dimensionless
     attached: bool
+
+
+@dataclass(frozen=True)
+class ShockChain:
+    """External compression by oblique shocks, a terminal normal shock and a diffuser.
+
+    Attributes:
+        deflections: Flow deflection of each oblique shock (ramp angle increment).
+        shock_angles: Angle of each oblique shock to its upstream flow.
+        mach_stages: Mach number upstream of each shock, then before the normal shock.
+        pt_oblique: Total-pressure ratio of each oblique shock.
+        pt_normal: Total-pressure ratio of the terminal normal shock.
+        pt_diffuser: Total-pressure ratio of the subsonic diffuser.
+        recovery: Overall total-pressure recovery pt2/pt0.
+        detached: True if a stage had no attached oblique shock; the remaining
+            compression is then a normal shock at that stage's Mach number.
+    """
+
+    deflections: tuple[Degrees, ...]
+    shock_angles: tuple[Degrees, ...]
+    mach_stages: tuple[Dimensionless, ...]
+    pt_oblique: tuple[Dimensionless, ...]
+    pt_normal: Dimensionless
+    pt_diffuser: Dimensionless
+    recovery: Dimensionless
+    detached: bool
+
+    @property
+    def mach_before_normal(self) -> Dimensionless:
+        """Mach number ahead of the terminal normal shock."""
+        return self.mach_stages[-1]
+
+    @property
+    def total_turning(self) -> Degrees:
+        """Sum of the oblique-shock deflections."""
+        return sum(self.deflections)
+
+
+@dataclass(frozen=True)
+class MultiShockInletResults(BaseAnalysisResults):
+    """Recovery of a multi-ramp external-compression inlet.
+
+    Attributes:
+        mach: Flight Mach number.
+        chain: The shock chain.
+        optimized: True if the deflections are the equal-normal-Mach optimum.
+        recovery: Overall total-pressure recovery pt2/pt0.
+        mil_e_5007d_recovery: MIL-E-5007D reference recovery at ``mach``.
+        recovery_margin: ``recovery - mil_e_5007d_recovery``.
+        total_turning: Sum of the ramp deflections.
+        mach_before_normal: Mach number ahead of the terminal normal shock.
+        assumptions: Modeling assumptions and flags for this run.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "recovery",
+        "mil_e_5007d_recovery",
+        "total_turning",
+    )
+
+    mach: Dimensionless
+    chain: ShockChain
+    optimized: bool
+    recovery: Dimensionless
+    mil_e_5007d_recovery: Dimensionless
+    recovery_margin: Dimensionless
+    total_turning: Degrees
+    mach_before_normal: Dimensionless
+    assumptions: tuple[str, ...] = ()

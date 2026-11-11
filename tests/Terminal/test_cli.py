@@ -236,3 +236,16 @@ def test_bare_conical_inlet_run(capsys: pytest.CaptureFixture[str]) -> None:
     rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()}
     assert 0.5 < float(rows["recovery"][0]) < 1.0
     assert rows["shock_angle"][1] == "deg"
+
+
+def test_bare_multi_shock_inlet_with_given_ramps(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify ramp angles pass through --set as a comma list."""
+    alvrj = Path("Hangar/examples/ALVRJ/ALVRJ.toml").resolve()
+    argv = [
+        "-b", "--vehicle", str(alvrj), "--solver", "multi_shock_inlet",
+        "--no-log", "--json", "--set", "deflections_deg=8,9,10",
+    ]
+    assert _exit_code(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["params"]["deflections_deg"] == [8.0, 9.0, 10.0]
+    assert payload["results"]["total_turning"] == pytest.approx(27.0)

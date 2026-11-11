@@ -39,6 +39,7 @@ from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
 from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
     HeiserPrattResults,
+    MultiShockInletResults,
 )
 from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     HeiserPrattCycleAnalysis,
@@ -47,10 +48,11 @@ from YAADO_Core.modules.powerplant.cycle_methods.heiser_pratt import (
     plot_mach_sweep,
     run_mach_sweep,
 )
-from YAADO_Core.modules.powerplant.inlet_methods import taylor_maccoll
+from YAADO_Core.modules.powerplant.inlet_methods import taylor_maccoll, wedge
 from YAADO_Core.modules.powerplant.inlet_methods.taylor_maccoll import (
     ConicalInletAnalysis,
 )
+from YAADO_Core.modules.powerplant.inlet_methods.wedge import MultiShockInletAnalysis
 from YAADO_Core.modules.stability_control.containers import (
     AckeretFinResults,
     BarrowmanExtendedResults,
@@ -90,7 +92,7 @@ class SolverParam:
         label: Human-readable form label.
         symbol: Compact aerospace symbol (e.g. γ₀, h₀, M, α).
         unit: Canonical SI unit string (e.g. deg, m, s).
-        param_type: Python type (float, int, bool, str).
+        param_type: Python type (float, int, bool, str, or tuple for comma-separated floats).
         default: Default value in canonical SI units. ``None`` makes the parameter
             optional: it may be left blank and the solver resolves the value.
         description: Informative parameter explanation tooltip/hint.
@@ -133,13 +135,24 @@ class SolverParam:
             raise ValueError("Value must be true or false")
         if self.param_type is str:
             return text
+        if self.param_type is tuple:
+            values = tuple(float(item) for item in text.split(",") if item.strip())
+            if not values:
+                raise ValueError("Enter one or more comma-separated numbers")
+            for item in values:
+                self._check_bounds(item)
+            return values
 
         value: float = int(text) if self.param_type is int else float(text)
+        self._check_bounds(value)
+        return value
+
+    def _check_bounds(self, value: float) -> None:
+        """Raise ValueError if ``value`` is outside the parameter bounds."""
         if self.min_value is not None and value < self.min_value:
             raise ValueError(f"Value must be >= {self.min_value}")
         if self.max_value is not None and value > self.max_value:
             raise ValueError(f"Value must be <= {self.max_value}")
-        return value
 
 
 @dataclass(frozen=True)
@@ -489,6 +502,75 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="multi_shock_inlet",
+        name="Multi-Ramp Inlet (Oblique Shocks)",
+        discipline="PROPULSION",
+        fidelity=MultiShockInletAnalysis.fidelity,
+        solver_cls=MultiShockInletAnalysis,
+        description=(
+            "Total-pressure recovery of an external-compression inlet with several oblique "
+            "shocks, a terminal normal shock and a diffuser. Without given ramp angles it finds "
+            "the Oswatitsch optimum (equal normal Mach). Also shows how many shocks reach "
+            "MIL-E-5007D."
+        ),
+        required_components_desc="One ramjet (RamjetEngine) for the design Mach, or a Mach set below.",
+        headline_outputs=(
+            ("recovery", "-", "Total-Pressure Recovery pt2/pt0"),
+            ("mil_e_5007d_recovery", "-", "MIL-E-5007D Reference"),
+            ("recovery_margin", "-", "Margin to Reference"),
+            ("total_turning", "deg", "Total Ramp Turning"),
+            ("mach_before_normal", "-", "Mach Before Normal Shock"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach",
+                label="Flight Mach",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Flight Mach number (> 1). Blank uses design_mach",
+                min_value=1.0,
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="n_oblique_shocks",
+                label="Oblique Shocks",
+                symbol="n",
+                unit="-",
+                param_type=int,
+                default=MultiShockInletAnalysis.DEFAULT_N_OBLIQUE,
+                description="Number of ramps for the optimum schedule",
+                min_value=0,
+                max_value=MultiShockInletAnalysis.MAX_N_OBLIQUE,
+            ),
+            SolverParam(
+                name="deflections_deg",
+                label="Ramp Angles",
+                symbol="θ_i",
+                unit="deg",
+                param_type=tuple,
+                default=None,
+                description="Comma-separated ramp increments, e.g. 7.6, 8.5. Blank uses the optimum",
+                min_value=0.0,
+                max_value=45.0,
+                placeholder="optimum",
+            ),
+            SolverParam(
+                name="pi_diffuser",
+                label="Diffuser pt Ratio",
+                symbol="π_d",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Subsonic-diffuser total-pressure ratio",
+                min_value=0.0,
+                max_value=1.0,
+                placeholder=f"{MultiShockInletAnalysis.DEFAULT_PI_DIFFUSER}",
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="barrowman_stability",
         name="Barrowman Static Stability",
         discipline="STABILITY & CONTROL",
@@ -787,6 +869,13 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no nozzle throat, so set the air mass flow"
         return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
 
+    if descriptor.solver_id == "multi_shock_inlet":
+        ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
+        if len(ramjets) != 1:
+            return False, "Needs exactly one ramjet (RamjetEngine)"
+        ramjet_name, ramjet = next(iter(ramjets.items()))
+        return True, f"Ready ({ramjet_name}, design Mach {ramjet.design_mach:g})"
+
     if descriptor.solver_id == "conical_inlet":
         ramjets = vehicle.get_components_by_type(RAMJET_COMPONENTS)
         if len(ramjets) != 1:
@@ -878,6 +967,8 @@ def execute_solver(
         _save_ramjet_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, ConicalInletResults):
         _save_inlet_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, MultiShockInletResults):
+        _save_multi_shock_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, BarrowmanStabilityResults):
         _save_stability_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, AckeretFinResults):
@@ -899,7 +990,7 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
     """List the conditions that limit how far the user can trust a run."""
     if isinstance(results, HeiserPrattResults) and results.assumed_losses:
         return (f"Placeholder values used for: {', '.join(results.assumed_losses)}",)
-    if isinstance(results, ConicalInletResults):
+    if isinstance(results, (ConicalInletResults, MultiShockInletResults)):
         return results.assumptions
     if isinstance(
         results, (BarrowmanStabilityResults, DatcomStabilityResults, BarrowmanExtendedResults)
@@ -951,6 +1042,22 @@ def _save_inlet_artifacts(
         taylor_maccoll.plot_recovery_vs_mach(points, results), "recovery_vs_mach.png", show=False
     )
     logger.save_artifact("recovery_vs_mach.csv", taylor_maccoll.format_mach_sweep_csv(points))
+
+
+def _save_multi_shock_artifacts(
+    logger: FlightLogger, results: MultiShockInletResults, run_sweep: bool
+) -> None:
+    """Save the shock-count and off-design figure and CSV of a multi-ramp inlet run."""
+    if not run_sweep:
+        return
+    by_count = wedge.recovery_by_shock_count(
+        results.mach, results.chain.pt_diffuser, MultiShockInletAnalysis.MAX_N_OBLIQUE
+    )
+    by_mach = wedge.recovery_vs_mach(results)
+    logger.save_figure(
+        wedge.plot_design_curves(by_count, by_mach, results), "inlet_design.png", show=False
+    )
+    logger.save_artifact("inlet_design.csv", wedge.format_design_csv(by_count, by_mach))
 
 
 def _save_extended_artifacts(
