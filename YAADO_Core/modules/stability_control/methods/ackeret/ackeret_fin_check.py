@@ -29,7 +29,6 @@ Reference:
 
 from __future__ import annotations
 
-import json
 import math
 import sys
 from pathlib import Path
@@ -38,18 +37,12 @@ from typing import Any
 if __name__ == "__main__" and __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.stability_control.containers import RocketGeometry
 from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (
-    RocketGeometry,
-    load_geometry,
+    geometry_from_vehicle,
     nose_cn_alpha_and_cp,
     transition_cn_alpha_and_cp,
-)
-
-DEFAULT_VEHICLE_CONFIG = (
-    Path(__file__).resolve().parents[5]
-    / "Hangar"
-    / "generic_vehicle"
-    / "vehicle_config.yaml"
 )
 
 RESULTS_DIR = Path(__file__).resolve().parents[5] / "FlightLogs"
@@ -77,12 +70,12 @@ def ackeret_fin_cn_alpha_and_cp(
     if mach <= 1.0:
         raise ValueError(f"ackeret_fin_cn_alpha_and_cp requires mach > 1.0 (strictly supersonic, beta>0); got {mach}")
 
-    s = geometry.fin_span_m
-    cr = geometry.fin_root_chord_m
-    ct = geometry.fin_tip_chord_m
-    r = geometry.body_radius_m
-    d = geometry.d_ref_m
-    sweep_rad = math.radians(geometry.fin_sweep_deg)
+    s = geometry.tail_fins.span
+    cr = geometry.tail_fins.root_chord
+    ct = geometry.tail_fins.tip_chord
+    r = geometry.body_radius
+    d = geometry.d_ref
+    sweep_rad = math.radians(geometry.tail_fins.sweep)
 
     # Beta.
     beta = math.sqrt(mach**2 - 1.0)
@@ -112,7 +105,7 @@ def ackeret_fin_cn_alpha_and_cp(
     # For a rectangular fin (cr=ct), the spanwise centroid is at s/2.
     # For a trapezoidal fin, use (s/3)*((cr+2ct)/(cr+ct)).
     y_centroid = (s / 3.0) * ((cr + 2.0 * ct) / (cr + ct))
-    x_cp = geometry.fin_root_le_x_m + y_centroid * math.tan(sweep_rad) + 0.5 * c_mean
+    x_cp = geometry.tail_fins.root_le_x + y_centroid * math.tan(sweep_rad) + 0.5 * c_mean
 
     return cn_alpha, x_cp
 
@@ -144,7 +137,7 @@ def compute_whole_vehicle_sm_ackeret(
     x_cp_total = (cn_nose * x_nose + cn_trans * x_trans + cn_fin * x_fin) / cn_alpha_total
 
     # Static margin.
-    static_margin_cal = (x_cp_total - cg_from_nose_m) / geometry.d_ref_m
+    static_margin_cal = (x_cp_total - cg_from_nose_m) / geometry.d_ref
     stable_bool = static_margin_cal > 0.0
 
     return {
@@ -191,13 +184,13 @@ def write_markdown_report(
         fh.write("- **Fin-body interference**: `K_fb = 1 + R/(s+R)`.\n")
         fh.write("- **CP location**: 50% of mean chord (supersonic uniform-pressure).\n\n")
         fh.write("## Geometry\n\n")
-        fh.write(f"- Body diameter: {geometry.d_ref_m:.4f} m\n")
-        fh.write(f"- Total length: {geometry.total_length_m:.5f} m\n")
-        fh.write(f"- Fin span (exposed): {geometry.fin_span_m:.4f} m\n")
-        fh.write(f"- Fin root chord: {geometry.fin_root_chord_m:.4f} m\n")
-        fh.write(f"- Fin tip chord: {geometry.fin_tip_chord_m:.4f} m\n")
-        fh.write(f"- Fin sweep: {geometry.fin_sweep_deg:.2f} deg\n")
-        fh.write(f"- CG (config): {geometry.cg_from_nose_m:.4f} m from nose\n\n")
+        fh.write(f"- Body diameter: {geometry.d_ref:.4f} m\n")
+        fh.write(f"- Total length: {geometry.total_length:.5f} m\n")
+        fh.write(f"- Fin span (exposed): {geometry.tail_fins.span:.4f} m\n")
+        fh.write(f"- Fin root chord: {geometry.tail_fins.root_chord:.4f} m\n")
+        fh.write(f"- Fin tip chord: {geometry.tail_fins.tip_chord:.4f} m\n")
+        fh.write(f"- Fin sweep: {geometry.tail_fins.sweep:.2f} deg\n")
+        fh.write(f"- CG (config): {geometry.cg_from_nose:.4f} m from nose\n\n")
         fh.write(f"## Results at Ma {CRUISE_MACH} (cruise condition)\n\n")
         fh.write(f"- **Nose CN_alpha**: {ackeret_result['cn_alpha_nose']:.6f} [1/rad]\n")
         fh.write(
@@ -230,22 +223,22 @@ def write_markdown_report(
         )
         fh.write(
             "**Agreement criterion**: Ackeret fin CP should be within ~one caliber "
-            f"({geometry.d_ref_m:.4f} m) of the DATCOM fin CP, and both should "
+            f"({geometry.d_ref:.4f} m) of the DATCOM fin CP, and both should "
             "agree on sign (fins push CP aft, stabilizing).\n"
         )
 
 
-def main(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> dict[str, Any]:
+def main(vehicle: BaseVehicleConfig) -> dict[str, Any]:
     """Run the Ackeret fin hand-check at cruise Ma, config CG.
 
     Args:
-        config_path: Path to the ramjet-rocket ``vehicle_config.yaml``.
+        vehicle: Vehicle configuration.
 
     Returns:
         Result dict.
     """
-    geometry = load_geometry(config_path)
-    cg_from_nose_m = geometry.cg_from_nose_m  # Config CG (0.37 L).
+    geometry = geometry_from_vehicle(vehicle)
+    cg_from_nose_m = geometry.cg_from_nose  # Config CG (0.37 L).
     result = compute_whole_vehicle_sm_ackeret(geometry, CRUISE_MACH, cg_from_nose_m)
     write_markdown_report(geometry, result, MARKDOWN_PATH)
 
@@ -257,7 +250,3 @@ def main(config_path: Path | str = DEFAULT_VEHICLE_CONFIG) -> dict[str, Any]:
 
     return result
 
-
-if __name__ == "__main__":
-    res = main()
-    print(json.dumps(res, indent=2))

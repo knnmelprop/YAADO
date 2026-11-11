@@ -74,7 +74,7 @@ from __future__ import annotations
 import csv
 import math
 import sys
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -90,16 +90,21 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
 import numpy as np  # noqa: E402
 
-from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (  # noqa: E402
+from YAADO_Core.Foundation.analysis_base import (  # noqa: E402
+    AnalysisResults,
+    BaseAnalysis,
+    FidelityLevel,
+)
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
+from YAADO_Core.modules.stability_control.containers import (  # noqa: E402
     ComponentContribution,
     RocketGeometry,
     StabilityResult,
+)
+from YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability import (  # noqa: E402
     compute_stability_at_mach,
     geometry_from_vehicle,
-    load_geometry,
 )
-from YAADO_Core.Foundation.analysis_base import AnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
-from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
 
 # --------------------------------------------------------------------------
 # Named constants.
@@ -195,11 +200,11 @@ def body_planform_area_and_centroid_m(geometry: RocketGeometry) -> tuple[float, 
         Tuple of (total planform area [m^2], area-weighted centroid
         location [m from nose tip]).
     """
-    d1 = geometry.nose_base_diameter_m
-    d2 = geometry.d_ref_m
-    l_nose = geometry.nose_length_m
-    l_trans = geometry.transition_length_m
-    l_cyl = geometry.total_length_m - l_nose - l_trans
+    d1 = geometry.nose_base_diameter
+    d2 = geometry.d_ref
+    l_nose = geometry.nose_length
+    l_trans = 0.0  # shoulder is a step (see barrowman_stability)
+    l_cyl = geometry.total_length - l_nose - l_trans
 
     area_nose = 0.5 * d1 * l_nose
     x_nose = (2.0 / 3.0) * l_nose
@@ -243,12 +248,12 @@ def galejs_body_cn_alpha_and_cp(geometry: RocketGeometry) -> tuple[float, float]
     Returns:
         Tuple of (CN_alpha [1/rad, ref. A_ref], x_cp [m from nose]).
     """
-    r_body = geometry.body_radius_m
-    r_fin = geometry.fin_span_m
+    r_body = geometry.body_radius
+    r_fin = geometry.tail_fins.span
     k_body = 1.0 + r_body / (r_body + r_fin)
 
     a_planform, x_cp = body_planform_area_and_centroid_m(geometry)
-    a_ref = reference_area_m2(geometry.d_ref_m)
+    a_ref = reference_area_m2(geometry.d_ref)
     cn_alpha = 2.0 * k_body * (a_planform / a_ref)
     return cn_alpha, x_cp
 
@@ -298,7 +303,7 @@ def compute_extended_stability_at_mach(
 
     cn_alpha_extended = basic.cn_alpha_total + cn_body
     x_cp_extended_m = (
-        sum(c.cn_alpha * c.x_cp_m for c in basic.components) + cn_body * x_body
+        sum(c.cn_alpha * c.x_cp for c in basic.components) + cn_body * x_body
     ) / cn_alpha_extended
 
     return ExtendedStabilityResult(
@@ -381,26 +386,26 @@ def evaluate_span(
     Returns:
         A populated :class:`SweepRow`.
     """
-    g = replace(geometry, fin_span_m=fin_span_m)
+    g = geometry.with_tail_fin_span(fin_span_m)
     extended = compute_extended_stability_at_mach(g, mach)
     basic = extended.basic
 
     nose_component = next(c for c in basic.components if c.name == "nose")
-    fin_component = next(c for c in basic.components if c.name == "fins")
+    fin_component = next(c for c in basic.components if c.name == g.tail_fins.name)
 
-    sm_basic = static_margin_cal(basic.x_cp_m, geometry.cg_from_nose_m, g.d_ref_m)
+    sm_basic = static_margin_cal(basic.x_cp, geometry.cg_from_nose, g.d_ref)
     sm_extended = static_margin_cal(
-        extended.x_cp_extended_m, geometry.cg_from_nose_m, g.d_ref_m
+        extended.x_cp_extended_m, geometry.cg_from_nose, g.d_ref
     )
 
     return SweepRow(
-        fin_span_factor=fin_span_m / geometry.fin_span_m,
+        fin_span_factor=fin_span_m / geometry.tail_fins.span,
         fin_span_m=fin_span_m,
-        cp_nose_m=nose_component.x_cp_m,
-        cp_fin_m=fin_component.x_cp_m,
-        cp_body_m=extended.body.x_cp_m,
+        cp_nose_m=nose_component.x_cp,
+        cp_fin_m=fin_component.x_cp,
+        cp_body_m=extended.body.x_cp,
         cp_total_m=extended.x_cp_extended_m,
-        cg_m=geometry.cg_from_nose_m,
+        cg_m=geometry.cg_from_nose,
         sm_cal_basic=sm_basic,
         sm_cal_extended=sm_extended,
     )
@@ -428,7 +433,7 @@ def fin_span_sweep(
     """
     factors = np.linspace(factor_min, factor_max, n_points)
     return [
-        evaluate_span(geometry, float(f) * geometry.fin_span_m, mach) for f in factors
+        evaluate_span(geometry, float(f) * geometry.tail_fins.span, mach) for f in factors
     ]
 
 
@@ -463,16 +468,16 @@ def find_neutral_span_m(
     """
 
     def _sm_extended(span_m: float) -> float:
-        g = replace(geometry, fin_span_m=span_m)
+        g = geometry.with_tail_fin_span(span_m)
         ext = compute_extended_stability_at_mach(g, mach)
-        return static_margin_cal(ext.x_cp_extended_m, geometry.cg_from_nose_m, g.d_ref_m)
+        return static_margin_cal(ext.x_cp_extended_m, geometry.cg_from_nose, g.d_ref)
 
     def _sm_basic(span_m: float) -> float:
-        g = replace(geometry, fin_span_m=span_m)
+        g = geometry.with_tail_fin_span(span_m)
         res = compute_stability_at_mach(g, mach)
-        return static_margin_cal(res.x_cp_m, geometry.cg_from_nose_m, g.d_ref_m)
+        return static_margin_cal(res.x_cp, geometry.cg_from_nose, g.d_ref)
 
-    span_hi = NEUTRAL_SPAN_SEARCH_MAX_FACTOR * geometry.fin_span_m
+    span_hi = NEUTRAL_SPAN_SEARCH_MAX_FACTOR * geometry.tail_fins.span
 
     root = _bisect_for_root(_sm_extended, NEUTRAL_SPAN_SEARCH_MIN_M, span_hi)
     if root is not None:
@@ -765,27 +770,23 @@ class BarrowmanExtendedAnalysis(BaseAnalysis):
 
 
 def run(
-    geometry: RocketGeometry | None = None,
+    geometry: RocketGeometry,
     csv_path: Path | str = CSV_PATH,
     png_path: Path | str = PNG_PATH,
 ) -> dict[str, Any]:
     """Run the full sensitivity analysis and write the CSV + PNG artifacts.
 
     Args:
-        geometry: Rocket geometry; loaded from the default YAML config
-            via ``barrowman_stability.load_geometry`` if omitted.
+        geometry: Rocket geometry, from ``barrowman_stability.geometry_from_vehicle``.
         csv_path: Destination CSV path.
         png_path: Destination PNG path.
 
     Returns:
         Dict of summary scalars (also embedded as CSV header comments).
     """
-    if geometry is None:
-        geometry = load_geometry()
-
     rows = fin_span_sweep(geometry)
 
-    yaml_row = evaluate_span(geometry, geometry.fin_span_m)
+    yaml_row = evaluate_span(geometry, geometry.tail_fins.span)
     sm_basic_cal = yaml_row.sm_cal_basic
     sm_extended_cal = yaml_row.sm_cal_extended
     delta_sm_cal = sm_extended_cal - sm_basic_cal
@@ -797,7 +798,7 @@ def run(
     header_comments = [
         "# YAADO vehicle -- extended Barrowman fin-span sensitivity "
         f"(Ma={COMPARISON_MACH})",
-        f"# YAML fin_span_m={geometry.fin_span_m:.4f} m -> "
+        f"# YAML fin_span_m={geometry.tail_fins.span:.4f} m -> "
         f"SM_basic={sm_basic_cal:.3f} cal, SM_extended={sm_extended_cal:.3f} cal, "
         f"delta_SM={delta_sm_cal:.3f} cal",
         f"# SM_extended vs Teltik CFD ({TELTIK_CFD_SM_CAL:.2f} cal): "
@@ -820,22 +821,8 @@ def run(
         "neutral_span_m": neutral_span_m,
         "neutral_span_variant": neutral_variant,
         "review_needed": review_needed,
-        "fin_span_yaml_m": geometry.fin_span_m,
+        "fin_span_yaml_m": geometry.tail_fins.span,
         "csv_path": csv_out,
         "png_path": png_out,
     }
 
-
-if __name__ == "__main__":
-    output = run()
-    print(f"SM_basic_cal      = {output['sm_basic_cal']:.3f}")
-    print(f"SM_extended_cal   = {output['sm_extended_cal']:.3f}")
-    print(f"delta_SM_cal      = {output['delta_sm_cal']:.3f}")
-    print(f"delta_vs_teltik   = {output['delta_vs_teltik_cal']:.3f}")
-    print(
-        f"neutral_span_m    = {output['neutral_span_m']:.4f} "
-        f"({output['neutral_span_variant']})"
-    )
-    print(f"review_needed     = {output['review_needed']}")
-    print(f"CSV written to    : {output['csv_path']}")
-    print(f"PNG written to    : {output['png_path']}")
