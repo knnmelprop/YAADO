@@ -2,7 +2,7 @@
 
 * **Method class**: `HeiserPrattCycleAnalysis` in [`heiser_pratt.py`](heiser_pratt.py)
 * **Fidelity**: Level 2 (1-D station cycle)
-* **Status**: Repaired and verified, like the [Mattingly parametric cycle](#mattingly-parametric-cycle) below. `grzywka.py` is not repaired.
+* **Status**: Repaired and verified, like the [Mattingly parametric cycle](#mattingly-parametric-cycle) and the [Grzywka nozzle sizing](#grzywka-combustor-and-nozzle-sizing) below.
 
 This module calculates the thrust of a ramjet at one flight condition. It uses a 1-D station model with one gas in the inlet and a different gas after the combustor. The nozzle has a finite area ratio, so the exit pressure can differ from the ambient pressure.
 
@@ -231,3 +231,55 @@ The tests in [`test_mattingly_cycle.py`](../../../../tests/YAADO_Core/modules/po
 * the two-gas energy balance;
 * that every loss lowers the specific thrust;
 * that the ALVRJ fuel-air ratio matches Heiser & Pratt.
+
+## Grzywka Combustor and Nozzle Sizing
+
+* **Method class**: `GrzywkaNozzleAnalysis` in [`grzywka.py`](grzywka.py)
+* **Fidelity**: Level 2 (1-D station model)
+
+Heiser & Pratt analyzes a nozzle that you already have. This analysis sizes one: it finds the choked throat that passes the flow, and the exit that expands it to ambient pressure at one flight condition. The stations follow Grzywka (*Analiza numeryczna komory spalania i dyszy silnika strumieniowego*, Politechnika Warszawska, 2022):
+
+| Station | Plane | Relation |
+| :---: | :--- | :--- |
+| 1 | Combustor inlet | $p_{t1} = \eta_{inlet} \, p_{t0}$, $T_{t1} = T_{t0}$ |
+| 2 | Combustor exit | $p_{t2} = \pi_{cc} \, p_{t1}$, $f = \dfrac{c_{p,t} T_{t4} - c_{p,c} T_{t1}}{\eta_b h - c_{p,t} T_{t4}}$ |
+| 21 | Throat, choked | $A_{21} = \dot m_{exit} / (\text{choked mass flux at } p_{t2}, T_{t4})$ |
+| 3 | Exit, $p_3 = p_0$ | $T_3 = T_{t4} (p_0/p_{tn})^{(\gamma_t - 1)/\gamma_t}$, $V_3 = \sqrt{2 c_{p,t} (T_{t4} - T_3)}$, $A_3 = \dot m_{exit} / (\rho_3 V_3)$ |
+
+The thrust $F = \dot m_{exit} V_3 - \dot m_{air} V_0$ has three levels. Each uses a different nozzle total pressure $p_{tn}$:
+* **Ideal:** $p_{t1}$.
+* **Combustor loss:** $p_{t2}$.
+* **Real:** $\pi_{nozzle} \, p_{t2}$. The exit size and the specific impulse refer to this level.
+
+### Air Flow
+
+The captured air flow comes from one source:
+1. **`capture_area`:** the freestream tube area, with full capture: $\dot m_{air} = \rho_0 V_0 A_c$.
+2. **`mdot_air`:** the air flow itself.
+3. **Neither:** the flow that the ramjet's `nozzle_throat_diameter` passes when choked, as in Heiser & Pratt. The sized throat is then the TOML throat. If the sized area ratio differs from the TOML `nozzle_area_ratio` by more than 10 %, the run warns that the TOML nozzle under- or overexpands the flow.
+
+The losses, Mach number, combustor temperature and fuel come from the ramjet, with the same fallbacks and placeholder warnings as Heiser & Pratt.
+
+### Errors
+
+These conditions stop the run with a clear message:
+* The combustor exit is at or below the flight total temperature.
+* The real nozzle total pressure is below the critical ratio $((\gamma_t + 1)/2)^{\gamma_t/(\gamma_t - 1)}$, so the throat cannot choke.
+* The cycle has no net thrust.
+
+### Run Artifacts
+
+A logged run saves `figures/nozzle_vs_mach.png` and `artifacts/nozzle_vs_mach.csv`, which cover Mach 1.5 to 4 at the run's capture area and losses. The capture area stays fixed, as for a real inlet. They show:
+* real thrust and specific impulse;
+* the throat and exit diameters that the flow needs;
+* the area ratio for full expansion.
+
+The figure shows how much a fixed nozzle is off its ideal size across the speed range.
+
+### Verification
+
+The tests in [`test_grzywka_cycle.py`](../../../../tests/YAADO_Core/modules/powerplant/test_grzywka_cycle.py) check:
+* the fully expanded exit and the energy balance by hand;
+* that the throat passes the flow when choked, and that the exit satisfies continuity at $p_0$;
+* the order of the three thrust levels;
+* that on the ALVRJ throat, the air flow and fuel-air ratio match Heiser & Pratt, and the fully expanded nozzle gives at least Heiser & Pratt's thrust.

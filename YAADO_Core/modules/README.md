@@ -9,6 +9,7 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | **Flight Dynamics** | `PointMass3DOFBoostAnalysis` | [`flight_dynamics/methods/point_mass_3dof.py`](flight_dynamics/methods/point_mass_3dof.py) | L0 | 3-DOF point-mass rocket boost trajectory simulation |
 | **Powerplant** | `HeiserPrattCycleAnalysis` | [`powerplant/cycle_methods/heiser_pratt.py`](powerplant/cycle_methods/heiser_pratt.py) | L2 | 1-D two-gas ramjet station cycle with finite nozzle area ratio |
 | **Powerplant** | `MattinglyCycleAnalysis` | [`powerplant/cycle_methods/mattingly.py`](powerplant/cycle_methods/mattingly.py) | L2 | Parametric real-ramjet cycle per unit air flow: specific thrust, TSFC and efficiencies vs. Mach |
+| **Powerplant** | `GrzywkaNozzleAnalysis` | [`powerplant/cycle_methods/grzywka.py`](powerplant/cycle_methods/grzywka.py) | L2 | Combustor and fully expanded nozzle sizing (throat and exit) with three thrust levels |
 | **Powerplant** | `ConicalInletAnalysis` | [`powerplant/inlet_methods/taylor_maccoll.py`](powerplant/inlet_methods/taylor_maccoll.py) | L0 | Single-cone inlet recovery with the Taylor-Maccoll conical shock |
 | **Powerplant** | `MultiShockInletAnalysis` | [`powerplant/inlet_methods/wedge.py`](powerplant/inlet_methods/wedge.py) | L0 | Multi-ramp external-compression inlet with the Oswatitsch optimum ramp schedule |
 | **Stability & Control** | `BarrowmanStabilityAnalysis` | [`stability_control/methods/barrowman/barrowman_stability.py`](stability_control/methods/barrowman/barrowman_stability.py) | L0 | Barrowman CP and static margin of a slender rocket with any number of fin sets |
@@ -22,7 +23,6 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | :--- | :--- | :--- | :---: | :--- |
 | **Airframe** | `OpenVSPExporter` | [`airframe/generator_methods/openvsp.py`](airframe/generator_methods/openvsp.py) | L1 | OpenVSP geometry generation |
 | **Airframe** | Gmsh Slicer | [`airframe/slicer_methods/gmsh.py`](airframe/slicer_methods/gmsh.py) | - | STEP cross-section slicing utility |
-| **Powerplant** | `GrzywkaCombustorNozzleAnalysis` | [`powerplant/cycle_methods/grzywka.py`](powerplant/cycle_methods/grzywka.py) | L2 | 1-D ramjet combustor and nozzle expansion |
 | **Wind Tunnel** | `XFOILAnalysis` | [`wind_tunnel/methods/xfoil/xfoil_runner.py`](wind_tunnel/methods/xfoil/xfoil_runner.py) | L0 / L1 | Airfoil polar analysis with Ackeret supersonic fallback |
 | **Wind Tunnel** | `AVLFinAnalysis` | [`wind_tunnel/methods/avl/avl_builder.py`](wind_tunnel/methods/avl/avl_builder.py) | L1 | Subsonic fin vortex lattice analysis (AVL) |
 | **Wind Tunnel** | `AVLAnalysis` | [`wind_tunnel/methods/avl/avl_wrapper.py`](wind_tunnel/methods/avl/avl_wrapper.py) | L1 | Subsonic wing vortex lattice analysis (AVL) |
