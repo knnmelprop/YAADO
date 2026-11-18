@@ -1,461 +1,925 @@
-"""Supersonic fin polar for the MELprop ramjet rocket (Ackeret fallback).
+"""Viscous section polar of one lifting surface with XFOIL.
 
-The MELprop ramjet rocket uses rectangular steel fins with a maximum
-thickness of 30 mm over a 176.8 mm chord (``t/c ~ 0.17``, see
-``Hangar/generic_vehicle/fusion_extraction_v6.yaml``). At the cruise
-design point the fins operate at Mach 1.5-3.5, where a sharp double-wedge
-(diamond) section is used to minimise wave drag.
+Runs Mark Drela's XFOIL in batch mode on the section of one wing or fin set picked from
+the vehicle: a panel method coupled with an integral boundary layer and e^n transition,
+with the Karman-Tsien compressibility correction. The chord Reynolds number comes from
+the surface's mean aerodynamic chord and the flight condition in the ISA atmosphere.
 
-**Why this is not an XFOIL wrapper in practice.** XFOIL is a panel +
-integral boundary-layer method valid only for incompressible/weakly
-compressible, subsonic-to-transonic flow (roughly Mach < 0.7-0.8). The
-fin cruise regime (Mach 1.5-3.5) is *outside XFOIL's domain of validity
-by construction* -- running XFOIL there would silently produce garbage,
-not merely "unavailable" results. Per project rule #7 (see repo
-``CLAUDE.md``: "AVL tylko dla Ma < 0.6 ... powyzej - korelacje
-empiryczne"), the analogous rule for a panel/BL method like XFOIL is
-applied here: outside its subsonic validity window we replace it with
-the physically appropriate closed-form theory, **linearised supersonic
-thin-airfoil (Ackeret) theory**, rather than attempting to force XFOIL
-to run out of range.
+The sweep starts at the angle nearest zero and runs up to the end angle, then restarts
+from a fresh boundary layer and runs down, which converges better past stall. Angles
+XFOIL does not converge are left out of the polar and reported.
 
-:class:`XFOILAnalysis` therefore:
-
-1. Checks :mod:`YAADO_Core.solver_registry` for a registered ``xfoil`` binary.
-   If present *and* the requested Mach were subsonic, it would delegate
-   to XFOIL (left as a documented TODO -- no MELprop analysis currently
-   asks XFOIL to run in its valid subsonic window, so no subprocess
-   driver has been implemented yet; see ``TODO`` below).
-2. For the supersonic fin regime targeted by this module (Mach 1.5-3.5),
-   XFOIL is *never* invoked (it would be invalid), and the analysis
-   always uses the Ackeret analytical fallback, emitting a
-   ``warnings.warn`` that documents the fallback and its validity
-   limits.
-
-Ackeret linearized supersonic thin-airfoil theory (double-wedge section)
---------------------------------------------------------------------------
-For a symmetric double-wedge (diamond) airfoil with maximum thickness at
-mid-chord, each half-chord surface is a flat panel inclined at the wedge
-half-angle ``tau = atan(t/c)`` (small-angle convention: ``t/c`` is the
-tangent of the half-angle measured from the chord line, which is exact
-for a symmetric diamond with the ridge at 50% chord). For a thin
-symmetric section at angle of attack ``alpha`` in inviscid linearised
-supersonic flow (Anderson, *Fundamentals of Aerodynamics*, chapter on
-linearized supersonic flow):
-
-    CL = 4 * alpha / sqrt(M^2 - 1)
-    CD = 4 * (alpha^2 + tau^2) / sqrt(M^2 - 1)
-
-with ``alpha`` and ``tau`` in radians. The ``alpha^2`` term is
-wave drag due to lift, and the ``tau^2`` term is wave drag due to
-thickness (form/wave drag of the symmetric double wedge at zero lift).
-Both expressions require Ma > 1 (the ``sqrt(M^2 - 1)`` singularity means
-the theory blows up approaching Mach 1 and is invalid below it); this
-module additionally rejects Ma <= 1.05 as too close to the singularity
-to trust the linearisation.
-
-Theory reference:
-    Anderson, J. D., *Fundamentals of Aerodynamics*, chapter "Linearized
-    Supersonic Flow" (Ackeret's rule for thin-airfoil supersonic lift
-    and wave drag). Ames Research Staff, "Equations, Tables, and Charts
-    for Compressible Flow", NACA Report 1135 (1953).
-
-TODO:
-    * If a future MELprop analysis needs XFOIL in its valid subsonic
-      window (e.g. fin section at boost-initiation speeds), implement
-      the subprocess driver here: emit an XFOIL command deck for the
-      double-wedge coordinates, drive ``xfoil`` via subprocess with a
-      batch command file, and parse the polar (CL, CD, CM vs alpha).
-      See ``analyses/aero/avl_builder.py`` for the sibling AVL
-      subprocess pattern to mirror.
+Reference:
+    Drela, M., "XFOIL: An Analysis and Design System for Low Reynolds Number Airfoils",
+    Low Reynolds Number Aerodynamics, Lecture Notes in Engineering 54, Springer, 1989.
 """
 
 from __future__ import annotations
 
-import json
+import csv
+import io
 import math
-import sys
-import warnings
-from dataclasses import dataclass, field
+import re
+import shutil
+import signal
+import subprocess
+import tempfile
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
-if __name__ == "__main__" and __package__ in (None, ""):
-    # Allow `python3 analyses/aero/xfoil_runner.py` direct execution by
-    # putting the repository root on sys.path (mirrors barrowman_stability.py).
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+import numpy as np
 
-import matplotlib
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
+from YAADO_Core.ComponentStore import AERO_COMPONENTS
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.atmosphere import isa_atmosphere
+from YAADO_Core.Foundation.solver_registry import DEFAULT_REGISTRY, SolverInfo
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.wind_tunnel.containers import (
+    AirfoilGeometry,
+    PolarMetrics,
+    ReynoldsSweepPoint,
+    SectionPolar,
+    XfoilPolarResults,
+)
 
-from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults, BaseAnalysis, FidelityLevel  # noqa: E402
-from YAADO_Core.Foundation.solver_registry import DEFAULT_REGISTRY  # noqa: E402
-from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig  # noqa: E402
+DEFAULT_REGISTRY.register(
+    SolverInfo(name="xfoil", executable="xfoil", description="MIT XFOIL subsonic airfoil analysis")
+)
 
-#: Fin section geometry (Fusion Assembly v6 / fusion_extraction_v6.yaml).
-FIN_CHORD_M = 0.1768
-FIN_THICKNESS_MAX_M = 0.030
-FIN_DESIGN_MACH = 2.5
+_NACA_PATTERN = re.compile(r"^\s*NACA[\s_-]*(\d{4,5})\s*$", re.IGNORECASE)
+_AIRFOIL_FILE = "airfoil.dat"
+_GEOMETRY_FILE = "section.dat"
+_POLAR_FILE = "polar.txt"
+_NAME_LENGTH = 32
+_MIN_COORDINATES = 10
+_POLAR_COLUMNS = 7
+_STAGE_NAMES = {"upward": "upward sweep", "downward": "downward sweep", "retry": "retries"}
+#: A missed angle is retried from a fresh boundary layer this much nearer zero [deg].
+_RETRY_OFFSET_DEG = 0.1
 
-#: t/c derived from the real Fusion 360 geometry above (NOT a placeholder:
-#: both chord and max thickness are extracted, verified values).
-FIN_THICKNESS_TO_CHORD = FIN_THICKNESS_MAX_M / FIN_CHORD_M  # ~= 0.1697
-
-#: Fallback t/c used only if a vehicle config lacks fin thickness data.
-#: SZACOWANY (estimated) -- typical thin supersonic double-wedge fin.
-_DEFAULT_THICKNESS_TO_CHORD_ESTIMATE = 0.06
-
-#: Ackeret validity window enforced in :meth:`XFOILAnalysis.setup`.
-MIN_MACH = 1.5
-MAX_MACH = 3.5
-#: Reject Mach numbers at/below this value: sqrt(M^2-1) is singular at
-#: M=1 and the linearisation is untrustworthy near/below it.
-MIN_MACH_ABSOLUTE = 1.05
-MIN_ALPHA_DEG = -10.0
-MAX_ALPHA_DEG = 10.0
-
-_RESULTS_JSON_PATH = Path(__file__).with_name("xfoil_runner_results.json")
-_POLAR_PNG_PATH = Path(__file__).with_name("xfoil_runner_polar.png")
+_INSTALL_HINT = "see 'Installing XFOIL' in YAADO_Core/modules/wind_tunnel/methods/xfoil/README.md"
+FPE_MESSAGE = (
+    "XFOIL stopped on a floating-point exception (SIGFPE). The Ubuntu and Debian xfoil "
+    f"package stops on harmless floating-point exceptions: put a wrapper on PATH ({_INSTALL_HINT})."
+)
+MISSING_MESSAGE = f"XFOIL executable 'xfoil' not found on PATH ({_INSTALL_HINT})."
 
 
-def ackeret_polar(mach: float, alpha_deg: float, t_c: float) -> tuple[float, float]:
-    """Compute CL, CD for a symmetric double-wedge section (Ackeret theory).
+class XfoilConvergenceError(RuntimeError):
+    """XFOIL ran but converged at none of the requested angles of attack."""
+
+
+@dataclass(frozen=True)
+class AirfoilSource:
+    """Airfoil handed to XFOIL: a NACA designation or explicit coordinates.
+
+    Attributes:
+        name: Airfoil name written to the coordinate file.
+        naca_digits: Digits of a NACA 4- or 5-digit section XFOIL generates itself.
+        coordinates: (x, y) points in Selig order, used when ``naca_digits`` is None.
+    """
+
+    name: str
+    naca_digits: str | None = None
+    coordinates: tuple[tuple[float, float], ...] = ()
+
+
+@dataclass(frozen=True)
+class XfoilRun:
+    """Parsed outputs and raw text of one XFOIL batch run.
+
+    Attributes:
+        polar: Converged points.
+        geometry: Paneled section coordinates.
+        missed: Requested angles of attack that did not converge [deg].
+        stopped: XFOIL calls ("upward", "downward", "retry") stopped at the time limit.
+        commands: Command decks sent to XFOIL.
+        output: XFOIL console output.
+        polar_text: Raw XFOIL polar file.
+    """
+
+    polar: SectionPolar
+    geometry: AirfoilGeometry
+    missed: tuple[float, ...]
+    stopped: tuple[str, ...]
+    commands: str
+    output: str
+    polar_text: str
+
+
+def xfoil_executable() -> str | None:
+    """Path of the registered XFOIL executable, or None if it is not on PATH."""
+    return shutil.which(DEFAULT_REGISTRY.get("xfoil").executable)
+
+
+def read_airfoil_file(path: Path) -> AirfoilSource:
+    """Read a Selig or Lednicer airfoil coordinate file.
 
     Args:
-        mach: Freestream Mach number. Must satisfy ``mach > 1`` (checked
-            by the caller; this function does not re-validate the full
-            envelope so it can be reused for quick hand checks).
-        alpha_deg: Angle of attack in degrees.
-        t_c: Thickness-to-chord ratio of the double wedge. The wedge
-            half-angle is ``tau = atan(t_c)`` (max thickness at
-            mid-chord, symmetric diamond convention).
+        path: Coordinate file. A first line that is not two numbers is the name.
 
     Returns:
-        Tuple ``(CL, CD)``, dimensionless.
+        The airfoil with its coordinates in Selig order (trailing edge, upper surface,
+        leading edge, lower surface, trailing edge).
 
     Raises:
-        ValueError: If ``mach <= 1.0`` (Ackeret theory is undefined at
-            and below Mach 1).
+        ValueError: If the file holds fewer than ten coordinate pairs.
     """
-    if mach <= 1.0:
-        raise ValueError(f"Ackeret theory requires Mach > 1, got {mach}")
+    name = path.stem
+    pairs: list[tuple[float, float]] = []
+    for index, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        parts = line.replace(",", " ").split()
+        try:
+            x, y = float(parts[0]), float(parts[1])
+        except (IndexError, ValueError):
+            if index == 0 and line.strip():
+                name = line.strip()
+            continue
+        pairs.append((x, y))
 
-    alpha_rad = math.radians(alpha_deg)
-    tau_rad = math.atan(t_c)
-    beta = math.sqrt(mach**2 - 1.0)
+    if pairs and pairs[0][0] > 1.5 and pairs[0][1] > 1.5:
+        # Lednicer: point counts, then the upper and the lower surface from the leading edge.
+        n_upper, n_lower = int(pairs[0][0]), int(pairs[0][1])
+        upper = pairs[1 : 1 + n_upper]
+        lower = pairs[1 + n_upper : 1 + n_upper + n_lower]
+        if lower and upper and lower[0] == upper[0]:
+            lower = lower[1:]
+        pairs = [*reversed(upper), *lower]
 
-    cl = 4.0 * alpha_rad / beta
-    cd = 4.0 * (alpha_rad**2 + tau_rad**2) / beta
-    return cl, cd
+    if len(pairs) < _MIN_COORDINATES:
+        raise ValueError(f"Airfoil file {path} holds {len(pairs)} coordinate pairs, too few")
+    return AirfoilSource(name=name[:_NAME_LENGTH], coordinates=tuple(pairs))
 
 
-@dataclass
-class XfoilCase:
-    """Supersonic fin polar run specification.
+def resolve_airfoil(airfoil: str) -> AirfoilSource:
+    """Turn an airfoil setting into what XFOIL loads.
 
-    Attributes:
-        mach_list: Freestream Mach numbers to sweep, each within
-            ``[MIN_MACH, MAX_MACH]``.
-        alpha_deg_list: Angles of attack [deg] to sweep, each within
-            ``[MIN_ALPHA_DEG, MAX_ALPHA_DEG]``.
-        thickness_to_chord: Double-wedge ``t/c`` (max thickness at
-            mid-chord convention). Defaults to the real Fusion 360 fin
-            geometry value.
+    Args:
+        airfoil: A NACA 4- or 5-digit designation (``"NACA2412"``) or the path of a
+            coordinate file, relative to the working directory.
+
+    Returns:
+        The airfoil source.
+
+    Raises:
+        ValueError: If ``airfoil`` is neither a NACA designation nor an existing file.
     """
+    match = _NACA_PATTERN.match(airfoil)
+    if match is not None:
+        return AirfoilSource(name=f"NACA {match.group(1)}", naca_digits=match.group(1))
+    path = Path(airfoil).expanduser()
+    if not path.is_file():
+        raise ValueError(
+            f"Airfoil '{airfoil}' is neither a NACA 4- or 5-digit designation nor an "
+            "existing coordinate file"
+        )
+    return read_airfoil_file(path)
 
-    mach_list: list[float] = field(default_factory=lambda: [1.5, 2.0, 2.5, 3.0, 3.5])
-    alpha_deg_list: list[float] = field(
-        default_factory=lambda: [-10.0, -5.0, 0.0, 5.0, 10.0]
+
+def alpha_schedule(start: float, end: float, step: float) -> tuple[float, ...]:
+    """Angles of attack from ``start`` to ``end`` inclusive [deg]."""
+    count = math.floor((end - start) / step + 1e-9) + 1
+    return tuple(round(start + i * step, 6) for i in range(count))
+
+
+def _sweep_order(alphas: tuple[float, ...]) -> list[list[float]]:
+    """Split ascending angles into an upward run from the one nearest zero and a downward run."""
+    pivot = min(range(len(alphas)), key=lambda i: abs(alphas[i]))
+    downward = list(reversed(alphas[:pivot]))
+    return [list(alphas[pivot:]), downward] if downward else [list(alphas[pivot:])]
+
+
+def _retry_order(missed: list[float]) -> list[list[float]]:
+    """Approach each missed angle from a fresh boundary layer slightly nearer zero."""
+    return [[alpha - math.copysign(_RETRY_OFFSET_DEG, alpha or 1.0), alpha] for alpha in missed]
+
+
+def build_command_deck(
+    source: AirfoilSource,
+    reynolds: float,
+    mach: float,
+    n_crit: float,
+    runs: list[list[float]],
+    max_iter: int,
+    polar_file: str = _POLAR_FILE,
+    save_geometry: bool = True,
+) -> str:
+    """XFOIL keyboard input for one polar with plotting switched off.
+
+    Args:
+        source: Airfoil to analyse.
+        reynolds: Chord Reynolds number.
+        mach: Freestream Mach number.
+        n_crit: e^n transition amplification exponent.
+        runs: Angle sequences [deg]; each after the first starts from a fresh boundary layer.
+        max_iter: Viscous Newton iterations allowed per angle.
+        polar_file: Polar file XFOIL appends converged points to.
+        save_geometry: Whether to save the paneled coordinates.
+
+    Returns:
+        The command text, one command per line.
+    """
+    lines = ["PLOP", "G F", ""]
+    lines.append(f"NACA {source.naca_digits}" if source.naca_digits else f"LOAD {_AIRFOIL_FILE}")
+    lines.append("PANE")
+    if save_geometry:
+        lines.append(f"SAVE {_GEOMETRY_FILE}")
+    lines += [
+        "OPER",
+        "VPAR",
+        f"N {n_crit:g}",
+        "",
+        f"VISC {reynolds:.0f}",
+        f"MACH {mach:.6g}",
+        f"ITER {max_iter}",
+        "PACC",
+        polar_file,
+        "",
+    ]
+    for index, run in enumerate(runs):
+        if index:
+            lines.append("INIT")
+        lines += [f"ALFA {alpha:g}" for alpha in run]
+    lines += ["PACC", "", "QUIT"]
+    return "\n".join(lines) + "\n"
+
+
+def _alpha_key(alpha: float) -> float:
+    """Angle of attack rounded as XFOIL prints it."""
+    return round(alpha, 3)
+
+
+def _polar_rows(text: str) -> dict[float, list[float]]:
+    """Polar file rows keyed by angle of attack; the first row of a repeated angle wins."""
+    rows: dict[float, list[float]] = {}
+    lines = text.splitlines()
+    start = next((i + 1 for i, line in enumerate(lines) if line.strip().startswith("-----")), len(lines))
+    for line in lines[start:]:
+        try:
+            values = [float(p) for p in line.split()[:_POLAR_COLUMNS]]
+        except ValueError:
+            continue
+        if len(values) == _POLAR_COLUMNS:
+            rows.setdefault(_alpha_key(values[0]), values)
+    return rows
+
+
+def _polar_from_rows(rows: list[list[float]], reynolds: float, mach: float) -> SectionPolar:
+    """Build a polar from rows sorted by angle of attack."""
+    columns = list(zip(*rows, strict=True)) if rows else [()] * _POLAR_COLUMNS
+    return SectionPolar(
+        reynolds=reynolds,
+        mach=mach,
+        alpha=tuple(columns[0]),
+        cl=tuple(columns[1]),
+        cd=tuple(columns[2]),
+        cdp=tuple(columns[3]),
+        cm=tuple(columns[4]),
+        xtr_top=tuple(columns[5]),
+        xtr_bottom=tuple(columns[6]),
     )
-    thickness_to_chord: float = FIN_THICKNESS_TO_CHORD
 
 
-class XFOILAnalysis(BaseAnalysis):
-    """Supersonic fin polar via Ackeret linearised thin-airfoil theory.
+def parse_polar(text: str, reynolds: float, mach: float) -> SectionPolar:
+    """Parse an XFOIL polar file into ascending, de-duplicated points.
 
-    Despite the module name, this analysis does **not** drive the XFOIL
-    binary for the fin cruise regime: XFOIL is a subsonic/transonic
-    panel + boundary-layer code and is invalid at Mach 1.5-3.5 by
-    construction. Instead this class implements the physically
-    appropriate theory for that regime (Ackeret/linearised supersonic
-    thin-airfoil), and documents/validates that substitution explicitly
-    (see module docstring). If a registered ``xfoil`` binary is ever
-    used, it would only be for a genuinely subsonic case -- see the
-    ``TODO`` in the module docstring.
+    Args:
+        text: Polar file written by XFOIL's ``PACC``.
+        reynolds: Chord Reynolds number of the run.
+        mach: Mach number of the run.
 
-    Attributes:
-        fidelity: :attr:`FidelityLevel.LEVEL_1` (linear analytical
-            method, same tier as VLM/AVL and DATCOM-style correlations).
+    Returns:
+        The converged points.
+    """
+    rows = _polar_rows(text)
+    return _polar_from_rows([rows[key] for key in sorted(rows)], reynolds, mach)
+
+
+def thickness_to_chord(x: tuple[float, ...], y: tuple[float, ...]) -> float:
+    """Maximum thickness over chord of a section in Selig order."""
+    xs, ys = np.asarray(x), np.asarray(y)
+    le = int(np.argmin(xs))
+    upper_order = np.argsort(xs[: le + 1])
+    lower_order = np.argsort(xs[le:])
+    grid = np.linspace(xs[le], xs.max(), 400)
+    upper = np.interp(grid, xs[: le + 1][upper_order], ys[: le + 1][upper_order])
+    lower = np.interp(grid, xs[le:][lower_order], ys[le:][lower_order])
+    return float(np.max(upper - lower) / (xs.max() - xs[le]))
+
+
+def parse_geometry(text: str) -> AirfoilGeometry:
+    """Parse a labeled coordinate file written by XFOIL's ``SAVE``."""
+    lines = text.splitlines()
+    points = [tuple(float(v) for v in line.split()[:2]) for line in lines[1:] if line.split()]
+    x = tuple(p[0] for p in points)
+    y = tuple(p[1] for p in points)
+    return AirfoilGeometry(
+        name=lines[0].strip(), x=x, y=y, thickness_to_chord=thickness_to_chord(x, y)
+    )
+
+
+def _run_deck(executable: str, commands: str, workdir: Path, timeout_s: float) -> tuple[str, bool]:
+    """Feed a command deck to XFOIL.
+
+    Returns:
+        The console output, and whether XFOIL was stopped at the time limit. XFOIL
+        closes its polar file after every point, so the points before the stop remain.
+
+    Raises:
+        RuntimeError: If XFOIL crashes.
+    """
+    try:
+        completed = subprocess.run(
+            [executable],
+            input=commands,
+            capture_output=True,
+            text=True,
+            cwd=workdir,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.stdout or b""
+        return (partial.decode(errors="replace") if isinstance(partial, bytes) else partial), True
+    output = completed.stdout + completed.stderr
+    if completed.returncode == -signal.SIGFPE:
+        raise RuntimeError(FPE_MESSAGE)
+    if completed.returncode != 0:
+        tail = "\n".join(output.strip().splitlines()[-5:])
+        raise RuntimeError(f"XFOIL exited with status {completed.returncode}:\n{tail}")
+    return output, False
+
+
+def run_xfoil(
+    executable: str,
+    source: AirfoilSource,
+    reynolds: float,
+    mach: float,
+    n_crit: float,
+    alphas: tuple[float, ...],
+    max_iter: int,
+    timeout_s: float,
+    retry: bool = True,
+) -> XfoilRun:
+    """Run one XFOIL polar in a temporary directory, retrying angles that fail.
+
+    The upward sweep, the downward sweep and the retries run as separate XFOIL calls,
+    each within ``timeout_s``, so a diverged sweep cannot hold up the others.
+
+    Args:
+        executable: XFOIL executable.
+        source: Airfoil to analyse.
+        reynolds: Chord Reynolds number.
+        mach: Freestream Mach number.
+        n_crit: e^n transition amplification exponent.
+        alphas: Ascending angles of attack [deg].
+        max_iter: Viscous Newton iterations allowed per angle.
+        timeout_s: Wall-clock limit of each XFOIL call [s].
+        retry: Whether to retry the angles that fail, from a fresh boundary layer.
+
+    Returns:
+        The polar at the requested angles that converged, the paneled geometry and
+        the raw input and output.
+
+    Raises:
+        RuntimeError: If XFOIL crashes or cannot build the airfoil.
+        XfoilConvergenceError: If no angle converges.
+    """
+    calls = [(name, [run]) for name, run in zip(("upward", "downward"), _sweep_order(alphas), strict=False)]
+    rows: dict[float, list[float]] = {}
+    commands = output = polar_text = ""
+    stopped: list[str] = []
+    geometry: AirfoilGeometry | None = None
+    with tempfile.TemporaryDirectory(prefix="yaado_xfoil_") as tmp:
+        workdir = Path(tmp)
+        if source.naca_digits is None:
+            body = "\n".join(f"{x:.7f} {y:.7f}" for x, y in source.coordinates)
+            (workdir / _AIRFOIL_FILE).write_text(f"{source.name}\n{body}\n", encoding="utf-8")
+
+        for index, (name, runs) in enumerate([*calls, ("retry", [])]):
+            if name == "retry":
+                misses = [alpha for alpha in alphas if _alpha_key(alpha) not in rows]
+                if not (retry and misses):
+                    break
+                runs = _retry_order(misses)
+            polar_file = f"polar_{name}.txt"
+            deck = build_command_deck(
+                source, reynolds, mach, n_crit, runs, max_iter,
+                polar_file=polar_file, save_geometry=index == 0,
+            )
+            call_output, timed_out = _run_deck(executable, deck, workdir, timeout_s)
+            commands += deck
+            output += call_output
+            if timed_out:
+                stopped.append(name)
+            if geometry is None:
+                geometry_path = workdir / _GEOMETRY_FILE
+                if not geometry_path.is_file():
+                    raise RuntimeError(f"XFOIL could not build the airfoil '{source.name}'")
+                geometry = parse_geometry(geometry_path.read_text(encoding="utf-8"))
+            polar_path = workdir / polar_file
+            if polar_path.is_file():
+                text = polar_path.read_text(encoding="utf-8")
+                polar_text += text
+                for key, row in _polar_rows(text).items():
+                    rows.setdefault(key, row)
+
+    kept = [rows[_alpha_key(alpha)] for alpha in alphas if _alpha_key(alpha) in rows]
+    polar = _polar_from_rows(kept, reynolds, mach)
+    if geometry is None or not polar.alpha:
+        raise XfoilConvergenceError(
+            f"XFOIL converged at none of the {len(alphas)} angles at Re {reynolds:.3g}"
+        )
+    missed = tuple(alpha for alpha in alphas if _alpha_key(alpha) not in rows)
+    return XfoilRun(polar, geometry, missed, tuple(stopped), commands, output, polar_text)
+
+
+def polar_metrics(polar: SectionPolar, slope_window_deg: tuple[float, float]) -> PolarMetrics:
+    """Read the design numbers off a polar.
+
+    Args:
+        polar: Converged points, ascending in angle of attack.
+        slope_window_deg: Angles around the zero-lift angle, below and above it, over
+            which the lift slope is fitted [deg].
+
+    Returns:
+        Maximum lift, best lift-to-drag ratio, minimum drag and the zero-lift values.
+    """
+    alpha = np.asarray(polar.alpha)
+    cl = np.asarray(polar.cl)
+    cd = np.asarray(polar.cd)
+    cm = np.asarray(polar.cm)
+    i_max = int(np.argmax(cl))
+    i_ld = int(np.argmax(cl / cd))
+    i_cd = int(np.argmin(cd))
+
+    alpha_zero_lift: float | None = None
+    cm_zero_lift: float | None = None
+    for i in range(len(alpha) - 1):
+        if cl[i] <= 0.0 <= cl[i + 1] and cl[i + 1] > cl[i]:
+            t = -cl[i] / (cl[i + 1] - cl[i])
+            alpha_zero_lift = float(alpha[i] + t * (alpha[i + 1] - alpha[i]))
+            cm_zero_lift = float(cm[i] + t * (cm[i + 1] - cm[i]))
+            break
+
+    cl_alpha: float | None = None
+    if alpha_zero_lift is not None:
+        low, high = alpha_zero_lift + slope_window_deg[0], alpha_zero_lift + slope_window_deg[1]
+        mask = (alpha >= low) & (alpha <= min(high, alpha[i_max]))
+        if np.count_nonzero(mask) >= 3:
+            cl_alpha = float(np.polyfit(np.radians(alpha[mask]), cl[mask], 1)[0])
+
+    return PolarMetrics(
+        cl_max=float(cl[i_max]),
+        alpha_cl_max=float(alpha[i_max]),
+        stall_reached=i_max < len(cl) - 1,
+        max_lift_to_drag=float(cl[i_ld] / cd[i_ld]),
+        alpha_max_lift_to_drag=float(alpha[i_ld]),
+        cd_min=float(cd[i_cd]),
+        cl_at_cd_min=float(cl[i_cd]),
+        cl_alpha=cl_alpha,
+        alpha_zero_lift=alpha_zero_lift,
+        cm_zero_lift=cm_zero_lift,
+    )
+
+
+class XFOILAnalysis(BaseAnalysis[XfoilPolarResults]):
+    """XFOIL polar of the section of one wing or fin set at one flight condition.
+
+    Example:
+        analysis = XFOILAnalysis()
+        analysis.setup(vehicle, surface="main_wing", mach=0.1)
+        results = analysis.execute()
+        best_l_over_d = results.max_lift_to_drag
     """
 
     fidelity = FidelityLevel.LEVEL_1
 
-    def __init__(self, name: str = "xfoil_fin_supersonic_polar") -> None:
-        super().__init__(name)
-        self._case: XfoilCase | None = None
-        #: Airfoil designation read from a `Wings` component's
-        #: `airfoil_root`, if the vehicle has one (metadata/traceability
-        #: only -- this section-level Ackeret polar does not otherwise
-        #: use the airfoil string; see the `setup()` docstring gap note).
-        self._airfoil: str | None = None
+    DEFAULT_MACH: ClassVar[float] = 0.15
+    DEFAULT_ALTITUDE_M: ClassVar[float] = 0.0
+    DEFAULT_N_CRIT: ClassVar[float] = 9.0
+    DEFAULT_ALPHA_START_DEG: ClassVar[float] = -5.0
+    DEFAULT_ALPHA_END_DEG: ClassVar[float] = 15.0
+    DEFAULT_ALPHA_STEP_DEG: ClassVar[float] = 0.5
 
-    def setup(
+    #: Karman-Tsien correction stays credible below about this Mach number.
+    MAX_MACH: ClassVar[float] = 0.7
+    MAX_ALPHA_DEG: ClassVar[float] = 30.0
+    MAX_ALPHA_POINTS: ClassVar[int] = 241
+    MIN_REYNOLDS: ClassVar[float] = 1.0e4
+    #: Below this Reynolds number laminar separation bubbles make XFOIL less reliable.
+    LOW_REYNOLDS_WARNING: ClassVar[float] = 5.0e4
+    MAX_ITER: ClassVar[int] = 100
+    #: Wall-clock limit of each XFOIL call: upward sweep, downward sweep and retries [s].
+    TIMEOUT_S: ClassVar[float] = 20.0
+    #: Shorter limit for the Reynolds number sweep, which skips retries [s].
+    SWEEP_TIMEOUT_S: ClassVar[float] = 10.0
+    #: Lift slope fit window around the zero-lift angle [deg].
+    SLOPE_WINDOW_DEG: ClassVar[tuple[float, float]] = (-2.0, 6.0)
+    SWEEP_REYNOLDS_FACTORS: ClassVar[tuple[float, ...]] = (0.25, 0.5, 2.0, 4.0)
+
+    def __init__(self, name: str = "xfoil_polar") -> None:
+        super().__init__(name)
+        self._executable = ""
+        self._surface = ""
+        self._airfoil = ""
+        self._source = AirfoilSource(name="")
+        self._chord = 0.0
+        self._altitude = self.DEFAULT_ALTITUDE_M
+        self._mach = self.DEFAULT_MACH
+        self._velocity = 0.0
+        self._reynolds = 0.0
+        self._n_crit = self.DEFAULT_N_CRIT
+        self._alphas: tuple[float, ...] = ()
+
+    def _setup(
         self,
         vehicle: BaseVehicleConfig,
-        operating_state: dict | None = None,
+        *,
+        surface: str | None = None,
+        mach: float = DEFAULT_MACH,
+        altitude_m: float = DEFAULT_ALTITUDE_M,
+        alpha_start_deg: float = DEFAULT_ALPHA_START_DEG,
+        alpha_end_deg: float = DEFAULT_ALPHA_END_DEG,
+        alpha_step_deg: float = DEFAULT_ALPHA_STEP_DEG,
+        n_crit: float = DEFAULT_N_CRIT,
+        airfoil: str | None = None,
+        chord: float | None = None,
+        reynolds: float | None = None,
+        **kwargs: Any,
     ) -> None:
-        """Bind and validate a supersonic fin polar run case.
-
-        XFOIL/Ackeret is a 2-D section method driven by flight condition,
-        not full vehicle geometry, so most of ``vehicle`` does not map
-        onto this analysis. What *is* extracted: an airfoil designation
-        from a ``Wings`` component's ``airfoil_root`` (first match in
-        ``vehicle.aero_surfaces``), stored only for traceability -- the
-        Ackeret double-wedge model does not consume it numerically. The
-        double-wedge thickness-to-chord ratio has **no corresponding
-        field** in the ``Fins``/``Wings`` schemas (gap -- see
-        ``issues_discovered_out_of_scope``); it defaults to the real
-        MELprop fin geometry (:data:`FIN_THICKNESS_TO_CHORD`) unless
-        overridden via ``operating_state["thickness_to_chord"]``.
+        """Pick the surface, its section and chord, and the flight condition.
 
         Args:
-            vehicle: Validated, vehicle-agnostic configuration. Only used
-                to (optionally) recover an airfoil designation; see above.
-            operating_state: Optional operating conditions in SI units.
-                Recognized keys: ``mach_list`` (list[float], sweep of
-                freestream Mach numbers), ``alpha_deg_list`` (list[float],
-                sweep of angles of attack in degrees), and
-                ``thickness_to_chord`` (float, double-wedge t/c override).
-                Any key absent (or ``operating_state=None``) falls back to
-                the corresponding :class:`XfoilCase` default.
+            vehicle: Vehicle with at least one wing or fin set.
+            surface: Component in ``vehicle.aero_surfaces``. May be omitted if the
+                vehicle has only one.
+            mach: Flight Mach number, below :attr:`MAX_MACH`.
+            altitude_m: ISA altitude [m].
+            alpha_start_deg: First angle of attack [deg].
+            alpha_end_deg: Last angle of attack [deg].
+            alpha_step_deg: Angle of attack step [deg].
+            n_crit: e^n transition exponent: 9 for an average wind tunnel, 11-13 for
+                clean free flight, 4-8 for turbulent air.
+            airfoil: NACA designation or coordinate file. Defaults to the surface's
+                ``section_airfoil``.
+            chord: Chord of the Reynolds number [m]. Defaults to the surface's mean
+                aerodynamic chord.
+            reynolds: Chord Reynolds number. Defaults to the value at the flight condition.
+            **kwargs: Not accepted; present for the ``BaseAnalysis`` signature.
 
         Raises:
-            ValueError: If any Mach number is outside
-                ``[MIN_MACH, MAX_MACH]`` or ``<= MIN_MACH_ABSOLUTE``, or
-                any alpha is outside ``[MIN_ALPHA_DEG, MAX_ALPHA_DEG]``.
+            TypeError: If an unknown setting is passed or the component is not a surface.
+            RuntimeError: If no XFOIL executable is on PATH.
+            ValueError: If the surface, airfoil or chord cannot be resolved, or a setting
+                is out of range.
         """
-        operating_state = operating_state or {}
-        defaults = XfoilCase()
-        case = XfoilCase(
-            mach_list=list(operating_state.get("mach_list", defaults.mach_list)),
-            alpha_deg_list=list(
-                operating_state.get("alpha_deg_list", defaults.alpha_deg_list)
-            ),
-            thickness_to_chord=operating_state.get(
-                "thickness_to_chord", defaults.thickness_to_chord
-            ),
+        if kwargs:
+            raise TypeError(f"Unknown settings for '{self.name}': {sorted(kwargs)}")
+        executable = xfoil_executable()
+        if executable is None:
+            raise RuntimeError(MISSING_MESSAGE)
+
+        surfaces = vehicle.get_components_by_type(AERO_COMPONENTS)
+        if surface is None:
+            if len(surfaces) != 1:
+                raise ValueError(
+                    f"Vehicle '{vehicle.name}' has {len(surfaces)} aerodynamic surfaces "
+                    f"{sorted(surfaces)}: pick one with surface=NAME"
+                )
+            surface = next(iter(surfaces))
+        component = vehicle.get_component(surface, expected_type=AERO_COMPONENTS)
+
+        airfoil = airfoil or component.section_airfoil
+        if not airfoil:
+            raise ValueError(
+                f"Surface '{surface}' has no airfoil: set airfoil (e.g. NACA0010) here "
+                "or on the component"
+            )
+        source = resolve_airfoil(airfoil)
+
+        if chord is None:
+            chord = component.mean_aerodynamic_chord
+            if chord is None:
+                raise ValueError(
+                    f"Surface '{surface}' needs chord_root and chord_tip, or set chord"
+                )
+        if chord <= 0.0:
+            raise ValueError(f"chord must be positive, got {chord}")
+        if not 0.0 <= mach <= self.MAX_MACH:
+            raise ValueError(f"XFOIL needs a Mach number in [0, {self.MAX_MACH}], got {mach}")
+        if not 0.0 < n_crit <= 20.0:
+            raise ValueError(f"n_crit must be in (0, 20], got {n_crit}")
+        if alpha_step_deg <= 0.0 or alpha_end_deg < alpha_start_deg:
+            raise ValueError(
+                "Angles need alpha_start_deg <= alpha_end_deg and alpha_step_deg > 0"
+            )
+        if max(abs(alpha_start_deg), abs(alpha_end_deg)) > self.MAX_ALPHA_DEG:
+            raise ValueError(f"Angles of attack must lie within +-{self.MAX_ALPHA_DEG:g} deg")
+        alphas = alpha_schedule(alpha_start_deg, alpha_end_deg, alpha_step_deg)
+        if len(alphas) > self.MAX_ALPHA_POINTS:
+            raise ValueError(
+                f"{len(alphas)} angles requested; increase alpha_step_deg to stay within "
+                f"{self.MAX_ALPHA_POINTS}"
+            )
+
+        atmosphere = isa_atmosphere(altitude_m)
+        velocity = mach * atmosphere.speed_of_sound
+        if reynolds is None:
+            reynolds = atmosphere.density * velocity * chord / atmosphere.dynamic_viscosity
+        if reynolds < self.MIN_REYNOLDS:
+            raise ValueError(
+                f"Reynolds number {reynolds:.3g} is below {self.MIN_REYNOLDS:.0e}: raise the "
+                "Mach number or set reynolds"
+            )
+
+        self._executable = executable
+        self._surface = surface
+        self._airfoil = airfoil
+        self._source = source
+        self._chord = chord
+        self._altitude = altitude_m
+        self._mach = mach
+        self._velocity = velocity
+        self._reynolds = reynolds
+        self._n_crit = n_crit
+        self._alphas = alphas
+        self.logger.info(
+            "Configured XFOIL for '%s' on vehicle '%s': %s, chord %.4f m, M=%.3f, Re=%.4g",
+            surface,
+            vehicle.name,
+            source.name,
+            chord,
+            mach,
+            reynolds,
         )
 
-        wing = next(
-            (
-                component
-                for component in vehicle.aero_surfaces.values()
-                if getattr(component, "type", None) == "wing"
-            ),
-            None,
+    def _compute(self, **kwargs: Any) -> XfoilPolarResults:
+        """Run XFOIL and read the design numbers off its polar."""
+        run = run_xfoil(
+            self._executable,
+            self._source,
+            self._reynolds,
+            self._mach,
+            self._n_crit,
+            self._alphas,
+            self.MAX_ITER,
+            self.TIMEOUT_S,
         )
-        self._airfoil = getattr(wing, "airfoil_root", None) if wing is not None else None
+        self.logger.save_artifact("xfoil_input.txt", run.commands)
+        self.logger.save_artifact("xfoil_output.log", run.output)
+        self.logger.save_artifact("xfoil_polar.txt", run.polar_text)
 
-        for mach in case.mach_list:
-            if mach <= MIN_MACH_ABSOLUTE:
-                raise ValueError(
-                    f"Mach {mach} too close to/below 1.0 (limit "
-                    f"{MIN_MACH_ABSOLUTE}); Ackeret theory is singular at "
-                    "Mach 1 and invalid in the transonic band -- use "
-                    "empirical transonic bridging (e.g. "
-                    "YAADO_Core.modules.stability_control.methods.barrowman.barrowman_stability) instead"
-                )
-            if not (MIN_MACH <= mach <= MAX_MACH):
-                raise ValueError(
-                    f"Mach {mach} outside supported supersonic fin envelope "
-                    f"[{MIN_MACH}, {MAX_MACH}]"
-                )
-        for alpha_deg in case.alpha_deg_list:
-            if not (MIN_ALPHA_DEG <= alpha_deg <= MAX_ALPHA_DEG):
-                raise ValueError(
-                    f"alpha {alpha_deg} deg outside supported range "
-                    f"[{MIN_ALPHA_DEG}, {MAX_ALPHA_DEG}] deg"
-                )
+        polar = run.polar
+        metrics = polar_metrics(polar, self.SLOPE_WINDOW_DEG)
+        assumptions: list[str] = []
+        if run.stopped:
+            stages = " and ".join(_STAGE_NAMES[name] for name in run.stopped)
+            assumptions.append(
+                f"XFOIL diverged and was stopped after {self.TIMEOUT_S:g} s in the {stages}; "
+                "angles it had not reached are left out."
+            )
+        missed = run.missed
+        if missed:
+            shown = ", ".join(f"{alpha:g}" for alpha in missed[:8])
+            more = ", ..." if len(missed) > 8 else ""
+            assumptions.append(
+                f"XFOIL did not converge at {len(missed)} of {len(self._alphas)} angles "
+                f"({shown}{more} deg); they are left out."
+            )
+        if not metrics.stall_reached:
+            assumptions.append(
+                f"Lift still rises at {metrics.alpha_cl_max:g} deg, the last converged angle: "
+                "CLmax and stall lie beyond the sweep."
+            )
+        if self._reynolds < self.LOW_REYNOLDS_WARNING:
+            assumptions.append(
+                f"Reynolds number {self._reynolds:.3g} is low: laminar separation bubbles "
+                "dominate and XFOIL is less reliable."
+            )
 
-        self._case = case
-        self._is_setup = True
-
-    def execute(self) -> AnalysisResults:
-        """Compute the supersonic fin polar grid.
-
-        Checks :mod:`YAADO_Core.solver_registry` for a registered/available
-        ``xfoil`` binary purely for bookkeeping/metadata purposes: since
-        every Mach number accepted by :meth:`setup` is supersonic,
-        XFOIL is never dispatched (it would be invalid there), and the
-        Ackeret analytical fallback always runs, with a warning
-        documenting that substitution.
-
-        Returns:
-            AnalysisResults whose ``data`` is a JSON-safe nested dict::
-
-                {
-                    "<mach>": {
-                        "<alpha_deg>": {
-                            "CL": ...,
-                            "CD": ...,
-                            "CL_over_CD": ...,
-                        },
-                        ...
-                    },
-                    ...
-                }
-
-            keyed by string-formatted Mach and alpha values.
-
-        Raises:
-            RuntimeError: If called before :meth:`setup`.
-        """
-        if not self._is_setup or self._case is None:
-            raise RuntimeError("XFOILAnalysis.execute() called before setup()")
-
-        xfoil_info = DEFAULT_REGISTRY.get("xfoil")
-        xfoil_registered_and_present = xfoil_info.is_available()
-        # Every Mach accepted by setup() is >= MIN_MACH (1.5), i.e.
-        # supersonic and outside XFOIL's valid subsonic/transonic window.
-        # XFOIL is therefore never actually dispatched here, even if the
-        # binary is present on PATH -- see module TODO for the subsonic
-        # delegation path that would use it.
-        warnings.warn(
-            "XFOILAnalysis: Mach range is supersonic (1.5-3.5); XFOIL "
-            "(a subsonic/transonic panel + boundary-layer code) is not "
-            "valid in this regime and will not be invoked even though "
-            f"xfoil binary registered={xfoil_registered_and_present}. "
-            "Falling back to Ackeret linearised supersonic thin-airfoil "
-            "theory (valid for attached, inviscid, small-disturbance "
-            "supersonic flow; not applicable if shocks detach or "
-            "boundary-layer separation occurs).",
-            stacklevel=2,
+        self.logger.info(
+            "CLmax %.3f at %.1f deg, (L/D)max %.1f, CDmin %.5f, %d of %d angles converged",
+            metrics.cl_max,
+            metrics.alpha_cl_max,
+            metrics.max_lift_to_drag,
+            metrics.cd_min,
+            len(polar.alpha),
+            len(self._alphas),
         )
-
-        data: dict[str, dict[str, dict[str, float]]] = {}
-        for mach in self._case.mach_list:
-            mach_key = f"{mach:g}"
-            data[mach_key] = {}
-            for alpha_deg in self._case.alpha_deg_list:
-                cl, cd = ackeret_polar(mach, alpha_deg, self._case.thickness_to_chord)
-                cl_over_cd = cl / cd if cd != 0.0 else float("nan")
-                data[mach_key][f"{alpha_deg:g}"] = {
-                    "CL": cl,
-                    "CD": cd,
-                    "CL_over_CD": cl_over_cd,
-                }
-
-        return AnalysisResults(
+        return XfoilPolarResults(
             name=self.name,
             fidelity=self.fidelity,
-            data=data,  # type: ignore[arg-type]  # nested JSON-safe grid, not scalars
-            metadata={
-                "method": "ackeret_linearized_supersonic",
-                "thickness_to_chord": self._case.thickness_to_chord,
-                "xfoil_binary_available": xfoil_registered_and_present,
-                "mach_range": [MIN_MACH, MAX_MACH],
-                "alpha_deg_range": [MIN_ALPHA_DEG, MAX_ALPHA_DEG],
-                "airfoil_root": self._airfoil,
-            },
+            surface=self._surface,
+            airfoil=self._airfoil,
+            geometry=run.geometry,
+            thickness_to_chord=run.geometry.thickness_to_chord,
+            chord=self._chord,
+            altitude=self._altitude,
+            mach=self._mach,
+            velocity=self._velocity,
+            reynolds=self._reynolds,
+            n_crit=self._n_crit,
+            alpha_requested=self._alphas,
+            polar=polar,
+            n_converged=len(polar.alpha),
+            cl_max=metrics.cl_max,
+            alpha_cl_max=metrics.alpha_cl_max,
+            stall_reached=metrics.stall_reached,
+            max_lift_to_drag=metrics.max_lift_to_drag,
+            alpha_max_lift_to_drag=metrics.alpha_max_lift_to_drag,
+            cd_min=metrics.cd_min,
+            cl_at_cd_min=metrics.cl_at_cd_min,
+            cl_alpha=metrics.cl_alpha,
+            alpha_zero_lift=metrics.alpha_zero_lift,
+            cm_zero_lift=metrics.cm_zero_lift,
+            assumptions=tuple(assumptions),
         )
 
-    def validate_results(self, results: AnalysisResults) -> bool:
-        """Sanity-check the polar grid against the Ackeret formula directly.
+    def validate_results(self, results: XfoilPolarResults) -> bool:
+        """Check for positive drag, a real section and a positive Reynolds number.
 
-        Recomputes CL for the first (mach, alpha) entry and compares to
-        the stored value within a tight relative tolerance, guarding
-        against silent unit or sign-convention errors.
+        Args:
+            results: Results produced by :meth:`execute`.
+
+        Returns:
+            True if all checks pass.
         """
-        if not results.data:
-            return False
-        mach_key = next(iter(results.data))
-        alpha_key = next(iter(results.data[mach_key]))
-        mach = float(mach_key)
-        alpha_deg = float(alpha_key)
-        t_c = results.metadata.get("thickness_to_chord", FIN_THICKNESS_TO_CHORD)
-        expected_cl, _ = ackeret_polar(mach, alpha_deg, t_c)
-        stored_cl = results.data[mach_key][alpha_key]["CL"]
-        return math.isclose(stored_cl, expected_cl, rel_tol=1e-9)
+        return (
+            results.n_converged > 0
+            and all(cd > 0.0 for cd in results.polar.cd)
+            and 0.0 < results.thickness_to_chord < 1.0
+            and results.reynolds > 0.0
+            and results.chord > 0.0
+        )
 
 
-def _plot_polar_grid(results: AnalysisResults, output_path: Path = _POLAR_PNG_PATH) -> Path:
-    """Save a two-panel CL/CD-vs-alpha polar plot, one line per Mach.
+def run_reynolds_sweep(
+    results: XfoilPolarResults,
+    factors: tuple[float, ...] = XFOILAnalysis.SWEEP_REYNOLDS_FACTORS,
+) -> list[ReynoldsSweepPoint]:
+    """Polars of the same section at multiples of the run's Reynolds number.
+
+    Failed angles are not retried, and Reynolds numbers where XFOIL converges nowhere
+    are skipped.
 
     Args:
-        results: Output of :meth:`XFOILAnalysis.execute`.
-        output_path: PNG destination (saved at 150 DPI).
+        results: Results of the run; it is included at its own Reynolds number.
+        factors: Multiples of ``results.reynolds`` to run.
 
     Returns:
-        The path the plot was written to.
+        Points in ascending Reynolds number.
+
+    Raises:
+        RuntimeError: If no XFOIL executable is on PATH or XFOIL crashes.
     """
-    fig, (ax_cl, ax_cd) = plt.subplots(1, 2, figsize=(11.0, 5.0), dpi=150)
+    executable = xfoil_executable()
+    if executable is None:
+        raise RuntimeError(MISSING_MESSAGE)
+    geometry = results.geometry
+    source = AirfoilSource(name=geometry.name, coordinates=tuple(zip(geometry.x, geometry.y, strict=True)))
+    window = XFOILAnalysis.SLOPE_WINDOW_DEG
+    points = [ReynoldsSweepPoint(results.polar, polar_metrics(results.polar, window))]
+    for factor in factors:
+        try:
+            run = run_xfoil(
+                executable,
+                source,
+                results.reynolds * factor,
+                results.mach,
+                results.n_crit,
+                results.alpha_requested,
+                XFOILAnalysis.MAX_ITER,
+                XFOILAnalysis.SWEEP_TIMEOUT_S,
+                retry=False,
+            )
+        except XfoilConvergenceError:
+            continue
+        points.append(ReynoldsSweepPoint(run.polar, polar_metrics(run.polar, window)))
+    return sorted(points, key=lambda p: p.polar.reynolds)
 
-    for mach_key, per_alpha in results.data.items():
-        alphas = sorted((float(a) for a in per_alpha), key=float)
-        cl_values = [per_alpha[f"{a:g}"]["CL"] for a in alphas]
-        cd_values = [per_alpha[f"{a:g}"]["CD"] for a in alphas]
-        ax_cl.plot(alphas, cl_values, marker="o", label=f"Ma {mach_key}")
-        ax_cd.plot(alphas, cd_values, marker="o", label=f"Ma {mach_key}")
 
-    ax_cl.set_xlabel("alpha [deg]")
+def format_polar_csv(polar: SectionPolar) -> str:
+    """CSV text of a polar."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["alpha_deg", "cl", "cd", "cdp", "cm", "cl_over_cd", "xtr_top", "xtr_bottom"])
+    writer.writerows(
+        zip(
+            polar.alpha,
+            polar.cl,
+            polar.cd,
+            polar.cdp,
+            polar.cm,
+            polar.cl_over_cd,
+            polar.xtr_top,
+            polar.xtr_bottom,
+            strict=True,
+        )
+    )
+    return buffer.getvalue()
+
+
+def format_reynolds_sweep_csv(points: list[ReynoldsSweepPoint]) -> str:
+    """CSV text of the design numbers at each Reynolds number."""
+    names = [f.name for f in fields(PolarMetrics)]
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["reynolds", *names])
+    for point in points:
+        writer.writerow([point.polar.reynolds, *(getattr(point.metrics, n) for n in names)])
+    return buffer.getvalue()
+
+
+def plot_polar(results: XfoilPolarResults) -> Figure:
+    """Plot the section and its lift, drag, lift-to-drag and moment curves.
+
+    Args:
+        results: Results of the run.
+
+    Returns:
+        The matplotlib Figure instance.
+    """
+    import matplotlib.pyplot as plt
+
+    polar = results.polar
+    fig = plt.figure(figsize=(11.0, 9.0))
+    grid = fig.add_gridspec(3, 2, height_ratios=(0.55, 2.0, 2.0))
+    ax_shape = fig.add_subplot(grid[0, :])
+    ax_cl = fig.add_subplot(grid[1, 0])
+    ax_drag = fig.add_subplot(grid[1, 1])
+    ax_ld = fig.add_subplot(grid[2, 0])
+    ax_cm = fig.add_subplot(grid[2, 1])
+
+    ax_shape.fill(results.geometry.x, results.geometry.y, color="tab:blue", alpha=0.25)
+    ax_shape.plot(results.geometry.x, results.geometry.y, color="tab:blue", lw=1.0)
+    ax_shape.set_aspect("equal")
+    ax_shape.axis("off")
+    ax_shape.set_title(
+        f"{results.geometry.name} (t/c {results.thickness_to_chord:.1%}) on {results.surface}: "
+        f"Re {results.reynolds:.3g}, M {results.mach:g}, Ncrit {results.n_crit:g}"
+    )
+
+    ax_cl.plot(polar.alpha, polar.cl, ".-")
+    ax_cl.plot(results.alpha_cl_max, results.cl_max, "o", color="k",
+               label=f"CLmax {results.cl_max:.3f}")
+    ax_cl.set_xlabel("Angle of attack [deg]")
     ax_cl.set_ylabel("CL [-]")
-    ax_cl.set_title("Ackeret CL vs alpha (double-wedge fin)")
-    ax_cl.grid(True, alpha=0.3)
-    ax_cl.legend(fontsize=8)
 
-    ax_cd.set_xlabel("alpha [deg]")
-    ax_cd.set_ylabel("CD [-]")
-    ax_cd.set_title("Ackeret CD vs alpha (double-wedge fin)")
-    ax_cd.grid(True, alpha=0.3)
-    ax_cd.legend(fontsize=8)
+    ax_drag.plot(polar.cd, polar.cl, ".-")
+    ax_drag.set_xlim(left=0.0)
+    ax_drag.set_xlabel("CD [-]")
+    ax_drag.set_ylabel("CL [-]")
 
-    fig.suptitle("MELprop ramjet fin -- supersonic Ackeret polar grid")
+    ax_ld.plot(polar.alpha, polar.cl_over_cd, ".-")
+    ax_ld.plot(results.alpha_max_lift_to_drag, results.max_lift_to_drag, "o", color="k",
+               label=f"(L/D)max {results.max_lift_to_drag:.1f}")
+    ax_ld.set_xlabel("Angle of attack [deg]")
+    ax_ld.set_ylabel("CL/CD [-]")
+
+    ax_cm.plot(polar.alpha, polar.cm, ".-")
+    ax_cm.set_xlabel("Angle of attack [deg]")
+    ax_cm.set_ylabel("CM c/4 [-]")
+
+    for ax in (ax_cl, ax_drag, ax_ld, ax_cm):
+        ax.grid(True, alpha=0.3)
+    for ax in (ax_cl, ax_ld):
+        ax.legend(fontsize=8)
     fig.tight_layout()
-
-    output_path = Path(output_path)
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
-    return output_path
+    return fig
 
 
-def main() -> dict[str, Any]:
-    """Run the default supersonic fin polar grid, write JSON + PNG.
+def plot_reynolds_sweep(points: list[ReynoldsSweepPoint], results: XfoilPolarResults) -> Figure:
+    """Plot the lift curve and the drag polar at each Reynolds number.
+
+    Args:
+        points: Output of :func:`run_reynolds_sweep`.
+        results: Results of the run, drawn bold.
 
     Returns:
-        The JSON-serializable results dict (also written to
-        ``xfoil_runner_results.json`` next to this module).
+        The matplotlib Figure instance.
     """
-    analysis = XFOILAnalysis()
-    # No committed vehicle config carries fin thickness data (see the
-    # `setup()` docstring gap note), so a minimal placeholder vehicle is
-    # used here; the Ackeret polar defaults to the real MELprop fin
-    # geometry (FIN_THICKNESS_TO_CHORD) regardless.
-    placeholder_vehicle = BaseVehicleConfig(name="xfoil_fin_polar_placeholder")
-    with warnings.catch_warnings():
-        warnings.simplefilter("always")
-        analysis.setup(placeholder_vehicle)
-        results = analysis.execute()
+    import matplotlib.pyplot as plt
 
-    assert analysis.validate_results(results), "Ackeret polar failed self-consistency check"
-
-    output: dict[str, Any] = {
-        "data": results.data,
-        "metadata": results.metadata,
-    }
-
-    _RESULTS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _RESULTS_JSON_PATH.open("w", encoding="utf-8") as fh:
-        json.dump(output, fh, indent=2)
-
-    _plot_polar_grid(results, _POLAR_PNG_PATH)
-
-    return output
-
-
-if __name__ == "__main__":
-    result = main()
-    print(json.dumps(result, indent=2))
-    print(f"\nResults written to: {_RESULTS_JSON_PATH}")
-    print(f"Plot written to: {_POLAR_PNG_PATH}")
+    fig, (ax_cl, ax_drag) = plt.subplots(1, 2, figsize=(11.0, 5.0))
+    for point in points:
+        polar = point.polar
+        is_run = polar.reynolds == results.reynolds
+        style: dict[str, Any] = {"lw": 2.2 if is_run else 1.0, "label": f"Re {polar.reynolds:.3g}"}
+        ax_cl.plot(polar.alpha, polar.cl, **style)
+        ax_drag.plot(polar.cd, polar.cl, **style)
+    ax_cl.set_xlabel("Angle of attack [deg]")
+    ax_cl.set_ylabel("CL [-]")
+    ax_drag.set_xlim(left=0.0)
+    ax_drag.set_xlabel("CD [-]")
+    ax_drag.set_ylabel("CL [-]")
+    fig.suptitle(f"{results.geometry.name} on {results.surface}: Reynolds number effect")
+    for ax in (ax_cl, ax_drag):
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+    fig.tight_layout()
+    return fig

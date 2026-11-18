@@ -12,6 +12,7 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | **Powerplant** | `GrzywkaNozzleAnalysis` | [`powerplant/cycle_methods/grzywka.py`](powerplant/cycle_methods/grzywka.py) | L2 | Combustor and fully expanded nozzle sizing (throat and exit) with three thrust levels |
 | **Powerplant** | `ConicalInletAnalysis` | [`powerplant/inlet_methods/taylor_maccoll.py`](powerplant/inlet_methods/taylor_maccoll.py) | L0 | Single-cone inlet recovery with the Taylor-Maccoll conical shock |
 | **Powerplant** | `MultiShockInletAnalysis` | [`powerplant/inlet_methods/wedge.py`](powerplant/inlet_methods/wedge.py) | L0 | Multi-ramp external-compression inlet with the Oswatitsch optimum ramp schedule |
+| **Wind Tunnel** | `XFOILAnalysis` | [`wind_tunnel/methods/xfoil/xfoil_runner.py`](wind_tunnel/methods/xfoil/xfoil_runner.py) | L1 | XFOIL viscous section polar of a chosen wing or fin set, with a Reynolds number sweep |
 | **Stability & Control** | `BarrowmanStabilityAnalysis` | [`stability_control/methods/barrowman/barrowman_stability.py`](stability_control/methods/barrowman/barrowman_stability.py) | L0 | Barrowman CP and static margin of a slender rocket with any number of fin sets |
 | **Stability & Control** | `BarrowmanExtendedAnalysis` | [`stability_control/methods/barrowman/barrowman_extended.py`](stability_control/methods/barrowman/barrowman_extended.py) | L0 | Barrowman with Galejs body lift at an angle of attack, and tail-fin span sizing |
 | **Stability & Control** | `DatcomStabilityAnalysis` | [`stability_control/methods/datcom/datcom_class_sweep.py`](stability_control/methods/datcom/datcom_class_sweep.py) | L1 | In-house DATCOM-class supersonic build-up of normal force and CP (not a wrapper around USAF Digital DATCOM) |
@@ -23,7 +24,6 @@ This directory contains the swappable physics solvers for the YAADO framework. S
 | :--- | :--- | :--- | :---: | :--- |
 | **Airframe** | `OpenVSPExporter` | [`airframe/generator_methods/openvsp.py`](airframe/generator_methods/openvsp.py) | L1 | OpenVSP geometry generation |
 | **Airframe** | Gmsh Slicer | [`airframe/slicer_methods/gmsh.py`](airframe/slicer_methods/gmsh.py) | - | STEP cross-section slicing utility |
-| **Wind Tunnel** | `XFOILAnalysis` | [`wind_tunnel/methods/xfoil/xfoil_runner.py`](wind_tunnel/methods/xfoil/xfoil_runner.py) | L0 / L1 | Airfoil polar analysis with Ackeret supersonic fallback |
 | **Wind Tunnel** | `AVLFinAnalysis` | [`wind_tunnel/methods/avl/avl_builder.py`](wind_tunnel/methods/avl/avl_builder.py) | L1 | Subsonic fin vortex lattice analysis (AVL) |
 | **Wind Tunnel** | `AVLAnalysis` | [`wind_tunnel/methods/avl/avl_wrapper.py`](wind_tunnel/methods/avl/avl_wrapper.py) | L1 | Subsonic wing vortex lattice analysis (AVL) |
 | **Wind Tunnel** | `SU2ConfigGeneration` | [`wind_tunnel/methods/su2/su2_config_template.py`](wind_tunnel/methods/su2/su2_config_template.py) | L2 / L3 | SU2 CFD configuration template generator |

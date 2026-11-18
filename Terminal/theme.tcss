@@ -871,6 +871,11 @@ PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--o
     margin: 0;
 }
 
+#flightdeck-params-form .form-choice,
+#flightdeck-params-form .form-input-wide {
+    width: 24;
+}
+
 #flightdeck-params-form .form-select SelectCurrent {
     border: none;
     height: 1;

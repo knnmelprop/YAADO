@@ -79,6 +79,7 @@ class FlightLogsTree(Tree[Path | None]):
         "barrowman_extended": "Extended Barrowman",
         "datcom_class_stability": "DATCOM-Class Stability",
         "ackeret_fin_check": "Ackeret Fin Check",
+        "xfoil_polar": "XFOIL Polar",
         "aero_polar": "Aero Polars",
         "mass_estimation": "Mass & Inertia",
     }

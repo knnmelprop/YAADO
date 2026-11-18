@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from Terminal.solvers import (
     REPAIRED_SOLVERS,
     SolverDescriptor,
     SolverParam,
+    aero_surface_names,
     check_solver_compatibility,
     execute_solver,
 )
@@ -28,6 +30,8 @@ from YAADO_Core.modules.stability_control.containers import (
     BarrowmanStabilityResults,
     DatcomStabilityResults,
 )
+from YAADO_Core.modules.wind_tunnel.containers import XfoilPolarResults
+from YAADO_Core.modules.wind_tunnel.methods.xfoil import xfoil_runner
 
 HARPOON_PATH = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
 ALVRJ_PATH = Path("Hangar/examples/ALVRJ/ALVRJ.toml").resolve()
@@ -378,3 +382,91 @@ def test_execute_grzywka_saves_sizing_sweep_and_notes_the_nozzle(
     assert (run_dir / "artifacts" / "nozzle_vs_mach.csv").is_file()
     assert any("underexpands" in w for w in run.warnings)
     assert any("Placeholder values" in w for w in run.warnings)
+
+
+def _xfoil_descriptor() -> SolverDescriptor:
+    return next(d for d in REPAIRED_SOLVERS if d.solver_id == "xfoil_polar")
+
+
+def _fake_xfoil_run(
+    args: list[str], *, input: str, cwd: Path, **kwargs: object
+) -> subprocess.CompletedProcess[str]:
+    """Stand-in for XFOIL: a thin symmetric section where every angle converges."""
+    lines = input.splitlines()
+    if any(line.startswith("SAVE ") for line in lines):
+        coordinates = "1.0 0.0\n0.5 0.03\n0.0 0.0\n0.5 -0.03\n1.0 0.0\n" * 3
+        (Path(cwd) / "section.dat").write_text("NACA 0006\n" + coordinates, encoding="utf-8")
+    polar_file = lines[lines.index("PACC") + 1]
+    alphas = [float(line.split()[1]) for line in lines if line.startswith("ALFA ")]
+    rows = "\n".join(
+        f"{a:8.3f} {0.1 * a:8.4f} {0.006 + 1e-4 * a * a:9.5f} 0.00100 0.0000 0.5000 0.5000"
+        for a in alphas
+    )
+    (Path(cwd) / polar_file).write_text(" ------\n" + rows + "\n", encoding="utf-8")
+    return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+
+def test_aero_surface_names_list_surfaces_with_an_airfoil_first() -> None:
+    names = aero_surface_names(BaseVehicleConfig.from_toml(HARPOON_PATH))
+    assert names == ("planar_equivalent", "mid_body_wings", "aft_control_fins")
+
+
+def test_xfoil_compatibility_needs_a_surface_and_the_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    desc = _xfoil_descriptor()
+    monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: "/usr/bin/xfoil")
+    is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig.from_toml(HARPOON_PATH))
+    assert is_ready
+    assert "planar_equivalent" in msg and "aft_control_fins" in msg
+
+    is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig(name="Bare"))
+    assert not is_ready and "Missing aerodynamic surface" in msg
+
+    monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: None)
+    is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig.from_toml(HARPOON_PATH))
+    assert not is_ready and "not found on PATH" in msg
+
+
+def test_xfoil_surface_parameter_is_a_vehicle_choice() -> None:
+    surface = next(p for p in _xfoil_descriptor().parameters if p.name == "surface")
+    assert surface.choices is aero_surface_names
+    assert surface.parse("  ") is None
+    assert surface.parse("aft_control_fins") == "aft_control_fins"
+
+
+def test_execute_xfoil_saves_polar_and_reynolds_sweep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: "xfoil")
+    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil_run)
+
+    run = execute_solver(
+        _xfoil_descriptor(),
+        vehicle,
+        {"surface": "planar_equivalent", "alpha_start_deg": -2.0, "alpha_end_deg": 4.0},
+    )
+
+    assert isinstance(run.results, XfoilPolarResults)
+    assert run.params["surface"] == "planar_equivalent"
+    assert any("beyond the sweep" in w for w in run.warnings)
+    assert run.output_dir is not None
+    run_dir = tmp_path / run.output_dir
+    for name in ("figures/polar.png", "figures/polar_vs_reynolds.png", "artifacts/polar.csv",
+                 "artifacts/polar_vs_reynolds.csv", "artifacts/xfoil_input.txt",
+                 "artifacts/xfoil_output.log", "artifacts/xfoil_polar.txt", "results.json"):
+        assert (run_dir / name).is_file(), name
+    sweep_rows = (run_dir / "artifacts" / "polar_vs_reynolds.csv").read_text().splitlines()
+    assert len(sweep_rows) == 1 + 1 + len(xfoil_runner.XFOILAnalysis.SWEEP_REYNOLDS_FACTORS)
+
+
+def test_execute_xfoil_without_a_surface_on_a_multi_surface_vehicle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: "xfoil")
+    with pytest.raises(ValueError, match="pick one with surface=NAME"):
+        execute_solver(
+            _xfoil_descriptor(), BaseVehicleConfig.from_toml(HARPOON_PATH), enable_logging=False
+        )

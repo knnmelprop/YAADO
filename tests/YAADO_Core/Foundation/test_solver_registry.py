@@ -86,7 +86,9 @@ def test_solver_registry_query_methods(monkeypatch: pytest.MonkeyPatch):
     assert registry.available() == ["tool_a", "tool_b"]
 
 
-def test_default_registry_initially_empty():
-    """Verify DEFAULT_REGISTRY is initialized empty until methods are verified."""
-    assert DEFAULT_REGISTRY.all_solvers() == []
-    assert DEFAULT_REGISTRY.available() == []
+def test_default_registry_holds_only_verified_external_solvers():
+    """Verified methods register their executables: so far only XFOIL."""
+    import YAADO_Core.modules.wind_tunnel.methods.xfoil.xfoil_runner  # noqa: F401
+
+    assert DEFAULT_REGISTRY.all_solvers() == ["xfoil"]
+    assert DEFAULT_REGISTRY.get("xfoil").executable == "xfoil"

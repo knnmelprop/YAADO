@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
     from Terminal.solvers import SolverDescriptor
+    from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+
 
 def _input_text(value: Any) -> str:
     """Render a parameter value as input text, with ``None`` as a blank input."""
@@ -32,6 +34,20 @@ def _input_text(value: Any) -> str:
     if isinstance(value, tuple):
         return ", ".join(f"{item:g}" for item in value)
     return str(value)
+
+
+def _choice_options(param: SolverParam, vehicle: BaseVehicleConfig | None) -> tuple[str, ...]:
+    """Values a choice parameter offers for the vehicle; none without a vehicle."""
+    if param.choices is None or vehicle is None:
+        return ()
+    return param.choices(vehicle)
+
+
+def _resolve_choice(value: Any, options: tuple[str, ...]) -> str | None:
+    """Keep a valid choice, otherwise fall back to the first option."""
+    if value in options:
+        return str(value)
+    return options[0] if options else None
 
 
 @dataclass(frozen=True)
@@ -43,7 +59,7 @@ class _FormLoad:
     stage_index: int | None
     is_ready: bool
     compatibility_msg: str
-    vehicle_name: str | None
+    vehicle: BaseVehicleConfig | None
 
 
 class SolverParamsForm(VerticalScroll):
@@ -172,19 +188,29 @@ class SolverParamsForm(VerticalScroll):
         stage_index: int | None,
         is_ready: bool,
         compatibility_msg: str,
-        vehicle_name: str | None,
+        vehicle: BaseVehicleConfig | None,
     ) -> None:
         try:
             header = self.query_one("#solver-form-header", Static)
             header.update(
                 self._build_header_text(
-                    descriptor, stage_index, is_ready, compatibility_msg, vehicle_name
+                    descriptor,
+                    stage_index,
+                    is_ready,
+                    compatibility_msg,
+                    vehicle.name if vehicle is not None else None,
                 )
             )
 
             for param in descriptor.parameters:
                 val = self.current_params.get(param.name, param.default)
-                if param.param_type is bool:
+                if param.choices is not None:
+                    options = _choice_options(param, vehicle)
+                    choice = self._fill_choice(param, val, options)
+                    choice_select = self.query_one(f"#param-inp-{param.name}", Select)
+                    choice_select.set_options((option, option) for option in options)
+                    choice_select.value = Select.NULL if choice is None else choice
+                elif param.param_type is bool:
                     sel = self.query_one(f"#param-inp-{param.name}", Select)
                     if sel.value != str(val):
                         sel.value = str(val)
@@ -208,7 +234,7 @@ class SolverParamsForm(VerticalScroll):
         stage_index: int | None = None,
         is_ready: bool = True,
         compatibility_msg: str = "",
-        vehicle_name: str | None = None,
+        vehicle: BaseVehicleConfig | None = None,
     ) -> None:
         """Populate the form controls for a solver descriptor and its active parameters.
 
@@ -221,10 +247,10 @@ class SolverParamsForm(VerticalScroll):
             stage_index: Optional 1-based index if editing a pipeline stage.
             is_ready: Whether active vehicle satisfies requirements.
             compatibility_msg: Compatibility or failure explanation.
-            vehicle_name: Active vehicle name, if loaded.
+            vehicle: Active vehicle, if loaded; it supplies the options of choice parameters.
         """
         self._pending_load = _FormLoad(
-            descriptor, dict(params), stage_index, is_ready, compatibility_msg, vehicle_name
+            descriptor, dict(params), stage_index, is_ready, compatibility_msg, vehicle
         )
         if not self._is_loading:
             self._is_loading = True
@@ -247,16 +273,15 @@ class SolverParamsForm(VerticalScroll):
         stage_index = load.stage_index
         is_ready = load.is_ready
         compatibility_msg = load.compatibility_msg
-        vehicle_name = load.vehicle_name
+        vehicle = load.vehicle
+        vehicle_name = vehicle.name if vehicle is not None else None
 
         self._is_populating = True
         self.stage_index = stage_index
         self.current_params = load.params
 
         if self.descriptor == descriptor and self._widgets_mounted:
-            self._update_in_place(
-                descriptor, stage_index, is_ready, compatibility_msg, vehicle_name
-            )
+            self._update_in_place(descriptor, stage_index, is_ready, compatibility_msg, vehicle)
             self._is_populating = False
             return
 
@@ -281,7 +306,17 @@ class SolverParamsForm(VerticalScroll):
             label_text = f"{param.label} [{param.symbol}]:"
 
             input_widget: Input | Select[str]
-            if param.param_type is bool:
+            if param.choices is not None:
+                options = _choice_options(param, vehicle)
+                choice = self._fill_choice(param, val, options)
+                input_widget = Select(
+                    ((option, option) for option in options),
+                    prompt=param.placeholder or "none",
+                    value=Select.NULL if choice is None else choice,
+                    id=f"param-inp-{param.name}",
+                    classes="form-select form-choice",
+                )
+            elif param.param_type is bool:
                 input_widget = Select.from_values(
                     ["True", "False"],
                     value=str(val),
@@ -294,7 +329,7 @@ class SolverParamsForm(VerticalScroll):
                     value=_input_text(val),
                     placeholder=param.placeholder,
                     id=f"param-inp-{param.name}",
-                    classes="form-input",
+                    classes="form-input form-input-wide" if param.param_type is str else "form-input",
                 )
 
             unit_str = param.unit if param.unit != "bool" else ""
@@ -332,6 +367,16 @@ class SolverParamsForm(VerticalScroll):
         self.scroll_home(animate=False)
 
 
+    def _fill_choice(self, param: SolverParam, value: Any, options: tuple[str, ...]) -> str | None:
+        """Resolve a choice parameter against the options and report a changed value."""
+        choice = _resolve_choice(value, options)
+        if choice != value:
+            self.current_params[param.name] = choice
+            self.post_message(
+                self.ParamChanged(self, param.name, choice, is_valid=True, stage_index=self.stage_index)
+            )
+        return choice
+
     @on(Input.Changed)
     def _on_input_changed(self, event: Input.Changed) -> None:
         """Handle parameter input field changes with live validation."""
@@ -364,12 +409,21 @@ class SolverParamsForm(VerticalScroll):
 
     @on(Select.Changed)
     def _on_select_changed(self, event: Select.Changed) -> None:
-        """Handle boolean toggle select changes."""
+        """Handle boolean toggle and choice select changes."""
         if self._is_populating or not event.select.id or not event.select.id.startswith("param-inp-"):
             return
         param_name = event.select.id.removeprefix("param-inp-")
-        bool_val = (event.value == "True")
-        self.current_params[param_name] = bool_val
+        param_def = self._param_defs.get(param_name)
+        if param_def is None:
+            return
+        value: Any
+        if param_def.param_type is bool:
+            value = event.value == "True"
+        else:
+            value = None if event.value is Select.NULL else str(event.value)
+        if self.current_params.get(param_name) == value:
+            return
+        self.current_params[param_name] = value
         self.post_message(
-            self.ParamChanged(self, param_name, bool_val, is_valid=True, stage_index=self.stage_index)
+            self.ParamChanged(self, param_name, value, is_valid=True, stage_index=self.stage_index)
         )
