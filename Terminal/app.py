@@ -13,7 +13,7 @@ from typing import Any, ClassVar
 
 from textual import events, on
 from textual.app import App, ComposeResult
-from textual.binding import BindingType
+from textual.binding import Binding, BindingType
 from textual.css.query import NoMatches
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
@@ -77,6 +77,8 @@ class YaadoApp(App[None]):
             pass
 
     BINDINGS: ClassVar[list[BindingType]] = [
+        # First, so that the footer shows it before the other app keys during a run.
+        Binding("k,escape", "cancel_run", "Cancel"),
         ("q", "quit", "Quit"),
         ("d", "toggle_dark", "Toggle Dark/Light Mode"),
         ("m", "switch_tab('main')", "Main"),
@@ -144,7 +146,20 @@ class YaadoApp(App[None]):
         Returns:
             False to hide the binding from the footer, or True to display it.
         """
+        if action == "cancel_run":
+            return self._active_tab == "flight-deck" and self._flight_deck_can_cancel()
         return not (action == "switch_tab" and bool(parameters) and parameters[0] == self._active_tab)
+
+    def _flight_deck_can_cancel(self) -> bool:
+        """Whether the Flight Deck has a run in progress that can be cancelled."""
+        try:
+            return self.query_one(FlightDeckView).can_cancel
+        except NoMatches:
+            return False
+
+    def action_cancel_run(self) -> None:
+        """Cancel the Flight Deck's run in progress, wherever the focus is."""
+        self.query_one(FlightDeckView).action_cancel_run()
 
     @on(TabbedContent.TabActivated)
     def on_tab_activated(self, event: TabbedContent.TabActivated) -> None:

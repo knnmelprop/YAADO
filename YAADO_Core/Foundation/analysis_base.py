@@ -24,6 +24,7 @@ from typing import (
     get_type_hints,
 )
 
+from YAADO_Core.Foundation.cancellation import CancelToken
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 
 if TYPE_CHECKING:
@@ -127,6 +128,7 @@ class BaseAnalysis(ABC, Generic[TResult]):
         self.name = name
         self._logger: FlightLogger | None = None
         self._is_setup = False
+        self.cancel_token = CancelToken()
 
     @property
     def logger(self) -> FlightLogger:
@@ -158,6 +160,7 @@ class BaseAnalysis(ABC, Generic[TResult]):
         vehicle: BaseVehicleConfig,
         *,
         enable_logging: bool = True,
+        cancel_token: CancelToken | None = None,
         **kwargs: Any,
     ) -> None:
         """Bind analysis to vehicle configuration and prepare solver state.
@@ -167,8 +170,11 @@ class BaseAnalysis(ABC, Generic[TResult]):
         Args:
             vehicle: The centralized vehicle configuration to analyze.
             enable_logging: Whether FlightLogger creates disk artifacts. Defaults to True.
+            cancel_token: Lets another thread stop the run. Long-running solvers check
+                ``self.cancel_token`` or stop their subprocess through it.
             **kwargs: Solver-specific execution settings.
         """
+        self.cancel_token = cancel_token or CancelToken()
         self.logger = FlightLogger(
             vehicle_name=vehicle.name,
             analysis_name=self.name,
@@ -196,12 +202,15 @@ class BaseAnalysis(ABC, Generic[TResult]):
 
         Raises:
             RuntimeError: If called before :meth:`setup` or if results fail validation.
+            RunCancelledError: If the run was cancelled through its cancel token.
         """
         if not self._is_setup:
             raise RuntimeError(
                 f"Analysis '{self.name}'.execute() called before setup(vehicle)."
             )
+        self.cancel_token.raise_if_cancelled()
         results = self._compute()
+        self.cancel_token.raise_if_cancelled()
         if not self.validate_results(results):
             raise RuntimeError(
                 f"Analysis '{self.name}' results failed physical validation checks."

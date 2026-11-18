@@ -28,7 +28,6 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Collapsible, LoadingIndicator, OptionList, Static
 from textual.widgets.option_list import Option
-from textual.worker import get_current_worker
 
 from Terminal.solvers import (
     REPAIRED_SOLVERS,
@@ -45,6 +44,7 @@ from Terminal.widgets import (
     render_flightlog_preview,
 )
 from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults, FidelityLevel
+from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 if TYPE_CHECKING:
@@ -70,18 +70,23 @@ class StageOutcome:
     Attributes:
         descriptor: Solver that ran.
         vehicle_name: Name of the vehicle it ran on.
-        run: Solver outcome, or None if the solver failed.
+        run: Solver outcome, or None if the solver failed or was cancelled.
         error: Why the solver failed, or None.
+        cancelled: Whether the run was cancelled before it finished.
     """
 
     descriptor: SolverDescriptor
     vehicle_name: str
     run: SolverRun | None
     error: str | None = None
+    cancelled: bool = False
 
 
 def run_stage(
-    vehicle: BaseVehicleConfig, stage: PipelineStage, enable_logging: bool = True
+    vehicle: BaseVehicleConfig,
+    stage: PipelineStage,
+    enable_logging: bool = True,
+    cancel_token: CancelToken | None = None,
 ) -> StageOutcome:
     """Execute one solver stage, turning the expected solver errors into an outcome.
 
@@ -89,14 +94,22 @@ def run_stage(
         vehicle: Vehicle configuration to analyze.
         stage: Solver and parameter overrides to run.
         enable_logging: Whether FlightLogger writes the run to disk.
+        cancel_token: Lets another thread stop the solver.
 
     Returns:
-        The solver outcome, or the error message if the solver failed.
+        The solver outcome, the error message if the solver failed, or a cancelled
+        outcome.
     """
     try:
         run = execute_solver(
-            stage.descriptor, vehicle, stage.params, enable_logging=enable_logging
+            stage.descriptor,
+            vehicle,
+            stage.params,
+            enable_logging=enable_logging,
+            cancel_token=cancel_token,
         )
+    except RunCancelledError:
+        return StageOutcome(stage.descriptor, vehicle.name, None, cancelled=True)
     except _RUN_ERRORS as exc:
         return StageOutcome(stage.descriptor, vehicle.name, None, str(exc))
     return StageOutcome(stage.descriptor, vehicle.name, run)
@@ -435,7 +448,21 @@ class FlightDeckView(Container):
             self.outcome = outcome
 
     class RunFinished(Message, bubble=False):
-        """Posted by the run worker after its last stage."""
+        """Posted by the run worker after its last stage, or after a cancel."""
+
+        def __init__(
+            self, cancelled: SolverDescriptor | None = None, skipped: int = 0
+        ) -> None:
+            """Report how the run ended.
+
+            Args:
+                cancelled: Stage that was stopped or never started because the run was
+                    cancelled, or None if the run was not cancelled.
+                skipped: Number of later stages that did not run.
+            """
+            super().__init__()
+            self.cancelled = cancelled
+            self.skipped = skipped
 
     def __init__(
         self,
@@ -469,11 +496,17 @@ class FlightDeckView(Container):
         self._editing_stage_index: int | None = None
         self._selected_flightlog_path: Path | None = None
         self._running_name: str | None = None
+        self._cancel_token: CancelToken | None = None
 
     @property
     def is_running(self) -> bool:
         """Whether a background solver or pipeline run is in progress."""
         return self._running_name is not None
+
+    @property
+    def can_cancel(self) -> bool:
+        """Whether a run is in progress and has not been cancelled yet."""
+        return self._cancel_token is not None and not self._cancel_token.cancelled
 
     def compose(self) -> ComposeResult:
         """Render the run setup pane, execution console drawer, and historical logs browser.
@@ -723,11 +756,30 @@ class FlightDeckView(Container):
                 "[dim]The results show here when the solver finishes. "
                 "You can keep using the cockpit meanwhile.[/dim]"
             ),
+            "[dim]Press [bold]k[/bold] or [bold]Esc[/bold] to cancel the run.[/dim]",
         ]
-        subtitle = f"Stage {index}/{total}  b Inspector" if total > 1 else "b Inspector"
+        hints = "k Cancel  b Inspector"
+        subtitle = f"Stage {index}/{total}  {hints}" if total > 1 else hints
         self._show_results_page(
             f"Running {descriptor.name}", subtitle, "\n".join(lines), running=True
         )
+
+    def _render_run_cancelled(self, descriptor: SolverDescriptor, skipped: int) -> None:
+        """Show that the user cancelled a run.
+
+        Args:
+            descriptor: Solver that was stopped, or that had not started yet.
+            skipped: Number of later pipeline stages that did not run.
+        """
+        lines = [
+            "[bold #f59e0b]RUN CANCELLED[/bold #f59e0b]",
+            f"[bold]{escape(descriptor.name)}[/bold] was stopped and saved no FlightLogs run.",
+        ]
+        if skipped:
+            stages = "stage" if skipped == 1 else "stages"
+            lines.append(f"{skipped} later pipeline {stages} did not run.")
+        lines += ["", "[dim]Press [bold]b[/bold] to return to solver inspector[/dim]"]
+        self._show_results_page("Run Cancelled", "b Inspector", "\n".join(lines))
 
     def _render_run_failure(self, descriptor: SolverDescriptor, error: str) -> None:
         """Show why a solver run failed in the results card.
@@ -993,7 +1045,7 @@ class FlightDeckView(Container):
         """
         if self._running_name is not None:
             self._notify(
-                f"{self._running_name} is still running. Wait for it to finish.",
+                f"{self._running_name} is still running. Wait for it, or press k to cancel it.",
                 severity="warning",
             )
             return False
@@ -1012,25 +1064,68 @@ class FlightDeckView(Container):
         matplotlib.use("Agg")
 
         self._running_name = runnable[0].descriptor.name
+        self._cancel_token = CancelToken()
         self._set_run_controls(running=True)
         # A copy, so that edits in the Hangar cannot change the vehicle mid-run.
-        self._run_stages(self.active_vehicle.model_copy(deep=True), runnable)
+        self._run_stages(
+            self.active_vehicle.model_copy(deep=True), runnable, self._cancel_token
+        )
         return True
 
     @work(thread=True, group="flight_deck_run")
-    def _run_stages(self, vehicle: BaseVehicleConfig, stages: Sequence[PipelineStage]) -> None:
+    def _run_stages(
+        self,
+        vehicle: BaseVehicleConfig,
+        stages: Sequence[PipelineStage],
+        cancel_token: CancelToken,
+    ) -> None:
         """Execute stages in a worker thread and post each outcome to the UI thread."""
-        worker = get_current_worker()
+        finished = self.RunFinished()
         try:
             for index, stage in enumerate(stages, start=1):
-                if worker.is_cancelled:
+                if cancel_token.cancelled:
+                    finished = self.RunFinished(stage.descriptor, len(stages) - index)
                     return
                 self.post_message(
                     self.StageStarted(stage.descriptor, vehicle.name, index, len(stages))
                 )
-                self.post_message(self.StageFinished(run_stage(vehicle, stage)))
+                outcome = run_stage(vehicle, stage, cancel_token=cancel_token)
+                self.post_message(self.StageFinished(outcome))
+                if outcome.cancelled:
+                    finished = self.RunFinished(stage.descriptor, len(stages) - index)
+                    return
         finally:
-            self.post_message(self.RunFinished())
+            self.post_message(finished)
+
+    def cancel_run(self) -> bool:
+        """Stop the run in progress: kill the running solver and skip later stages.
+
+        Returns:
+            True if a run was in progress and is now being cancelled.
+        """
+        if self._cancel_token is None or not self.can_cancel:
+            return False
+        self._cancel_token.cancel()
+        return True
+
+    def action_cancel_run(self) -> None:
+        """Cancel the run in progress and say so until the worker stops.
+
+        The app binds k and Esc to this, so that they work wherever the focus is.
+        """
+        name = self._running_name
+        if name is None or not self.cancel_run():
+            return
+        self._show_results_page(
+            f"Cancelling {name}",
+            "b Inspector",
+            f"[bold #f59e0b]CANCELLING[/bold #f59e0b]\n[bold]{escape(name)}[/bold]",
+            running=True,
+        )
+
+    def on_unmount(self) -> None:
+        """Stop a running solver when the cockpit closes, so the process can exit."""
+        self.cancel_run()
 
     def _set_run_controls(self, running: bool) -> None:
         """Disable the run buttons and mark them busy while a run is in progress."""
@@ -1043,6 +1138,7 @@ class FlightDeckView(Container):
             button.label = "Running…" if running else label
             button.disabled = running
             button.set_class(running, "-running")
+        self.refresh_bindings()
 
     def _show_outcome(self, outcome: StageOutcome) -> None:
         """Show a finished stage's results, or why it failed."""
@@ -1068,19 +1164,26 @@ class FlightDeckView(Container):
     @on(StageStarted)
     def _on_stage_started(self, event: StageStarted) -> None:
         """Show which solver the worker is running."""
+        if self._cancel_token is not None and self._cancel_token.cancelled:
+            return
         self._running_name = event.descriptor.name
         self._render_run_progress(event.descriptor, event.vehicle_name, event.index, event.total)
 
     @on(StageFinished)
     def _on_stage_finished(self, event: StageFinished) -> None:
         """Show a stage's results as soon as it finishes."""
-        self._show_outcome(event.outcome)
+        if not event.outcome.cancelled:
+            self._show_outcome(event.outcome)
 
     @on(RunFinished)
-    def _on_run_finished(self) -> None:
-        """Accept new runs again."""
+    def _on_run_finished(self, event: RunFinished) -> None:
+        """Accept new runs again, and say so if the run was cancelled."""
         self._running_name = None
+        self._cancel_token = None
         self._set_run_controls(running=False)
+        if event.cancelled is not None:
+            self._render_run_cancelled(event.cancelled, event.skipped)
+            self._notify(f"Cancelled {event.cancelled.name}", severity="warning")
 
     def _completion_message(
         self, descriptor: SolverDescriptor, results: BaseAnalysisResults

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from Terminal import solvers
 from Terminal.solvers import (
     REPAIRED_SOLVERS,
     SolverDescriptor,
@@ -15,6 +17,8 @@ from Terminal.solvers import (
     check_solver_compatibility,
     execute_solver,
 )
+from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
+from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import (
@@ -165,6 +169,41 @@ def test_execute_ramjet_skips_sweep_but_keeps_station_figure(
     assert not (run_dir / "artifacts" / "mach_sweep.csv").exists()
 
 
+def test_execute_cancelled_while_saving_leaves_no_flightlogs_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run cancelled after it wrote its figures deletes its half-written run folder."""
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    monkeypatch.chdir(tmp_path)
+    token = CancelToken()
+    save = solvers._save_run_artifacts
+    run_dirs: list[Path] = []
+
+    def save_then_cancel(logger: FlightLogger, *args: Any) -> None:
+        save(logger, *args)
+        run_dirs.append(tmp_path / logger.output_dir)
+        assert (run_dirs[0] / "figures" / "cycle_stations.png").is_file()
+        token.cancel()
+
+    monkeypatch.setattr(solvers, "_save_run_artifacts", save_then_cancel)
+    with pytest.raises(RunCancelledError):
+        execute_solver(_ramjet_descriptor(), vehicle, cancel_token=token)
+    assert run_dirs and not run_dirs[0].exists()
+    assert list((tmp_path / "FlightLogs").iterdir()) == []
+
+
+def test_execute_with_a_cancelled_token_does_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
+    monkeypatch.chdir(tmp_path)
+    token = CancelToken()
+    token.cancel()
+    with pytest.raises(RunCancelledError):
+        execute_solver(_ramjet_descriptor(), vehicle, cancel_token=token)
+    assert list((tmp_path / "FlightLogs").iterdir()) == []
+
+
 def test_execute_ramjet_warns_until_every_loss_is_set() -> None:
     """Verify the run names placeholder losses and stops when all are given."""
     vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
@@ -222,6 +261,7 @@ def test_execute_stability_flags_an_unstable_vehicle() -> None:
     run = execute_solver(
         _stability_descriptor(), vehicle, {"cg_from_nose": 4.0}, enable_logging=False
     )
+    assert isinstance(run.results, BarrowmanStabilityResults)
     assert run.results.static_margin < 0.0
     assert any("Statically unstable" in w for w in run.warnings)
 
@@ -286,6 +326,7 @@ def test_extended_warns_when_no_span_meets_the_rule() -> None:
     vehicle = BaseVehicleConfig.from_toml(ALVRJ_PATH)
     descriptor = next(d for d in REPAIRED_SOLVERS if d.solver_id == "barrowman_extended")
     run = execute_solver(descriptor, vehicle, {"sm_required": 50.0}, enable_logging=False)
+    assert isinstance(run.results, BarrowmanExtendedResults)
     assert run.results.required_tail_span is None
     assert any("No tail fin span" in w for w in run.warnings)
 
@@ -444,7 +485,7 @@ def test_execute_xfoil_saves_polar_and_reynolds_sweep(
     vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: "xfoil")
-    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil_run)
+    monkeypatch.setattr(xfoil_runner, "_run_process", _fake_xfoil_run)
 
     run = execute_solver(
         _xfoil_descriptor(),
