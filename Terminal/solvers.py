@@ -84,7 +84,13 @@ from YAADO_Core.modules.stability_control.methods.datcom import datcom_class_swe
 from YAADO_Core.modules.stability_control.methods.datcom.datcom_class_sweep import (
     DatcomStabilityAnalysis,
 )
-from YAADO_Core.modules.wind_tunnel.containers import XfoilPolarResults
+from YAADO_Core.modules.wind_tunnel.containers import (
+    SU2ConfigResults,
+    XfoilPolarResults,
+)
+from YAADO_Core.modules.wind_tunnel.methods.su2.su2_config_template import (
+    SU2ConfigGeneration,
+)
 from YAADO_Core.modules.wind_tunnel.methods.xfoil import xfoil_runner
 from YAADO_Core.modules.wind_tunnel.methods.xfoil.xfoil_runner import XFOILAnalysis
 
@@ -1037,6 +1043,99 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="su2_euler_decks",
+        name="SU2 Euler Config Decks",
+        discipline="AERODYNAMICS",
+        fidelity=SU2ConfigGeneration.fidelity,
+        solver_cls=SU2ConfigGeneration,
+        description=(
+            "Writes one SU2 Euler deck per Mach number and angle of attack, with the ISA "
+            "freestream and the body's frontal area and diameter as references. Decks only: "
+            "mesh the vehicle and run SU2_CFD on each deck yourself."
+        ),
+        required_components_desc=(
+            "One axisymmetric body (AxisymmetricBody), or a reference area and length set below."
+        ),
+        headline_outputs=(
+            ("n_configs", "-", "Decks Written"),
+            ("ref_area", "m^2", "Reference Area"),
+            ("ref_length", "m", "Reference Length"),
+            ("moment_origin_x", "m", "Moment Reference from Nose"),
+            ("freestream_pressure", "Pa", "Freestream Pressure"),
+            ("freestream_temperature", "K", "Freestream Temperature"),
+            ("freestream_density", "kg/m^3", "Freestream Density"),
+            ("mesh_filename", "-", "Mesh File Expected"),
+        ),
+        parameters=(
+            SolverParam(
+                name="mach_list",
+                label="Mach Numbers",
+                symbol="M",
+                unit="-",
+                param_type=tuple,
+                default=SU2ConfigGeneration.DEFAULT_MACH_LIST,
+                description="Comma-separated freestream Mach numbers",
+                min_value=0.01,
+                max_value=10.0,
+            ),
+            SolverParam(
+                name="alpha_list_deg",
+                label="Angles of Attack",
+                symbol="α",
+                unit="deg",
+                param_type=tuple,
+                default=SU2ConfigGeneration.DEFAULT_ALPHA_LIST_DEG,
+                description="Comma-separated angles; every Mach gets every angle",
+                min_value=-30.0,
+                max_value=30.0,
+            ),
+            SolverParam(
+                name="altitude_m",
+                label="Altitude",
+                symbol="h",
+                unit="m",
+                param_type=float,
+                default=SU2ConfigGeneration.DEFAULT_ALTITUDE_M,
+                description="ISA altitude of the freestream pressure and temperature",
+                min_value=0.0,
+                max_value=80000.0,
+            ),
+            SolverParam(
+                name="ref_area",
+                label="Reference Area",
+                symbol="A_ref",
+                unit="m^2",
+                param_type=float,
+                default=None,
+                description="Force reference, e.g. a wing area. Blank uses the body frontal area",
+                min_value=0.0,
+                placeholder="body",
+            ),
+            SolverParam(
+                name="ref_length",
+                label="Reference Length",
+                symbol="L_ref",
+                unit="m",
+                param_type=float,
+                default=None,
+                description="Moment reference, e.g. a mean chord. Blank uses the body diameter",
+                min_value=0.0,
+                placeholder="body",
+            ),
+            SolverParam(
+                name="cg_from_nose",
+                label="Moment Reference",
+                symbol="x_ref",
+                unit="m",
+                param_type=float,
+                default=None,
+                description="Moment point from the nose tip. Blank uses the vehicle CG",
+                min_value=0.0,
+                placeholder="TOML",
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="barrowman_stability",
         name="Barrowman Static Stability",
         discipline="STABILITY & CONTROL",
@@ -1367,6 +1466,15 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no spike_half_angle, so set it below"
         return True, f"Ready ({ramjet_name}, {ramjet.spike_half_angle:g} deg spike)"
 
+    if descriptor.solver_id == "su2_euler_decks":
+        bodies = vehicle.get_components_by_type(BODY_COMPONENTS)
+        if len(bodies) > 1:
+            return False, f"Flight Deck uses one body; found {sorted(bodies)}"
+        if not bodies:
+            return True, "Ready; no body, so set the reference area and length"
+        body_name, body = next(iter(bodies.items()))
+        return True, f"Ready ({body_name}, diameter {body.diameter:g} m)"
+
     if descriptor.solver_id == "xfoil_polar":
         surfaces = aero_surface_names(vehicle)
         if not surfaces:
@@ -1505,7 +1613,7 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
                 "today's reaches the required margin."
             )
         return tuple(warnings)
-    if isinstance(results, XfoilPolarResults):
+    if isinstance(results, (XfoilPolarResults, SU2ConfigResults)):
         return results.assumptions
     if isinstance(results, AckeretFinResults):
         warnings = list(results.assumptions)

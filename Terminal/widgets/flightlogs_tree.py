@@ -80,6 +80,7 @@ class FlightLogsTree(Tree[Path | None]):
         "datcom_class_stability": "DATCOM-Class Stability",
         "ackeret_fin_check": "Ackeret Fin Check",
         "xfoil_polar": "XFOIL Polar",
+        "su2_euler_decks": "SU2 Euler Decks",
         "aero_polar": "Aero Polars",
         "mass_estimation": "Mass & Inertia",
     }

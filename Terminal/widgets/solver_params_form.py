@@ -329,7 +329,7 @@ class SolverParamsForm(VerticalScroll):
                     value=_input_text(val),
                     placeholder=param.placeholder,
                     id=f"param-inp-{param.name}",
-                    classes="form-input form-input-wide" if param.param_type is str else "form-input",
+                    classes="form-input form-input-wide" if param.param_type in (str, tuple) else "form-input",
                 )
 
             unit_str = param.unit if param.unit != "bool" else ""

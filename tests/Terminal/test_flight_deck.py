@@ -89,6 +89,7 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
         "conical_inlet",
         "multi_shock_inlet",
         "xfoil_polar",
+        "su2_euler_decks",
         "barrowman_stability",
         "barrowman_extended",
         "datcom_class_stability",
