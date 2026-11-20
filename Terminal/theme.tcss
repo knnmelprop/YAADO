@@ -871,7 +871,15 @@ PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--o
     margin: 0;
 }
 
-#flightdeck-params-form .form-choice,
+#flightdeck-params-form .form-choice {
+    width: 32;
+}
+
+/* The open list is wider than the field, so entries such as "surface: airfoil" stay on one line. */
+#flightdeck-params-form .form-choice SelectOverlay {
+    width: 40;
+}
+
 #flightdeck-params-form .form-input-wide {
     width: 24;
 }
@@ -889,6 +897,10 @@ PipelineList > .option-list--option, #flightdeck-pipeline-list > .option-list--o
     height: 1;
     color: $yaado-text-disabled;
     padding-left: 1;
+}
+
+#flightdeck-params-form .form-unit.-empty {
+    display: none;
 }
 
 #flightdeck-params-form .form-hint {

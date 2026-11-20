@@ -18,7 +18,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Input, Select, Static
 
-from Terminal.solvers import SolverParam
+from Terminal.solvers import Choice, SolverParam
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -36,18 +36,30 @@ def _input_text(value: Any) -> str:
     return str(value)
 
 
-def _choice_options(param: SolverParam, vehicle: BaseVehicleConfig | None) -> tuple[str, ...]:
-    """Values a choice parameter offers for the vehicle; none without a vehicle."""
+def _choice_options(param: SolverParam, vehicle: BaseVehicleConfig | None) -> tuple[Choice, ...]:
+    """Entries a choice parameter offers for the vehicle; none without a vehicle."""
     if param.choices is None or vehicle is None:
         return ()
     return param.choices(vehicle)
 
 
-def _resolve_choice(value: Any, options: tuple[str, ...]) -> str | None:
-    """Keep a valid choice, otherwise fall back to the first option."""
-    if value in options:
+def _resolve_choice(value: Any, options: tuple[Choice, ...], preselect: bool) -> str | None:
+    """Keep a listed value. A preselected parameter falls back to the first entry; another
+    keeps its own value, such as a file path set in bare mode, or stays blank."""
+    values = [option.value for option in options]
+    if value in values:
         return str(value)
-    return options[0] if options else None
+    if preselect:
+        return values[0] if values else None
+    return None if value is None else str(value)
+
+
+def _select_options(options: tuple[Choice, ...], choice: str | None) -> list[tuple[str, str]]:
+    """(label, value) pairs of a Select, with an unlisted current value appended."""
+    pairs = [(option.label, option.value) for option in options]
+    if choice is not None and choice not in {option.value for option in options}:
+        pairs.append((choice, choice))
+    return pairs
 
 
 @dataclass(frozen=True)
@@ -208,7 +220,7 @@ class SolverParamsForm(VerticalScroll):
                     options = _choice_options(param, vehicle)
                     choice = self._fill_choice(param, val, options)
                     choice_select = self.query_one(f"#param-inp-{param.name}", Select)
-                    choice_select.set_options((option, option) for option in options)
+                    choice_select.set_options(_select_options(options, choice))
                     choice_select.value = Select.NULL if choice is None else choice
                 elif param.param_type is bool:
                     sel = self.query_one(f"#param-inp-{param.name}", Select)
@@ -310,7 +322,7 @@ class SolverParamsForm(VerticalScroll):
                 options = _choice_options(param, vehicle)
                 choice = self._fill_choice(param, val, options)
                 input_widget = Select(
-                    ((option, option) for option in options),
+                    _select_options(options, choice),
                     prompt=param.placeholder or "none",
                     value=Select.NULL if choice is None else choice,
                     id=f"param-inp-{param.name}",
@@ -337,7 +349,7 @@ class SolverParamsForm(VerticalScroll):
             row = Horizontal(
                 Static(label_text, classes="form-label", markup=False),
                 input_widget,
-                Static(unit_str, classes="form-unit", markup=False),
+                Static(unit_str, classes="form-unit" if unit_str else "form-unit -empty", markup=False),
                 classes="form-row",
             )
             widgets_to_mount.append(row)
@@ -367,9 +379,9 @@ class SolverParamsForm(VerticalScroll):
         self.scroll_home(animate=False)
 
 
-    def _fill_choice(self, param: SolverParam, value: Any, options: tuple[str, ...]) -> str | None:
+    def _fill_choice(self, param: SolverParam, value: Any, options: tuple[Choice, ...]) -> str | None:
         """Resolve a choice parameter against the options and report a changed value."""
-        choice = _resolve_choice(value, options)
+        choice = _resolve_choice(value, options, param.preselect)
         if choice != value:
             self.current_params[param.name] = choice
             self.post_message(
