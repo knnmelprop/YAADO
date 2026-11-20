@@ -1,10 +1,13 @@
 """Unit tests for YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof."""
 
 import math
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
+from scipy.optimize import brentq
 
 from YAADO_Core.ComponentStore import MassProperties
 from YAADO_Core.ComponentStore.aero_surfaces import Fins
@@ -19,7 +22,10 @@ from YAADO_Core.modules.flight_dynamics.containers import (
 )
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
     PointMass3DOFBoostAnalysis,
+    boost_dynamics,
     resolve_booster_params_from_vehicle,
+    thrust_elevation_rad,
+    wind_velocity_ms,
 )
 
 
@@ -696,3 +702,208 @@ def test_format_sweep_csv_preserves_columns_for_both_modes(
         "launch_angle_deg,burnout_mach,burnout_altitude,burnout_range,q_max,"
         "ground_impact_flag,apogee_altitude,flight_time,flight_range"
     )
+
+
+# ---------------------------------------------------------------------------
+# Wind (#72) and launch rail / gravity turn (#73)
+# ---------------------------------------------------------------------------
+
+
+def _full_flight(vehicle: BaseVehicleConfig, **setup_kwargs: Any) -> PointMassBoostResults:
+    """Run a full flight (``stop_at_burnout=False``) with the given setup overrides."""
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, stop_at_burnout=False, **setup_kwargs)
+    return analysis.execute()
+
+
+def test_tailwind_increases_and_headwind_decreases_range(vehicle: BaseVehicleConfig) -> None:
+    """A tailwind lengthens and a headwind shortens the ground range."""
+    calm = _full_flight(vehicle).flight_range
+    tail = _full_flight(vehicle, wind_speed_ms=10.0).flight_range
+    head = _full_flight(vehicle, wind_speed_ms=-10.0).flight_range
+    assert tail > calm > head
+
+
+def test_zero_wind_matches_baseline_exactly(vehicle: BaseVehicleConfig) -> None:
+    """Wind speed 0 (with any shear setting) gives the baseline trajectory exactly."""
+    base = _full_flight(vehicle)
+    zero = _full_flight(vehicle, wind_speed_ms=0.0, wind_shear_exponent=0.3)
+    assert zero.flight_range == base.flight_range
+    assert zero.apogee_altitude == base.apogee_altitude
+    assert zero.flight_time == base.flight_time
+
+
+def test_wind_profile_power_law() -> None:
+    """The wind follows v_ref * (h_agl / h_ref) ** alpha, and is constant for alpha = 0."""
+    params = resolve_booster_params_from_vehicle(
+        _build_generic_solid_rocket(),
+        ground_altitude_m=50.0,
+        wind_speed_ms=8.0,
+        wind_ref_height_m=10.0,
+        wind_shear_exponent=0.25,
+    )
+    assert wind_velocity_ms(60.0, params) == pytest.approx(8.0)
+    assert wind_velocity_ms(50.0 + 160.0, params) == pytest.approx(8.0 * 16.0**0.25)
+    assert wind_velocity_ms(50.0, params) == pytest.approx(0.0)
+    constant = replace(params, wind_shear_exponent=0.0)
+    assert wind_velocity_ms(50.0, constant) == pytest.approx(8.0)
+    assert wind_velocity_ms(5000.0, constant) == pytest.approx(8.0)
+
+
+def test_drag_opposes_relative_wind(vehicle: BaseVehicleConfig) -> None:
+    """A vehicle at rest and unpowered is pushed along the wind by drag."""
+    params = resolve_booster_params_from_vehicle(vehicle, wind_speed_ms=20.0)
+    state = np.array([0.0, 1000.0, 0.0, 0.0])
+    t_after_burnout = params.burn_time_s + 1.0
+    ax_wind = boost_dynamics(t_after_burnout, state, params)[2]
+    ax_calm = boost_dynamics(t_after_burnout, state, replace(params, wind_speed_ms=0.0))[2]
+    assert ax_calm == pytest.approx(0.0)
+    assert ax_wind > 0.0
+    headwind = boost_dynamics(t_after_burnout, state, replace(params, wind_speed_ms=-20.0))[2]
+    assert headwind == pytest.approx(-ax_wind)
+
+
+def test_wind_shear_changes_trajectory(vehicle: BaseVehicleConfig) -> None:
+    """The altitude-dependent profile gives a different range than the constant wind."""
+    constant = _full_flight(vehicle, wind_speed_ms=10.0).flight_range
+    shear = _full_flight(vehicle, wind_speed_ms=10.0, wind_shear_exponent=0.2).flight_range
+    assert shear != pytest.approx(constant, rel=1e-3)
+
+
+def test_wind_and_rail_settings_are_validated(vehicle: BaseVehicleConfig) -> None:
+    """Invalid wind, rail and thrust-direction settings raise ValueError."""
+    for bad in (
+        {"wind_ref_height_m": 0.0},
+        {"wind_shear_exponent": -0.1},
+        {"rail_length_m": -1.0},
+        {"pitch_over_time_s": -1.0},
+        {"thrust_direction": "spiral"},
+        {"thrust_direction": "pitch_schedule"},
+    ):
+        with pytest.raises(ValueError):
+            resolve_booster_params_from_vehicle(vehicle, **bad)  # type: ignore[arg-type]
+
+
+def test_rail_departure_speed_matches_analytic_solution(vehicle: BaseVehicleConfig) -> None:
+    """Without drag, the rail departure speed follows from T/m(t) - g sin(theta) along the rail."""
+    rail_m = 6.0
+    angle_deg = 80.0
+    results = _full_flight(
+        vehicle,
+        rail_length_m=rail_m,
+        launch_angle_deg=angle_deg,
+        cd_body_subsonic=0.0,
+        cd_body_transonic=0.0,
+        cd_body_supersonic=0.0,
+        cd_wave_per_fin=0.0,
+    )
+    params = resolve_booster_params_from_vehicle(vehicle, launch_angle_deg=angle_deg)
+    thrust = params.isp_sl_s * params.mdot_kg_s * 9.80665
+    g_along = 9.80665 * math.sin(math.radians(angle_deg))
+
+    def speed(t: float) -> float:
+        return -(thrust / params.mdot_kg_s) * math.log(1.0 - params.mdot_kg_s * t / params.launch_mass_kg) - g_along * t
+
+    def distance(t: float) -> float:
+        ts = np.linspace(0.0, t, 2001)
+        return float(np.trapezoid([speed(x) for x in ts], ts))
+
+    t_exit = brentq(lambda t: distance(t) - rail_m, 0.01, 2.0)
+    assert results.left_rail
+    assert results.rail_departure_time == pytest.approx(t_exit, rel=2e-3)
+    assert results.rail_departure_velocity == pytest.approx(speed(t_exit), rel=2e-3)
+
+
+def test_vehicle_stays_on_rail_line_until_departure(vehicle: BaseVehicleConfig) -> None:
+    """On the rail the velocity direction equals the launch angle; the vehicle never moves back."""
+    angle_deg = 70.0
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, rail_length_m=8.0, launch_angle_deg=angle_deg)
+    results = analysis.execute()
+    assert results.samples is not None
+    s = results.samples
+    on_rail = (s.t_s > 0.0) & (s.t_s < results.rail_departure_time * 0.98)
+    assert on_rail.any()
+    path_angle_deg = np.degrees(np.arctan2(s.h_m[on_rail] - 100.0, s.x_m[on_rail]))
+    assert path_angle_deg == pytest.approx(angle_deg, abs=1e-4)
+    assert np.all(np.diff(s.v_ms[on_rail]) >= 0.0)
+
+
+def test_underpowered_vehicle_does_not_slide_back_on_rail(vehicle: BaseVehicleConfig) -> None:
+    """If thrust cannot lift the vehicle, it stays at rest on the rail instead of sliding back."""
+    params = resolve_booster_params_from_vehicle(vehicle, rail_length_m=5.0, launch_angle_deg=60.0)
+    heavy = replace(params, launch_mass_kg=5000.0)
+    deriv = boost_dynamics(0.5, np.array([0.0, heavy.initial_altitude_m, 0.0, 0.0]), heavy)
+    assert deriv == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_rail_never_left_is_reported() -> None:
+    """A rail longer than the whole flight path is reported as not left."""
+    vehicle = _build_generic_solid_rocket()
+    results = _full_flight(vehicle, rail_length_m=1.0e6)
+    assert not results.left_rail
+    assert results.rail_departure_velocity == 0.0
+
+
+def test_no_rail_reports_zero_departure(vehicle: BaseVehicleConfig) -> None:
+    """Without a rail the departure fields are zero and left_rail is True."""
+    results = _full_flight(vehicle)
+    assert results.left_rail
+    assert results.rail_departure_time == 0.0
+    assert results.rail_departure_velocity == 0.0
+
+
+def test_thrust_direction_modes(vehicle: BaseVehicleConfig) -> None:
+    """Fixed, gravity-turn and pitch-schedule thrust directions after the rail."""
+    base = resolve_booster_params_from_vehicle(vehicle, launch_angle_deg=80.0)
+    velocity = (30.0, 40.0)
+    launch = math.radians(80.0)
+
+    assert thrust_elevation_rad(1.0, velocity, base, on_rail=False) == pytest.approx(launch)
+
+    turn = replace(base, thrust_direction="gravity_turn")
+    assert thrust_elevation_rad(1.0, velocity, turn, on_rail=False) == pytest.approx(math.atan2(40.0, 30.0))
+    assert thrust_elevation_rad(1.0, velocity, turn, on_rail=True) == pytest.approx(launch)
+    assert thrust_elevation_rad(1.0, (0.0, 0.0), turn, on_rail=False) == pytest.approx(launch)
+
+    sched = replace(base, thrust_direction="pitch_schedule", pitch_over_time_s=1.0, burnout_elevation_deg=40.0)
+    assert thrust_elevation_rad(0.5, velocity, sched, on_rail=False) == pytest.approx(launch)
+    assert thrust_elevation_rad(1.0, velocity, sched, on_rail=False) == pytest.approx(launch)
+    mid_s = 1.0 + 0.5 * (base.burn_time_s - 1.0)
+    assert thrust_elevation_rad(mid_s, velocity, sched, on_rail=False) == pytest.approx(
+        0.5 * (launch + math.radians(40.0))
+    )
+    assert thrust_elevation_rad(base.burn_time_s, velocity, sched, on_rail=False) == pytest.approx(math.radians(40.0))
+    assert thrust_elevation_rad(2.0, velocity, sched, on_rail=True) == pytest.approx(launch)
+
+
+def test_gravity_turn_curves_the_trajectory(vehicle: BaseVehicleConfig) -> None:
+    """After the rail, the gravity turn flattens the flight path angle monotonically during boost."""
+    analysis = PointMass3DOFBoostAnalysis()
+    analysis.setup(vehicle, rail_length_m=6.0, thrust_direction="gravity_turn", launch_angle_deg=80.0)
+    results = analysis.execute()
+    assert results.samples is not None
+    s = results.samples
+    t_exit = results.rail_departure_time
+    dt = np.diff(s.t_s)
+    vx = np.diff(s.x_m) / dt
+    vh = np.diff(s.h_m) / dt
+    gamma_deg = np.degrees(np.arctan2(vh, vx))
+    after = s.t_s[1:] > t_exit + 0.05
+    assert gamma_deg[after][0] < 80.0
+    assert np.all(np.diff(gamma_deg[after]) < 1e-3)
+    assert gamma_deg[after][-1] < gamma_deg[after][0] - 1.0
+
+
+def test_pitch_schedule_lowers_apogee_and_extends_range(vehicle: BaseVehicleConfig) -> None:
+    """Pitching over to 45 deg at burnout trades apogee for downrange compared with a fixed angle."""
+    fixed = _full_flight(vehicle, rail_length_m=6.0)
+    pitched = _full_flight(
+        vehicle,
+        rail_length_m=6.0,
+        thrust_direction="pitch_schedule",
+        pitch_over_time_s=0.5,
+        burnout_elevation_deg=45.0,
+    )
+    assert pitched.flight_range > fixed.flight_range
+    assert pitched.apogee_altitude < fixed.apogee_altitude

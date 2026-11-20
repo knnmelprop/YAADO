@@ -14,7 +14,7 @@ import io
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
@@ -43,6 +43,11 @@ from YAADO_Core.modules.flight_dynamics.containers import (
     TrajectorySamples,
 )
 
+ThrustDirectionMode = Literal["fixed", "gravity_turn", "pitch_schedule"]
+"""Thrust direction after the vehicle leaves the launch rail (see :func:`thrust_elevation_rad`)."""
+
+THRUST_DIRECTION_MODES: tuple[str, ...] = ("fixed", "gravity_turn", "pitch_schedule")
+
 
 class PointMass3DOFBoostAnalysis(BaseAnalysis[PointMassBoostResults]):
     """3-DOF point-mass boost-phase trajectory analysis.
@@ -67,6 +72,14 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis[PointMassBoostResults]):
     DEFAULT_X0_M: float = 0.0
     DEFAULT_V0_MS: float = 0.0
     DEFAULT_GROUND_ALTITUDE_M: float = 0.0
+
+    # Wind (planar: signed component along +x, positive = tailwind) and launch rail
+    DEFAULT_WIND_SPEED_MS: float = 0.0
+    DEFAULT_WIND_REF_HEIGHT_M: float = 10.0
+    DEFAULT_WIND_SHEAR_EXPONENT: float = 0.0
+    DEFAULT_RAIL_LENGTH_M: float = 0.0
+    DEFAULT_THRUST_DIRECTION: ThrustDirectionMode = "fixed"
+    DEFAULT_PITCH_OVER_TIME_S: float = 0.0
 
     # Empirical drag parameters (can be calibrated per vehicle via kwargs)
     CD_BODY_SUBSONIC: float = 0.20
@@ -125,6 +138,13 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis[PointMassBoostResults]):
         mach_supersonic_lo: float = MACH_SUPERSONIC_LO,
         cd_wave_per_fin: float = CD_WAVE_PER_FIN,
         isp_alt_ref_m: float = ISP_ALT_REF_M,
+        wind_speed_ms: float = DEFAULT_WIND_SPEED_MS,
+        wind_ref_height_m: float = DEFAULT_WIND_REF_HEIGHT_M,
+        wind_shear_exponent: float = DEFAULT_WIND_SHEAR_EXPONENT,
+        rail_length_m: float = DEFAULT_RAIL_LENGTH_M,
+        thrust_direction: ThrustDirectionMode = DEFAULT_THRUST_DIRECTION,
+        pitch_over_time_s: float = DEFAULT_PITCH_OVER_TIME_S,
+        burnout_elevation_deg: float | None = None,
         **kwargs: Any,
     ) -> None:
         """Bind the analysis to a vehicle config and operating conditions."""
@@ -147,6 +167,13 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis[PointMassBoostResults]):
             mach_supersonic_lo=mach_supersonic_lo,
             cd_wave_per_fin=cd_wave_per_fin,
             isp_alt_ref_m=isp_alt_ref_m,
+            wind_speed_ms=wind_speed_ms,
+            wind_ref_height_m=wind_ref_height_m,
+            wind_shear_exponent=wind_shear_exponent,
+            rail_length_m=rail_length_m,
+            thrust_direction=thrust_direction,
+            pitch_over_time_s=pitch_over_time_s,
+            burnout_elevation_deg=burnout_elevation_deg,
         )
 
         self.logger.info(
@@ -205,6 +232,9 @@ class PointMass3DOFBoostAnalysis(BaseAnalysis[PointMassBoostResults]):
             flight_time=metrics.t_end_s,
             flight_range=metrics.final_x,
             impact_velocity=metrics.impact_velocity,
+            rail_departure_time=metrics.rail_departure_time,
+            rail_departure_velocity=metrics.rail_departure_velocity,
+            left_rail=metrics.left_rail,
             samples=full_samples,
             boost_samples=boost_samples,
         )
@@ -299,6 +329,20 @@ class BoosterParams:
         isp_alt_ref_m: Reference altitude for linear sea-level -> vacuum Isp.
         stop_at_burnout: Whether simulation stops at booster motor burnout.
         t_max_s: Maximum simulation duration [s].
+        wind_speed_ms: Horizontal wind along +x at ``wind_ref_height_m`` [m/s];
+            positive is a tailwind, negative a headwind. The model is planar, so
+            crosswind is not modelled.
+        wind_ref_height_m: Reference height above the ground plane for the wind [m].
+        wind_shear_exponent: Power-law exponent ``alpha`` of the wind profile
+            ``v_w(h) = wind_speed_ms * (h_agl / wind_ref_height_m) ** alpha``;
+            0 gives a constant wind.
+        rail_length_m: Launch rail length [m]; 0 means no rail.
+        thrust_direction: Thrust direction once the vehicle has left the rail:
+            ``"fixed"`` (launch angle), ``"gravity_turn"`` (along the inertial
+            velocity) or ``"pitch_schedule"`` (smooth change to
+            ``burnout_elevation_deg``, starting at ``pitch_over_time_s``).
+        pitch_over_time_s: Start of the pitch schedule [s after ignition].
+        burnout_elevation_deg: Thrust elevation at burnout for ``"pitch_schedule"`` [deg].
     """
 
     launch_mass_kg: float
@@ -320,6 +364,34 @@ class BoosterParams:
     isp_alt_ref_m: float = PointMass3DOFBoostAnalysis.ISP_ALT_REF_M
     stop_at_burnout: bool = PointMass3DOFBoostAnalysis.DEFAULT_STOP_AT_BURNOUT
     t_max_s: float = PointMass3DOFBoostAnalysis.DEFAULT_T_MAX_S
+    wind_speed_ms: float = PointMass3DOFBoostAnalysis.DEFAULT_WIND_SPEED_MS
+    wind_ref_height_m: float = PointMass3DOFBoostAnalysis.DEFAULT_WIND_REF_HEIGHT_M
+    wind_shear_exponent: float = PointMass3DOFBoostAnalysis.DEFAULT_WIND_SHEAR_EXPONENT
+    rail_length_m: float = PointMass3DOFBoostAnalysis.DEFAULT_RAIL_LENGTH_M
+    thrust_direction: ThrustDirectionMode = PointMass3DOFBoostAnalysis.DEFAULT_THRUST_DIRECTION
+    pitch_over_time_s: float = PointMass3DOFBoostAnalysis.DEFAULT_PITCH_OVER_TIME_S
+    burnout_elevation_deg: float | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the wind, rail and thrust-direction settings.
+
+        Raises:
+            ValueError: If a value is out of range or ``thrust_direction`` is unknown.
+        """
+        if self.wind_ref_height_m <= 0.0:
+            raise ValueError("wind_ref_height_m must be positive.")
+        if self.wind_shear_exponent < 0.0:
+            raise ValueError("wind_shear_exponent must not be negative.")
+        if self.rail_length_m < 0.0:
+            raise ValueError("rail_length_m must not be negative.")
+        if self.pitch_over_time_s < 0.0:
+            raise ValueError("pitch_over_time_s must not be negative.")
+        if self.thrust_direction not in THRUST_DIRECTION_MODES:
+            raise ValueError(
+                f"thrust_direction must be one of {THRUST_DIRECTION_MODES}, got {self.thrust_direction!r}."
+            )
+        if self.thrust_direction == "pitch_schedule" and self.burnout_elevation_deg is None:
+            raise ValueError("burnout_elevation_deg is required for the 'pitch_schedule' mode.")
 
     @property
     def burnout_mass_kg(self) -> float:
@@ -355,6 +427,13 @@ def resolve_booster_params_from_vehicle(
     mach_supersonic_lo: float = PointMass3DOFBoostAnalysis.MACH_SUPERSONIC_LO,
     cd_wave_per_fin: float = PointMass3DOFBoostAnalysis.CD_WAVE_PER_FIN,
     isp_alt_ref_m: float = PointMass3DOFBoostAnalysis.ISP_ALT_REF_M,
+    wind_speed_ms: float = PointMass3DOFBoostAnalysis.DEFAULT_WIND_SPEED_MS,
+    wind_ref_height_m: float = PointMass3DOFBoostAnalysis.DEFAULT_WIND_REF_HEIGHT_M,
+    wind_shear_exponent: float = PointMass3DOFBoostAnalysis.DEFAULT_WIND_SHEAR_EXPONENT,
+    rail_length_m: float = PointMass3DOFBoostAnalysis.DEFAULT_RAIL_LENGTH_M,
+    thrust_direction: ThrustDirectionMode = PointMass3DOFBoostAnalysis.DEFAULT_THRUST_DIRECTION,
+    pitch_over_time_s: float = PointMass3DOFBoostAnalysis.DEFAULT_PITCH_OVER_TIME_S,
+    burnout_elevation_deg: float | None = None,
 ) -> BoosterParams:
     """Resolve stage-1 booster parameters from a validated vehicle config.
 
@@ -386,6 +465,14 @@ def resolve_booster_params_from_vehicle(
         mach_supersonic_lo: Lower Mach boundary for supersonic regime.
         cd_wave_per_fin: Wave drag coefficient contribution per fin.
         isp_alt_ref_m: Reference altitude [m] for Isp vacuum interpolation.
+        wind_speed_ms: Horizontal wind along +x at ``wind_ref_height_m`` [m/s]
+            (positive = tailwind). See :class:`BoosterParams`.
+        wind_ref_height_m: Reference height above ground for the wind [m].
+        wind_shear_exponent: Power-law wind-shear exponent (0 = constant wind).
+        rail_length_m: Launch rail length [m] (0 = no rail).
+        thrust_direction: ``"fixed"``, ``"gravity_turn"`` or ``"pitch_schedule"``.
+        pitch_over_time_s: Start of the pitch schedule [s].
+        burnout_elevation_deg: Burnout thrust elevation for ``"pitch_schedule"`` [deg].
 
     Returns:
         Resolved :class:`BoosterParams` with the impulse-consistent thrust
@@ -453,6 +540,13 @@ def resolve_booster_params_from_vehicle(
         isp_alt_ref_m=isp_alt_ref_m,
         stop_at_burnout=stop_at_burnout,
         t_max_s=t_max_s,
+        wind_speed_ms=wind_speed_ms,
+        wind_ref_height_m=wind_ref_height_m,
+        wind_shear_exponent=wind_shear_exponent,
+        rail_length_m=rail_length_m,
+        thrust_direction=thrust_direction,
+        pitch_over_time_s=pitch_over_time_s,
+        burnout_elevation_deg=burnout_elevation_deg,
     )
 
 
@@ -525,19 +619,82 @@ def flow_state(
     return speed_ms, mach, dynamic_pressure_pa, atm.density
 
 
+def wind_velocity_ms(altitude_m: float, params: BoosterParams) -> float:
+    """Horizontal wind component along +x at a given altitude (positive = tailwind).
+
+    Power-law profile ``v_w = v_ref * (h_agl / h_ref) ** alpha`` with ``h_agl`` the height
+    above the ground plane; ``alpha = 0`` gives a constant wind.
+
+    Args:
+        altitude_m: Geometric altitude [m].
+        params: Booster parameters (wind settings and ground altitude).
+
+    Returns:
+        Wind speed component along +x [m/s].
+    """
+    if params.wind_speed_ms == 0.0:
+        return 0.0
+    height_agl_m = max(altitude_m - params.ground_altitude_m, 0.0)
+    return params.wind_speed_ms * (height_agl_m / params.wind_ref_height_m) ** params.wind_shear_exponent
+
+
+def rail_distance_m(x_m: float, h_m: float, params: BoosterParams) -> float:
+    """Distance travelled from the launch point [m]."""
+    return math.hypot(x_m - PointMass3DOFBoostAnalysis.DEFAULT_X0_M, h_m - params.initial_altitude_m)
+
+
+def thrust_elevation_rad(
+    t_s: float, velocity_ms: tuple[float, float], params: BoosterParams, on_rail: bool
+) -> float:
+    """Thrust elevation angle above horizontal [rad].
+
+    On the rail, or in the ``"fixed"`` mode, it is the launch angle. After the rail:
+    ``"gravity_turn"`` aligns thrust with the inertial velocity (the launch angle is kept
+    while the speed is below ``VELOCITY_EPS_MS``), and ``"pitch_schedule"`` changes the
+    angle from the launch angle to ``burnout_elevation_deg`` with a smoothstep between
+    ``pitch_over_time_s`` and the burn time.
+
+    Args:
+        t_s: Time since ignition [s].
+        velocity_ms: Inertial velocity ``(vx, vh)`` [m/s].
+        params: Booster parameters.
+        on_rail: True while the vehicle is still on the launch rail.
+
+    Returns:
+        Thrust elevation [rad].
+    """
+    launch_rad = math.radians(params.launch_angle_deg)
+    if on_rail or params.thrust_direction == "fixed":
+        return launch_rad
+    if params.thrust_direction == "gravity_turn":
+        vx, vh = velocity_ms
+        if math.hypot(vx, vh) > PointMass3DOFBoostAnalysis.VELOCITY_EPS_MS:
+            return math.atan2(vh, vx)
+        return launch_rad
+    # pitch_schedule: burnout_elevation_deg is guaranteed by BoosterParams validation
+    assert params.burnout_elevation_deg is not None
+    span_s = params.burn_time_s - params.pitch_over_time_s
+    if span_s <= 0.0:
+        return launch_rad
+    frac = min(max((t_s - params.pitch_over_time_s) / span_s, 0.0), 1.0)
+    smooth = frac * frac * (3.0 - 2.0 * frac)
+    return launch_rad + (math.radians(params.burnout_elevation_deg) - launch_rad) * smooth
+
+
 def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list[float]:
     """3-DOF point-mass equations of motion for the boost phase.
 
-    State vector ``[x_range_m, h_m, vx_ms, vh_ms]``. Thrust acts along the
-    fixed launch angle (body axis, no pitch program); drag opposes the
-    velocity vector; gravity acts along ``-h``.
+    State vector ``[x_range_m, h_m, vx_ms, vh_ms]``. Drag acts on the velocity relative
+    to the air, ``v_rel = (vx - v_w(h), vh)``, and opposes it; gravity acts along ``-h``.
 
-    Gravity-turn approximation: No explicit lift force is modeled. For a
-    near-vertical launch (83 deg), the trajectory naturally arcs over due to
-    the fixed thrust direction and gravity, resembling a zero-lift gravity
-    turn. Angle-of-attack effects are neglected; this is acceptable for this
-    low-order model but limits accuracy at high alpha (would require a 6-DOF
-    simulation with pitch dynamics).
+    Launch rail: while the distance from the launch point is below
+    ``rail_length_m``, the motion is constrained to the rail at the launch angle, so only
+    the components of thrust, drag and gravity along the rail accelerate the vehicle
+    (it cannot slide back down the rail).
+
+    Thrust direction after the rail: see :func:`thrust_elevation_rad`. With the defaults
+    (no wind, no rail, ``"fixed"``) thrust acts along the fixed launch angle, and the
+    trajectory arcs over under gravity (zero-lift, angle-of-attack effects neglected).
 
     Args:
         t_s: Time since ignition [s].
@@ -547,14 +704,16 @@ def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list
     Returns:
         State derivative ``[vx, vh, ax, ah]``.
     """
-    _x, h, vx, vh = state
-    speed_ms, mach, q_pa, _density_kg_m3 = flow_state((vx, vh), h)
+    x, h, vx, vh = state
+    wind_ms = wind_velocity_ms(h, params)
+    vx_rel = vx - wind_ms
+    speed_ms, mach, q_pa, _density_kg_m3 = flow_state((vx_rel, vh), h)
 
     cd_total = drag_coefficient(mach, params)
     drag_N = q_pa * cd_total * params.a_ref_m2
 
     if speed_ms > PointMass3DOFBoostAnalysis.VELOCITY_EPS_MS:
-        ux, uh = vx / speed_ms, vh / speed_ms
+        ux, uh = vx_rel / speed_ms, vh / speed_ms
     else:
         ux, uh = 0.0, 0.0
 
@@ -565,7 +724,18 @@ def boost_dynamics(t_s: float, state: np.ndarray, params: BoosterParams) -> list
         thrust_N = 0.0
 
     mass_kg = mass_at_time(t_s, params)
-    angle_rad = math.radians(params.launch_angle_deg)
+    on_rail = params.rail_length_m > 0.0 and rail_distance_m(x, h, params) < params.rail_length_m
+    angle_rad = thrust_elevation_rad(t_s, (vx, vh), params, on_rail)
+
+    if on_rail:
+        rail_x, rail_h = math.cos(angle_rad), math.sin(angle_rad)
+        v_along_ms = vx * rail_x + vh * rail_h
+        drag_along_N = drag_N * (ux * rail_x + uh * rail_h)
+        a_along_ms2 = (thrust_N - drag_along_N) / mass_kg - const.G0 * rail_h
+        if v_along_ms <= PointMass3DOFBoostAnalysis.VELOCITY_EPS_MS and a_along_ms2 < 0.0:
+            a_along_ms2 = 0.0
+        return [vx, vh, a_along_ms2 * rail_x, a_along_ms2 * rail_h]
+
     thrust_x_N = thrust_N * math.cos(angle_rad)
     thrust_h_N = thrust_N * math.sin(angle_rad)
 
@@ -592,6 +762,15 @@ setattr(_ground_impact_event, "terminal", True)  # noqa: B010
 setattr(_ground_impact_event, "direction", -1.0)  # noqa: B010
 
 
+def _rail_departure_event(t_s: float, state: np.ndarray, params: BoosterParams) -> float:
+    """Zero-crossing event: distance from the launch point reaching ``rail_length_m``."""
+    return rail_distance_m(state[0], state[1], params) - params.rail_length_m
+
+
+setattr(_rail_departure_event, "terminal", False)  # noqa: B010
+setattr(_rail_departure_event, "direction", 1.0)  # noqa: B010
+
+
 def integrate_boost_phase(params: BoosterParams) -> OptimizeResult:
     """Integrate the boost or full trajectory from ignition to burnout/impact.
 
@@ -614,6 +793,9 @@ def integrate_boost_phase(params: BoosterParams) -> OptimizeResult:
         PointMass3DOFBoostAnalysis.DEFAULT_V0_MS,
         PointMass3DOFBoostAnalysis.DEFAULT_V0_MS,
     ]
+    events = [_ground_impact_event]
+    if params.rail_length_m > 0.0:
+        events.append(_rail_departure_event)
     sol = solve_ivp(
         fun=boost_dynamics,
         t_span=(0.0, t_end),
@@ -623,7 +805,7 @@ def integrate_boost_phase(params: BoosterParams) -> OptimizeResult:
         rtol=PointMass3DOFBoostAnalysis.RTOL,
         atol=PointMass3DOFBoostAnalysis.ATOL,
         dense_output=True,
-        events=_ground_impact_event,
+        events=events,
     )
     if not sol.success:
         raise RuntimeError(f"solve_ivp failed: {sol.message}")
@@ -654,6 +836,9 @@ class TrajectoryMetrics:
     apogee_time: float
     apogee_range: float
     impact_velocity: float = 0.0
+    rail_departure_time: float = 0.0
+    rail_departure_velocity: float = 0.0
+    left_rail: bool = True
 
 
 def _evaluate_samples(
@@ -763,6 +948,17 @@ def derive_trajectory_metrics(
     else:
         stopped_reason = "max_time"
 
+    rail_departure_time = 0.0
+    rail_departure_velocity = 0.0
+    left_rail = True
+    if params.rail_length_m > 0.0:
+        left_rail = len(sol.t_events[1]) > 0
+        if left_rail:
+            rail_departure_time = float(sol.t_events[1][0])
+            rail_departure_velocity = float(math.hypot(*sol.y_events[1][0][2:]))
+        else:
+            rail_departure_time = t_end_s
+
     metrics = TrajectoryMetrics(
         burnout_time=t_burnout_nominal,
         burnout_velocity=v_bo,
@@ -784,6 +980,9 @@ def derive_trajectory_metrics(
         apogee_time=apogee_time,
         apogee_range=apogee_range,
         impact_velocity=final_v if ground_impact else 0.0,
+        rail_departure_time=rail_departure_time,
+        rail_departure_velocity=rail_departure_velocity,
+        left_rail=left_rail,
     )
     return metrics, boost_samples, full_samples
 

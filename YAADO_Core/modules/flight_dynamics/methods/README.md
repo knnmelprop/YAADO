@@ -19,10 +19,37 @@ Point-mass equations in the vertical launch plane:
 ```
 
 where:
-* $`(u_x, u_h) = (v_x / V, v_h / V)`$ is the velocity unit vector.
-* $`T(t) = \dot{m} \cdot g_0 \cdot I_{sp}(h)`$ is the altitude-compensated thrust during motor burn ($`t \le t_{burn}`$), directed along the fixed launch rail elevation angle $`\theta_{launch}`$.
-* $`D = \frac{1}{2} \rho(h) V^2 C_D(M) A_{ref}`$ is aerodynamic drag opposing the velocity vector.
+* $`(u_x, u_h) = (v_{rel,x} / V_{rel}, v_h / V_{rel})`$ is the unit vector of the velocity relative to the air, $`\vec{v}_{rel} = (v_x - v_w(h), v_h)`$ (see 1a).
+* $`T(t) = \dot{m} \cdot g_0 \cdot I_{sp}(h)`$ is the altitude-compensated thrust during motor burn ($`t \le t_{burn}`$). Its direction is the launch angle $`\theta_{launch}`$ by default (see 1b).
+* $`D = \frac{1}{2} \rho(h) V_{rel}^2 C_D(M_{rel}) A_{ref}`$ is aerodynamic drag opposing the relative velocity. Speed, Mach number and dynamic pressure use $`\vec{v}_{rel}`$.
 * $`m(t)`$ decreases linearly from `launch_mass` to dry burnout mass over `burn_time`.
+
+### 1a. Wind (optional)
+
+The model is planar, so the wind is a signed horizontal component along $`+x`$: positive is a tailwind, negative a headwind. Crosswind is not modelled. The profile is a power law over the height above the ground plane:
+
+```math
+v_w(h) = v_{ref} \left(\frac{h - h_{ground}}{h_{ref}}\right)^{\alpha}
+```
+
+| Setting (`setup()` / `BoosterParams`) | Default | Meaning |
+| :--- | :---: | :--- |
+| `wind_speed_ms` | 0 | $`v_{ref}`$ [m/s]; 0 switches the wind off exactly. |
+| `wind_ref_height_m` | 10 | $`h_{ref}`$ [m]. |
+| `wind_shear_exponent` | 0 | $`\alpha`$; 0 gives a constant wind. |
+
+The wind effect shows in `flight_range`, `apogee_altitude` and the burnout state.
+
+### 1b. Launch rail and thrust direction (optional)
+
+| Setting | Default | Meaning |
+| :--- | :---: | :--- |
+| `rail_length_m` | 0 (no rail) | While the distance from the launch point is below this length, the motion is constrained to the rail at $`\theta_{launch}`$: $`dv/dt = (T - D_{\parallel})/m - g_0 \sin\theta_{launch}`$. The vehicle cannot slide back down the rail. |
+| `thrust_direction` | `"fixed"` | After the rail: `"fixed"` keeps $`\theta_{launch}`$; `"gravity_turn"` aligns thrust with the inertial velocity, $`\theta = \operatorname{atan2}(v_h, v_x)`$; `"pitch_schedule"` changes $`\theta`$ with a smoothstep from $`\theta_{launch}`$ at `pitch_over_time_s` to `burnout_elevation_deg` at burnout. |
+| `pitch_over_time_s` | 0 | Start of the pitch schedule [s]. |
+| `burnout_elevation_deg` | none | Required for `"pitch_schedule"`. |
+
+With a rail, the results report `rail_departure_time`, `rail_departure_velocity` and `left_rail` (false if the vehicle never reached the end of the rail). With the defaults (no wind, no rail, `"fixed"`) the trajectory is identical to the earlier fixed-angle model.
 
 ### 2. Environment & Atmosphere
 Atmospheric conditions ($`\rho, p, T, a`$) are evaluated via the centralized standard atmosphere in [`YAADO_Core.Foundation.atmosphere`](../../Foundation/atmosphere.py) (`isa_atmosphere` for scalar ODE steps, `isa_atmosphere_array` for vectorized trajectory postprocessing). The model supports launch sites above sea level or in terrain depressions below sea level ($`h_{ground} \lt 0`$).
@@ -40,7 +67,7 @@ C_{D,total} = C_{D,body}(M) + N_{fins} \cdot C_{D,wave/fin}
 ## Assumptions & Limitations
 
 * **Point-mass model**: Rotational degrees of freedom, moments of inertia, and attitude dynamics are neglected.
-* **Fixed thrust elevation (Gravity-turn approximation)**: Thrust is aligned with the fixed initial launch rail angle $`\theta_{launch}`$ without active pitch programming or TVC. The trajectory arcs over naturally under gravity.
+* **Thrust elevation**: By default thrust is aligned with the fixed launch angle $`\theta_{launch}`$ without active pitch programming or TVC, and the trajectory arcs over under gravity. A gravity turn or a pitch schedule can be selected after the rail (see 1b). There is no thrust vectoring or attitude dynamics.
 * **Zero-lift flight**: Angle of attack is assumed near zero ($`\alpha \approx 0`$). Aerodynamic lift forces are neglected. Valid for high launch rail angles (e.g. 80°–85°).
 
 ## Vehicle Component Resolution
