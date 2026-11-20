@@ -24,6 +24,8 @@ The cockpit has three tabs, and the footer always shows the keys available in th
 - **Hangar**: browse vehicles in `Hangar/`, fork the read-only references in `Hangar/examples/`, and assemble or edit vehicles from the Component Store.
 - **Flight Deck**: tune solver parameters, stage and run pipelines, and review past runs in `FlightLogs/`.
 
+Flight Deck solvers run in the background, so you can keep using the cockpit while a slow solver such as XFOIL runs. The results card shows the solver that is running, and the results replace it when the solver finishes. Only one run at a time is possible: the run buttons are disabled until it finishes. To cancel the run, press `k` or `Esc` on the Flight Deck. XFOIL is stopped at once; the other solvers are quick and stop when their calculation ends. A cancelled solver saves no FlightLogs run, and the later stages of a pipeline do not run. If you quit during a run, YAADO cancels it and exits at once.
+
 ## Bare Mode (`-b`)
 
 `yaado -b` runs a single solver in one line, with no prompts and no UI. Results and FlightLogs artifacts are identical to a Flight Deck run.

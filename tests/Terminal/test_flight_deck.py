@@ -9,11 +9,24 @@ from __future__ import annotations
 
 import re
 import textwrap
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from textual import events
-from textual.widgets import Input, OptionList, Select, Static, TabbedContent
+from textual.pilot import Pilot
+from textual.widgets import (
+    Button,
+    Input,
+    LoadingIndicator,
+    OptionList,
+    Select,
+    Static,
+    TabbedContent,
+)
 
 from Terminal.app import YaadoApp
 from Terminal.screens.flight_deck import (
@@ -25,12 +38,15 @@ from Terminal.solvers import (
     REPAIRED_SOLVERS,
     PipelineStage,
     SolverDescriptor,
+    SolverRun,
     check_solver_compatibility,
+    execute_solver,
     resolve_fins_name,
 )
 from Terminal.widgets import SolverParamsForm, format_stage_param_specs
 from YAADO_Core.ComponentStore import RamjetEngine
 from YAADO_Core.Foundation.analysis_base import FidelityLevel
+from YAADO_Core.Foundation.cancellation import CancelToken
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.flight_dynamics.methods.point_mass_3dof import (
@@ -76,6 +92,66 @@ def _assert_no_emojis(text: str) -> None:
     """Assert that a string contains no emoji characters."""
     matches = EMOJI_PATTERN.findall(text)
     assert not matches, f"Forbidden emoji(s) found in text: {matches} in '{text}'"
+
+
+async def _wait_for_run(pilot: Pilot[None], fd: FlightDeckView, timeout: float = 120.0) -> None:
+    """Wait until the Flight Deck's background run has finished and its results are shown."""
+    await pilot.pause()
+    deadline = time.monotonic() + timeout
+    while fd.is_running:
+        assert time.monotonic() < deadline, "the solver run did not finish"
+        await pilot.pause(0.05)
+    await pilot.pause()
+
+
+def _blocking_execute(
+    release: threading.Event, calls: list[tuple[str, bool]]
+) -> Callable[..., SolverRun]:
+    """Wrap execute_solver so that it waits for ``release`` and records its calls.
+
+    Each call records the solver ID and whether it ran on the main thread. The run
+    itself writes nothing to disk.
+    """
+
+    def execute(
+        descriptor: SolverDescriptor,
+        vehicle: BaseVehicleConfig,
+        params: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> SolverRun:
+        calls.append((descriptor.solver_id, threading.current_thread() is threading.main_thread()))
+        assert release.wait(30.0), "the test never released the solver"
+        return execute_solver(descriptor, vehicle, params, enable_logging=False)
+
+    return execute
+
+
+def _cancellable_execute(
+    calls: list[str], stopped: threading.Event
+) -> Callable[..., SolverRun]:
+    """Wrap execute_solver so that it blocks until its run is cancelled, as XFOIL does.
+
+    Each call records the solver ID. ``stopped`` is set once the solver sees the cancel.
+    """
+
+    def execute(
+        descriptor: SolverDescriptor,
+        vehicle: BaseVehicleConfig,
+        params: dict[str, Any] | None = None,
+        *,
+        cancel_token: CancelToken | None = None,
+        **_: Any,
+    ) -> SolverRun:
+        assert cancel_token is not None, "the Flight Deck must pass a cancel token"
+        calls.append(descriptor.solver_id)
+        killed = threading.Event()
+        with cancel_token.on_cancel(killed.set):
+            assert killed.wait(30.0), "the test never cancelled the solver"
+        stopped.set()
+        cancel_token.raise_if_cancelled()
+        return execute_solver(descriptor, vehicle, params, enable_logging=False)
+
+    return execute
 
 
 def test_repaired_solvers_catalog_contains_only_repaired() -> None:
@@ -783,7 +859,7 @@ def test_ramjet_full_workflow_through_the_app(
             form.query_one("#param-inp-mach", Input).value = "3.0"
             await pilot.pause(0.1)
             await pilot.press("r")
-            await pilot.pause(0.3)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Net Thrust" in content
             assert " kN)" in content
@@ -811,7 +887,7 @@ def test_ramjet_full_workflow_through_the_app(
             pipeline_list = fd.query_one("#flightdeck-pipeline-list", OptionList)
             assert "[READY]" in str(pipeline_list.get_option_at_index(0).prompt)
             await pilot.press("x")
-            await pilot.pause(1.0)
+            await _wait_for_run(pilot, fd)
 
     asyncio.run(_test())
 
@@ -934,7 +1010,7 @@ def test_stability_run_through_the_app(tmp_path: Path, monkeypatch: pytest.Monke
             form.query_one("#param-inp-cg_from_nose", Input).value = "2.2"
             await pilot.pause(0.1)
             await pilot.press("r")
-            await pilot.pause(0.3)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Static Margin" in content
             assert " cal" in content
@@ -969,7 +1045,7 @@ def test_ackeret_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyP
             form.query_one("#param-inp-cg_from_nose", Input).value = "4.0"
             await pilot.pause(0.1)
             await pilot.press("r")
-            await pilot.pause(0.3)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Static Margin (Ackeret)" in content
             assert "Static Margin (Barrowman)" in content
@@ -1001,7 +1077,7 @@ def test_datcom_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyPa
             form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
             assert form.query_one("#param-inp-mach", Input).value == "2.0"
             await pilot.press("r")
-            await pilot.pause(0.3)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Static Margin" in content
             assert "Margin Above Required" in content
@@ -1033,7 +1109,7 @@ def test_extended_run_through_the_app(tmp_path: Path, monkeypatch: pytest.Monkey
             form.query_one("#param-inp-alpha_deg", Input).value = "8"
             await pilot.pause(0.1)
             await pilot.press("r")
-            await pilot.pause(0.3)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Static Margin (with body lift)" in content
             assert "Tail Fin Span for Required Margin" in content
@@ -1066,7 +1142,7 @@ def test_conical_inlet_run_through_the_app(tmp_path: Path, monkeypatch: pytest.M
             form.query_one("#param-inp-cone_half_angle_deg", Input).value = "21"
             await pilot.pause(0.1)
             await pilot.press("r")
-            await pilot.pause(0.5)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Total-Pressure Recovery" in content
             assert "Conical Shock Angle" in content
@@ -1101,7 +1177,7 @@ def test_multi_shock_inlet_run_through_the_app(
             await pilot.pause(0.1)
             assert fd._active_params["deflections_deg"] == (8.0, 9.0, 10.0)
             await pilot.press("r")
-            await pilot.pause(0.5)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Total Ramp Turning" in content
             assert "27 deg" in content
@@ -1134,7 +1210,7 @@ def test_mattingly_run_through_the_app(tmp_path: Path, monkeypatch: pytest.Monke
             form.query_one("#param-inp-mach", Input).value = "3.0"
             await pilot.pause(0.1)
             await pilot.press("r")
-            await pilot.pause(0.3)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Specific Thrust F/m0" in content
             assert "Overall Efficiency" in content
@@ -1168,7 +1244,7 @@ def test_grzywka_run_through_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyP
             form.query_one("#param-inp-capture_area", Input).value = "0.05"
             await pilot.pause(0.1)
             await pilot.press("r")
-            await pilot.pause(0.3)
+            await _wait_for_run(pilot, fd)
             content = str(fd.query_one("#flightdeck-results-content", Static).render())
             assert "Exit Diameter (full expansion)" in content
             assert "Throat Diameter" in content
@@ -1262,5 +1338,246 @@ def test_xfoil_form_offers_the_vehicle_surfaces() -> None:
             await pilot.pause(0.3)
             airfoil = form.query_one("#param-inp-airfoil", Select)
             assert airfoil.value == "my_foils/sd7062.dat"
+
+    asyncio.run(_test())
+
+
+def test_solver_runs_in_the_background_and_keeps_the_ui_responsive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run happens in a worker thread: keys still work and a second 'r' is ignored."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+    release = threading.Event()
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        "Terminal.screens.flight_deck.execute_solver", _blocking_execute(release, calls)
+    )
+
+    async def _test() -> None:
+        app = YaadoApp()
+        notes: list[str] = []
+        async with app.run_test(size=(110, 28)) as pilot:
+            monkeypatch.setattr(app, "notify", lambda message, **_: notes.append(message))
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+            tile = fd.query_one("#tile-solver-heiser_pratt_cycle", SolverTile)
+            await pilot.click(tile)
+            await pilot.pause(0.3)
+
+            results_card = fd.query_one("#flightdeck-results-card")
+            content = fd.query_one("#flightdeck-results-content", Static)
+            indicator = fd.query_one("#flightdeck-run-indicator", LoadingIndicator)
+            run_btn = fd.query_one("#solver-run-btn", Button)
+            pipeline_btn = fd.query_one("#pipeline-run-btn", Button)
+            try:
+                await pilot.press("r")
+                await pilot.pause(0.2)
+                assert fd.is_running
+                assert results_card.border_title == "Running Heiser & Pratt Ramjet Cycle"
+                assert "RUNNING" in str(content.render())
+                assert indicator.display
+                assert run_btn.disabled and str(run_btn.label) == "Running…"
+                assert pipeline_btn.disabled
+
+                # The UI thread handles keys while the solver is still blocked
+                await pilot.press("b")
+                assert results_card.border_title == "Solver Inspector"
+                await pilot.press("r")
+                await pilot.pause(0.2)
+                assert notes[-1] == (
+                    "Heiser & Pratt Ramjet Cycle is still running. "
+                    "Wait for it, or press k to cancel it."
+                )
+                await pilot.press("tab")
+                assert app.focused is not tile
+                assert fd.is_running and len(calls) == 1
+            finally:
+                release.set()
+
+            await _wait_for_run(pilot, fd)
+            assert calls == [("heiser_pratt_cycle", False)]
+            assert results_card.border_title == "Simulation Telemetry"
+            assert "Net Thrust" in str(content.render())
+            assert notes[-1].startswith("Completed Heiser & Pratt Ramjet Cycle")
+            assert not indicator.display
+            assert not run_btn.disabled and str(run_btn.label) == "Run (r)"
+            assert not pipeline_btn.disabled and str(pipeline_btn.label) == "Run Pipeline (x)"
+
+    asyncio.run(_test())
+
+
+def test_background_pipeline_reports_a_failed_stage_and_goes_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing stage shows its error, and the next stage still runs."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+
+    def execute(
+        descriptor: SolverDescriptor,
+        vehicle: BaseVehicleConfig,
+        params: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> SolverRun:
+        if descriptor.solver_id == "heiser_pratt_cycle":
+            raise ValueError("Air mass flow is not set")
+        return execute_solver(descriptor, vehicle, params, enable_logging=False)
+
+    monkeypatch.setattr("Terminal.screens.flight_deck.execute_solver", execute)
+    trajectory = REPAIRED_SOLVERS[0]
+
+    async def _test() -> None:
+        app = YaadoApp()
+        notes: list[str] = []
+        async with app.run_test(size=(110, 28)) as pilot:
+            monkeypatch.setattr(app, "notify", lambda message, **_: notes.append(message))
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+            content = fd.query_one("#flightdeck-results-content", Static)
+
+            assert fd.start_run([PipelineStage(_ramjet_descriptor(), {})])
+            await _wait_for_run(pilot, fd)
+            assert fd.query_one("#flightdeck-results-card").border_title == "Run Failed"
+            assert "Air mass flow is not set" in str(content.render())
+            assert notes[-1] == "Execution error: Air mass flow is not set"
+
+            fd.stage_solver(_ramjet_descriptor())
+            fd.stage_solver(trajectory)
+            fd.query_one(f"#tile-solver-{trajectory.solver_id}", SolverTile).focus()
+            await pilot.pause(0.2)
+            await pilot.press("x")
+            await _wait_for_run(pilot, fd)
+            assert "Execution error: Air mass flow is not set" in notes
+            assert notes[-1].startswith(f"Completed {trajectory.name}")
+            assert trajectory.name in str(content.render())
+
+    asyncio.run(_test())
+
+
+def test_cancel_key_stops_a_background_run_and_the_ui_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Esc cancels a single run and k a pipeline; the run buttons come back each time."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+    calls: list[str] = []
+    stopped = threading.Event()
+    monkeypatch.setattr(
+        "Terminal.screens.flight_deck.execute_solver", _cancellable_execute(calls, stopped)
+    )
+    trajectory = REPAIRED_SOLVERS[0]
+
+    async def _test() -> None:
+        app = YaadoApp()
+        notes: list[str] = []
+        async with app.run_test(size=(110, 28)) as pilot:
+            monkeypatch.setattr(app, "notify", lambda message, **_: notes.append(message))
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            # On the app, so that switching tabs keeps the vehicle.
+            app.set_active_vehicle(ALVRJ_TOML, BaseVehicleConfig.from_toml(ALVRJ_TOML))
+            await pilot.pause(0.2)
+            tile = fd.query_one("#tile-solver-heiser_pratt_cycle", SolverTile)
+            await pilot.click(tile)
+            await pilot.pause(0.3)
+
+            results_card = fd.query_one("#flightdeck-results-card")
+            content = fd.query_one("#flightdeck-results-content", Static)
+            indicator = fd.query_one("#flightdeck-run-indicator", LoadingIndicator)
+            run_btn = fd.query_one("#solver-run-btn", Button)
+            pipeline_btn = fd.query_one("#pipeline-run-btn", Button)
+
+            def assert_recovered() -> None:
+                assert not fd.is_running
+                assert results_card.border_title == "Run Cancelled"
+                assert "RUN CANCELLED" in str(content.render())
+                assert not indicator.display
+                assert not run_btn.disabled and str(run_btn.label) == "Run (r)"
+                assert not pipeline_btn.disabled and str(pipeline_btn.label) == "Run Pipeline (x)"
+                assert not app.check_action("cancel_run", ())
+
+            try:
+                assert not app.check_action("cancel_run", ())
+                await pilot.click(run_btn)
+                await pilot.pause(0.2)
+                assert fd.is_running and calls == ["heiser_pratt_cycle"]
+                assert app.check_action("cancel_run", ())
+                assert "k Cancel" in str(results_card.border_subtitle)
+
+                # Cancel is a Flight Deck key, and works with nothing focused.
+                await pilot.press("h")
+                assert not app.check_action("cancel_run", ())
+                await pilot.press("escape")
+                await pilot.pause(0.2)
+                assert fd.is_running and not stopped.is_set()
+                await pilot.press("f")
+                await pilot.pause(0.2)
+                assert app.focused is None
+                await pilot.press("escape")
+                await _wait_for_run(pilot, fd, timeout=5.0)
+                assert stopped.is_set()
+                assert_recovered()
+                assert "was stopped and saved no FlightLogs run" in str(content.render())
+                assert notes[-1] == "Cancelled Heiser & Pratt Ramjet Cycle"
+
+                # Cancel a two-stage pipeline with k: the second stage never runs.
+                stopped.clear()
+                fd.stage_solver(_ramjet_descriptor())
+                fd.stage_solver(trajectory)
+                tile.focus()
+                await pilot.pause(0.1)
+                await pilot.press("x")
+                await pilot.pause(0.2)
+                assert fd.is_running and pipeline_btn.disabled
+                await pilot.press("k")
+                await _wait_for_run(pilot, fd, timeout=5.0)
+                assert stopped.is_set()
+                assert_recovered()
+                assert "1 later pipeline stage did not run." in str(content.render())
+                assert calls == ["heiser_pratt_cycle", "heiser_pratt_cycle"]
+            finally:
+                fd.cancel_run()
+        assert not (tmp_path / "FlightLogs").exists()
+
+    asyncio.run(_test())
+
+
+def test_quitting_during_a_run_stops_the_solver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closing the cockpit cancels the running solver, so the process can exit at once."""
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+    calls: list[str] = []
+    stopped = threading.Event()
+    monkeypatch.setattr(
+        "Terminal.screens.flight_deck.execute_solver", _cancellable_execute(calls, stopped)
+    )
+
+    async def _test() -> None:
+        app = YaadoApp()
+        async with app.run_test(size=(110, 28)) as pilot:
+            await pilot.press("f")
+            await pilot.pause(0.2)
+            fd = app.query_one(FlightDeckView)
+            fd.set_active_vehicle(BaseVehicleConfig.from_toml(ALVRJ_TOML), ALVRJ_TOML)
+            await pilot.pause(0.2)
+            assert fd.start_run([PipelineStage(_ramjet_descriptor(), {})])
+            await pilot.pause(0.2)
+            assert calls == ["heiser_pratt_cycle"] and not stopped.is_set()
+            await pilot.press("q")
+        assert stopped.wait(2.0), "the solver was still running after the cockpit closed"
 
     asyncio.run(_test())

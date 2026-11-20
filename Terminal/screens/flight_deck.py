@@ -8,12 +8,13 @@ and interactively review historical runs stored in FlightLogs.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from rich.markup import escape
 from rich.text import Text
-from textual import events, on
+from textual import events, on, work
 from textual.binding import Binding, BindingType
 from textual.containers import (
     Container,
@@ -25,13 +26,14 @@ from textual.containers import (
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Button, Collapsible, OptionList, Static
+from textual.widgets import Button, Collapsible, LoadingIndicator, OptionList, Static
 from textual.widgets.option_list import Option
 
 from Terminal.solvers import (
     REPAIRED_SOLVERS,
     PipelineStage,
     SolverDescriptor,
+    SolverRun,
     check_solver_compatibility,
     execute_solver,
 )
@@ -42,9 +44,11 @@ from Terminal.widgets import (
     render_flightlog_preview,
 )
 from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults, FidelityLevel
+from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 if TYPE_CHECKING:
+    from rich.console import RenderableType
     from textual.app import ComposeResult
 
 
@@ -54,6 +58,61 @@ FIDELITY_BADGES: dict[FidelityLevel, str] = {
     FidelityLevel.LEVEL_2: "[L2]",
     FidelityLevel.LEVEL_3: "[L3]",
 }
+
+# Solver errors shown to the user as a failed run; other exceptions propagate.
+_RUN_ERRORS: tuple[type[Exception], ...] = (RuntimeError, ValueError, KeyError, OSError, TypeError)
+
+
+@dataclass(frozen=True)
+class StageOutcome:
+    """Outcome of one solver stage run from the Flight Deck.
+
+    Attributes:
+        descriptor: Solver that ran.
+        vehicle_name: Name of the vehicle it ran on.
+        run: Solver outcome, or None if the solver failed or was cancelled.
+        error: Why the solver failed, or None.
+        cancelled: Whether the run was cancelled before it finished.
+    """
+
+    descriptor: SolverDescriptor
+    vehicle_name: str
+    run: SolverRun | None
+    error: str | None = None
+    cancelled: bool = False
+
+
+def run_stage(
+    vehicle: BaseVehicleConfig,
+    stage: PipelineStage,
+    enable_logging: bool = True,
+    cancel_token: CancelToken | None = None,
+) -> StageOutcome:
+    """Execute one solver stage, turning the expected solver errors into an outcome.
+
+    Args:
+        vehicle: Vehicle configuration to analyze.
+        stage: Solver and parameter overrides to run.
+        enable_logging: Whether FlightLogger writes the run to disk.
+        cancel_token: Lets another thread stop the solver.
+
+    Returns:
+        The solver outcome, the error message if the solver failed, or a cancelled
+        outcome.
+    """
+    try:
+        run = execute_solver(
+            stage.descriptor,
+            vehicle,
+            stage.params,
+            enable_logging=enable_logging,
+            cancel_token=cancel_token,
+        )
+    except RunCancelledError:
+        return StageOutcome(stage.descriptor, vehicle.name, None, cancelled=True)
+    except _RUN_ERRORS as exc:
+        return StageOutcome(stage.descriptor, vehicle.name, None, str(exc))
+    return StageOutcome(stage.descriptor, vehicle.name, run)
 
 
 class SolverTile(Widget, can_focus=True):
@@ -369,6 +428,42 @@ class FlightDeckView(Container):
         Binding("b", "show_inspector", "Back to Inspector", show=True),
     ]
 
+    class StageStarted(Message, bubble=False):
+        """Posted by the run worker when a stage starts."""
+
+        def __init__(
+            self, descriptor: SolverDescriptor, vehicle_name: str, index: int, total: int
+        ) -> None:
+            super().__init__()
+            self.descriptor = descriptor
+            self.vehicle_name = vehicle_name
+            self.index = index
+            self.total = total
+
+    class StageFinished(Message, bubble=False):
+        """Posted by the run worker when a stage finishes or fails."""
+
+        def __init__(self, outcome: StageOutcome) -> None:
+            super().__init__()
+            self.outcome = outcome
+
+    class RunFinished(Message, bubble=False):
+        """Posted by the run worker after its last stage, or after a cancel."""
+
+        def __init__(
+            self, cancelled: SolverDescriptor | None = None, skipped: int = 0
+        ) -> None:
+            """Report how the run ended.
+
+            Args:
+                cancelled: Stage that was stopped or never started because the run was
+                    cancelled, or None if the run was not cancelled.
+                skipped: Number of later stages that did not run.
+            """
+            super().__init__()
+            self.cancelled = cancelled
+            self.skipped = skipped
+
     def __init__(
         self,
         logs_root: Path = Path("FlightLogs"),
@@ -400,6 +495,18 @@ class FlightDeckView(Container):
         )
         self._editing_stage_index: int | None = None
         self._selected_flightlog_path: Path | None = None
+        self._running_name: str | None = None
+        self._cancel_token: CancelToken | None = None
+
+    @property
+    def is_running(self) -> bool:
+        """Whether a background solver or pipeline run is in progress."""
+        return self._running_name is not None
+
+    @property
+    def can_cancel(self) -> bool:
+        """Whether a run is in progress and has not been cancelled yet."""
+        return self._cancel_token is not None and not self._cancel_token.cancelled
 
     def compose(self) -> ComposeResult:
         """Render the run setup pane, execution console drawer, and historical logs browser.
@@ -437,6 +544,9 @@ class FlightDeckView(Container):
                     yield SolverParamsForm(id="flightdeck-params-form")
                     with ScrollableContainer(id="flightdeck-results-scroll", classes="-hidden"):
                         yield Static("", id="flightdeck-results-content")
+                        indicator = LoadingIndicator(id="flightdeck-run-indicator")
+                        indicator.display = False
+                        yield indicator
 
                 pipeline_card = Container(
                     id="flightdeck-pipeline-card", classes="cockpit-card"
@@ -591,12 +701,110 @@ class FlightDeckView(Container):
         except NoMatches:
             pass
 
+    def _show_results_page(
+        self,
+        title: str,
+        subtitle: str,
+        body: RenderableType,
+        *,
+        wide_table: bool = False,
+        running: bool = False,
+    ) -> None:
+        """Replace the parameter form in the results card with a page of text.
+
+        Args:
+            title: Card border title.
+            subtitle: Card border subtitle, usually the key hints.
+            body: Content to show.
+            wide_table: Whether the content is a table wider than the card.
+            running: Whether to show the run-in-progress indicator below the content.
+        """
+        try:
+            results_card = self.query_one("#flightdeck-results-card", Container)
+            results_card.border_title = title
+            results_card.border_subtitle = subtitle
+            self.query_one("#flightdeck-params-form", SolverParamsForm).add_class("-hidden")
+            self.query_one("#flightdeck-results-scroll", ScrollableContainer).remove_class("-hidden")
+            self.query_one("#flightdeck-run-indicator", LoadingIndicator).display = running
+            content = self.query_one("#flightdeck-results-content", Static)
+            content.set_class(wide_table, "-wide-table")
+            content.update(body)
+            self._scroll_results_to_top()
+        except NoMatches:
+            pass
+
+    def _render_run_progress(
+        self, descriptor: SolverDescriptor, vehicle_name: str, index: int, total: int
+    ) -> None:
+        """Show that a solver is running in the results card.
+
+        Args:
+            descriptor: Solver that is running.
+            vehicle_name: Vehicle it runs on.
+            index: 1-based number of the stage in the run.
+            total: Number of stages in the run.
+        """
+        lines = [
+            "[bold #f59e0b]RUNNING[/bold #f59e0b]",
+            f"[bold]{escape(descriptor.name)}[/bold]  •  Vehicle: {escape(vehicle_name)}",
+        ]
+        if total > 1:
+            lines.append(f"Pipeline stage {index} of {total}")
+        lines += [
+            "",
+            (
+                "[dim]The results show here when the solver finishes. "
+                "You can keep using the cockpit meanwhile.[/dim]"
+            ),
+            "[dim]Press [bold]k[/bold] or [bold]Esc[/bold] to cancel the run.[/dim]",
+        ]
+        hints = "k Cancel  b Inspector"
+        subtitle = f"Stage {index}/{total}  {hints}" if total > 1 else hints
+        self._show_results_page(
+            f"Running {descriptor.name}", subtitle, "\n".join(lines), running=True
+        )
+
+    def _render_run_cancelled(self, descriptor: SolverDescriptor, skipped: int) -> None:
+        """Show that the user cancelled a run.
+
+        Args:
+            descriptor: Solver that was stopped, or that had not started yet.
+            skipped: Number of later pipeline stages that did not run.
+        """
+        lines = [
+            "[bold #f59e0b]RUN CANCELLED[/bold #f59e0b]",
+            f"[bold]{escape(descriptor.name)}[/bold] was stopped and saved no FlightLogs run.",
+        ]
+        if skipped:
+            stages = "stage" if skipped == 1 else "stages"
+            lines.append(f"{skipped} later pipeline {stages} did not run.")
+        lines += ["", "[dim]Press [bold]b[/bold] to return to solver inspector[/dim]"]
+        self._show_results_page("Run Cancelled", "b Inspector", "\n".join(lines))
+
+    def _render_run_failure(self, descriptor: SolverDescriptor, error: str) -> None:
+        """Show why a solver run failed in the results card.
+
+        Args:
+            descriptor: Solver that failed.
+            error: Error message raised by the solver.
+        """
+        lines = [
+            "[bold #ef4444]RUN FAILED[/bold #ef4444]",
+            f"[bold]{escape(descriptor.name)}[/bold]",
+            "",
+            escape(error),
+            "",
+            "[dim]Press [bold]b[/bold] to return to solver inspector[/dim]",
+        ]
+        self._show_results_page("Run Failed", "b Inspector", "\n".join(lines))
+
     def _render_run_results(
         self,
         descriptor: SolverDescriptor,
         results: Any,
         run_dir: Path | None = None,
         warnings: Sequence[str] = (),
+        vehicle_name: str | None = None,
     ) -> None:
         """Render execution telemetry metrics into results card.
 
@@ -605,65 +813,53 @@ class FlightDeckView(Container):
             results: Strongly typed results object returned by the solver.
             run_dir: Directory where run artifacts were saved, if any.
             warnings: Conditions that limit how far the user can trust the results.
+            vehicle_name: Vehicle the solver ran on. Defaults to the active vehicle.
         """
-        try:
-            results_card = self.query_one("#flightdeck-results-card", Container)
-            results_card.border_title = "Simulation Telemetry"
-            results_card.border_subtitle = "b Inspector  r Re-run"
+        if vehicle_name is None:
+            vehicle_name = self.active_vehicle.name if self.active_vehicle else "Unknown"
+        lines: list[str] = [
+            "[bold #10b981]SIMULATION EXECUTION COMPLETE[/bold #10b981]",
+            f"[bold]{escape(descriptor.name)}[/bold]  •  Vehicle: {escape(vehicle_name)}",
+            "",
+            "[bold cyan]Headline Metrics:[/bold cyan]",
+        ]
 
-            form = self.query_one("#flightdeck-params-form", SolverParamsForm)
-            scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
-            form.add_class("-hidden")
-            scroll.remove_class("-hidden")
+        for f_name, f_unit, f_label in descriptor.headline_outputs:
+            if hasattr(results, f_name):
+                val = getattr(results, f_name)
+                if isinstance(val, (int, float)):
+                    val_str = self._format_number(val, f_unit)
+                    extra_str = ""
+                    if f_unit == "m" and abs(val) >= 1000:
+                        extra_str = f" ({val / 1000:.2f} km)"
+                    elif f_unit == "Pa" and abs(val) >= 1000:
+                        extra_str = f" ({val / 1000:.2f} kPa)"
+                    elif f_unit == "N" and abs(val) >= 1000:
+                        extra_str = f" ({val / 1000:.2f} kN)"
+                    unit_str = f" {f_unit}" if f_unit and f_unit != "-" else ""
+                    lines.append(f"  • [bold]{f_label}:[/bold] {val_str}{unit_str}{extra_str}")
+                elif val is None:
+                    lines.append(f"  • [bold]{f_label}:[/bold] n/a")
+                else:
+                    lines.append(f"  • [bold]{f_label}:[/bold] {val}")
 
-            veh_name = self.active_vehicle.name if self.active_vehicle else "Unknown"
-            lines: list[str] = [
-                "[bold #10b981]SIMULATION EXECUTION COMPLETE[/bold #10b981]",
-                f"[bold]{escape(descriptor.name)}[/bold]  •  Vehicle: {escape(veh_name)}",
-                "",
-                "[bold cyan]Headline Metrics:[/bold cyan]",
-            ]
-
-            for f_name, f_unit, f_label in descriptor.headline_outputs:
-                if hasattr(results, f_name):
-                    val = getattr(results, f_name)
-                    if isinstance(val, (int, float)):
-                        val_str = self._format_number(val, f_unit)
-                        extra_str = ""
-                        if f_unit == "m" and abs(val) >= 1000:
-                            extra_str = f" ({val / 1000:.2f} km)"
-                        elif f_unit == "Pa" and abs(val) >= 1000:
-                            extra_str = f" ({val / 1000:.2f} kPa)"
-                        elif f_unit == "N" and abs(val) >= 1000:
-                            extra_str = f" ({val / 1000:.2f} kN)"
-                        unit_str = f" {f_unit}" if f_unit and f_unit != "-" else ""
-                        lines.append(f"  • [bold]{f_label}:[/bold] {val_str}{unit_str}{extra_str}")
-                    elif val is None:
-                        lines.append(f"  • [bold]{f_label}:[/bold] n/a")
-                    else:
-                        lines.append(f"  • [bold]{f_label}:[/bold] {val}")
-
-            for warning in warnings:
-                lines.append("")
-                lines.append(f"[bold #f59e0b]WARNING:[/bold #f59e0b] {escape(warning)}")
-
-            if run_dir is not None:
-                lines.append("")
-                lines.append("[bold cyan]Artifacts Saved:[/bold cyan]")
-                lines.append(f"  [dim]{escape(str(run_dir.parent))}/[/dim]")
-                lines.append(f"  [dim]{escape(run_dir.name)}[/dim]")
-
+        for warning in warnings:
             lines.append("")
-            lines.append(
-                "[dim]Press [bold]b[/bold] to return to solver inspector • Press [bold]r[/bold] to re-run[/dim]"
-            )
+            lines.append(f"[bold #f59e0b]WARNING:[/bold #f59e0b] {escape(warning)}")
 
-            content = self.query_one("#flightdeck-results-content", Static)
-            content.remove_class("-wide-table")
-            content.update("\n".join(lines))
-            self._scroll_results_to_top()
-        except NoMatches:
-            pass
+        if run_dir is not None:
+            lines.append("")
+            lines.append("[bold cyan]Artifacts Saved:[/bold cyan]")
+            lines.append(f"  [dim]{escape(str(run_dir.parent))}/[/dim]")
+            lines.append(f"  [dim]{escape(run_dir.name)}[/dim]")
+
+        lines.append("")
+        lines.append(
+            "[dim]Press [bold]b[/bold] to return to solver inspector • Press [bold]r[/bold] to re-run[/dim]"
+        )
+        self._show_results_page(
+            "Simulation Telemetry", "b Inspector  r Re-run", "\n".join(lines)
+        )
 
     def _render_historical_log(self, path: Path) -> None:
         """Format historical simulation run telemetry or artifact into results card.
@@ -671,26 +867,14 @@ class FlightDeckView(Container):
         Args:
             path: Path to historical run directory or specific artifact file.
         """
-        try:
-            results_card = self.query_one("#flightdeck-results-card", Container)
-            if path.is_file():
-                results_card.border_title = f"File: {path.name}"
-            else:
-                results_card.border_title = f"Historical: {path.name}"
-            results_card.border_subtitle = "o Open  f Folder  b Inspector"
-
-            form = self.query_one("#flightdeck-params-form", SolverParamsForm)
-            scroll = self.query_one("#flightdeck-results-scroll", ScrollableContainer)
-            form.add_class("-hidden")
-            scroll.remove_class("-hidden")
-
-            content = self.query_one("#flightdeck-results-content", Static)
-            is_csv = path.is_file() and path.suffix.lower() == ".csv"
-            content.set_class(is_csv, "-wide-table")
-            content.update(render_flightlog_preview(path))
-            self._scroll_results_to_top()
-        except NoMatches:
-            pass
+        title = f"File: {path.name}" if path.is_file() else f"Historical: {path.name}"
+        is_csv = path.is_file() and path.suffix.lower() == ".csv"
+        self._show_results_page(
+            title,
+            "o Open  f Folder  b Inspector",
+            render_flightlog_preview(path),
+            wide_table=is_csv,
+        )
 
     def _scroll_results_to_top(self) -> None:
         """Scroll the results container back to the top and left."""
@@ -800,13 +984,36 @@ class FlightDeckView(Container):
             severity="information",
         )
 
+    def _can_run(self, descriptor: SolverDescriptor) -> bool:
+        """Check that the active vehicle can run a solver, and tell the user if not."""
+        if self.active_vehicle is None:
+            self._notify(
+                "No vehicle loaded. Please load a vehicle in Hangar.", severity="error"
+            )
+            return False
+        is_ready, msg = check_solver_compatibility(descriptor, self.active_vehicle)
+        if not is_ready:
+            self._notify(f"Cannot run {descriptor.name}: {msg}", severity="error")
+        return is_ready
+
+    def _resolve_params(
+        self, descriptor: SolverDescriptor, params: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Use the inspector's tuned parameters when none are given for its solver."""
+        if params is None and self._current_highlighted_descriptor == descriptor:
+            params = self._active_params
+        return dict(params or {})
+
     def run_solver(
         self,
         descriptor: SolverDescriptor,
         enable_logging: bool = True,
         params: dict[str, Any] | None = None,
     ) -> BaseAnalysisResults | None:
-        """Run a single solver on the active vehicle.
+        """Run a single solver on the active vehicle and wait for it to finish.
+
+        This blocks the UI for as long as the solver runs. The cockpit's keys and
+        buttons use :meth:`start_run` instead.
 
         Args:
             descriptor: Solver to execute.
@@ -816,40 +1023,167 @@ class FlightDeckView(Container):
         Returns:
             The analysis results if successful, or None on failure.
         """
-        if self.active_vehicle is None:
+        if not self._can_run(descriptor) or self.active_vehicle is None:
+            return None
+        stage = PipelineStage(descriptor, self._resolve_params(descriptor, params))
+        outcome = run_stage(self.active_vehicle, stage, enable_logging)
+        self._show_outcome(outcome)
+        return outcome.run.results if outcome.run is not None else None
+
+    def start_run(self, stages: Sequence[PipelineStage]) -> bool:
+        """Run solver stages one after another in a worker thread.
+
+        The UI stays responsive while the solvers run. Each stage's results are shown
+        when it finishes. Stages the active vehicle cannot run are skipped.
+
+        Args:
+            stages: Solvers and parameter overrides to run, in order.
+
+        Returns:
+            True if the run started, False if another run is in progress or no stage
+            can run.
+        """
+        if self._running_name is not None:
             self._notify(
-                "No vehicle loaded. Please load a vehicle in Hangar.", severity="error"
+                f"{self._running_name} is still running. Wait for it, or press k to cancel it.",
+                severity="warning",
             )
-            return None
+            return False
+        runnable = [
+            PipelineStage(stage.descriptor, dict(stage.params))
+            for stage in stages
+            if self._can_run(stage.descriptor)
+        ]
+        if not runnable or self.active_vehicle is None:
+            return False
 
-        is_ready, msg = check_solver_compatibility(descriptor, self.active_vehicle)
-        if not is_ready:
-            self._notify(f"Cannot run {descriptor.name}: {msg}", severity="error")
-            return None
+        # The worker thread draws the run's figures, where a GUI backend such as
+        # TkAgg crashes the process.
+        import matplotlib
 
-        if params is None and self._current_highlighted_descriptor == descriptor:
-            params = self._active_params
+        matplotlib.use("Agg")
 
+        self._running_name = runnable[0].descriptor.name
+        self._cancel_token = CancelToken()
+        self._set_run_controls(running=True)
+        # A copy, so that edits in the Hangar cannot change the vehicle mid-run.
+        self._run_stages(
+            self.active_vehicle.model_copy(deep=True), runnable, self._cancel_token
+        )
+        return True
+
+    @work(thread=True, group="flight_deck_run")
+    def _run_stages(
+        self,
+        vehicle: BaseVehicleConfig,
+        stages: Sequence[PipelineStage],
+        cancel_token: CancelToken,
+    ) -> None:
+        """Execute stages in a worker thread and post each outcome to the UI thread."""
+        finished = self.RunFinished()
         try:
-            run = execute_solver(
-                descriptor, self.active_vehicle, params, enable_logging=enable_logging
-            )
-        except (RuntimeError, ValueError, KeyError, OSError, TypeError) as exc:
-            self._notify(f"Execution error: {exc}", severity="error")
-            return None
+            for index, stage in enumerate(stages, start=1):
+                if cancel_token.cancelled:
+                    finished = self.RunFinished(stage.descriptor, len(stages) - index)
+                    return
+                self.post_message(
+                    self.StageStarted(stage.descriptor, vehicle.name, index, len(stages))
+                )
+                outcome = run_stage(vehicle, stage, cancel_token=cancel_token)
+                self.post_message(self.StageFinished(outcome))
+                if outcome.cancelled:
+                    finished = self.RunFinished(stage.descriptor, len(stages) - index)
+                    return
+        finally:
+            self.post_message(finished)
+
+    def cancel_run(self) -> bool:
+        """Stop the run in progress: kill the running solver and skip later stages.
+
+        Returns:
+            True if a run was in progress and is now being cancelled.
+        """
+        if self._cancel_token is None or not self.can_cancel:
+            return False
+        self._cancel_token.cancel()
+        return True
+
+    def action_cancel_run(self) -> None:
+        """Cancel the run in progress and say so until the worker stops.
+
+        The app binds k and Esc to this, so that they work wherever the focus is.
+        """
+        name = self._running_name
+        if name is None or not self.cancel_run():
+            return
+        self._show_results_page(
+            f"Cancelling {name}",
+            "b Inspector",
+            f"[bold #f59e0b]CANCELLING[/bold #f59e0b]\n[bold]{escape(name)}[/bold]",
+            running=True,
+        )
+
+    def on_unmount(self) -> None:
+        """Stop a running solver when the cockpit closes, so the process can exit."""
+        self.cancel_run()
+
+    def _set_run_controls(self, running: bool) -> None:
+        """Disable the run buttons and mark them busy while a run is in progress."""
+        labels = {"#solver-run-btn": "Run (r)", "#pipeline-run-btn": "Run Pipeline (x)"}
+        for selector, label in labels.items():
+            try:
+                button = self.query_one(selector, Button)
+            except NoMatches:
+                continue
+            button.label = "Running…" if running else label
+            button.disabled = running
+            button.set_class(running, "-running")
+        self.refresh_bindings()
+
+    def _show_outcome(self, outcome: StageOutcome) -> None:
+        """Show a finished stage's results, or why it failed."""
+        run = outcome.run
+        if run is None:
+            error = outcome.error or "unknown error"
+            self._render_run_failure(outcome.descriptor, error)
+            self._notify(f"Execution error: {error}", severity="error")
+            return
 
         self._selected_flightlog_path = None
-        self._render_run_results(descriptor, run.results, run.output_dir, run.warnings)
-        self._notify(self._completion_message(descriptor, run.results), severity="information")
-
-        # Refresh flight logs tree
+        self._render_run_results(
+            outcome.descriptor, run.results, run.output_dir, run.warnings, outcome.vehicle_name
+        )
+        self._notify(
+            self._completion_message(outcome.descriptor, run.results), severity="information"
+        )
         try:
-            tree = self.query_one("#flightdeck-runs-tree", FlightLogsTree)
-            tree.populate()
+            self.query_one("#flightdeck-runs-tree", FlightLogsTree).populate()
         except NoMatches:
             pass
 
-        return run.results
+    @on(StageStarted)
+    def _on_stage_started(self, event: StageStarted) -> None:
+        """Show which solver the worker is running."""
+        if self._cancel_token is not None and self._cancel_token.cancelled:
+            return
+        self._running_name = event.descriptor.name
+        self._render_run_progress(event.descriptor, event.vehicle_name, event.index, event.total)
+
+    @on(StageFinished)
+    def _on_stage_finished(self, event: StageFinished) -> None:
+        """Show a stage's results as soon as it finishes."""
+        if not event.outcome.cancelled:
+            self._show_outcome(event.outcome)
+
+    @on(RunFinished)
+    def _on_run_finished(self, event: RunFinished) -> None:
+        """Accept new runs again, and say so if the run was cancelled."""
+        self._running_name = None
+        self._cancel_token = None
+        self._set_run_controls(running=False)
+        if event.cancelled is not None:
+            self._render_run_cancelled(event.cancelled, event.skipped)
+            self._notify(f"Cancelled {event.cancelled.name}", severity="warning")
 
     def _completion_message(
         self, descriptor: SolverDescriptor, results: BaseAnalysisResults
@@ -869,26 +1203,29 @@ class FlightDeckView(Container):
         return f"Completed {descriptor.name} ({label}: {value}{unit_str})"
 
     def action_quick_run(self) -> None:
-        """Execute the currently focused solver or staged pipeline step on the active vehicle."""
+        """Run the focused solver or the staged pipeline step being edited in the background."""
         if self._editing_stage_index is not None and 1 <= self._editing_stage_index <= len(self.pipeline):
-            stage = self.pipeline[self._editing_stage_index - 1]
-            self.run_solver(stage.descriptor, params=stage.params)
+            self.start_run([self.pipeline[self._editing_stage_index - 1]])
             return
 
         try:
             store = self.query_one("#solvers-store-view", SolversStoreView)
             tile = store.get_focused_tile()
             if tile is not None:
-                self.run_solver(tile.descriptor, params=self._active_params)
+                self.start_run([PipelineStage(tile.descriptor, self._active_params)])
             elif self._current_highlighted_descriptor is not None:
-                self.run_solver(self._current_highlighted_descriptor, params=self._active_params)
+                self.start_run(
+                    [PipelineStage(self._current_highlighted_descriptor, self._active_params)]
+                )
             else:
                 self._notify(
                     "No solver selected. Click a solver to select it.", severity="warning"
                 )
         except NoMatches:
             if self._current_highlighted_descriptor is not None:
-                self.run_solver(self._current_highlighted_descriptor, params=self._active_params)
+                self.start_run(
+                    [PipelineStage(self._current_highlighted_descriptor, self._active_params)]
+                )
 
     def action_stage_solver(self) -> None:
         """Stage the currently focused solver to the pipeline."""
@@ -914,7 +1251,7 @@ class FlightDeckView(Container):
         self._notify("Pipeline cleared", severity="information")
 
     def action_run_pipeline(self) -> None:
-        """Execute all stages in the pipeline sequentially."""
+        """Execute all stages in the pipeline sequentially in the background."""
         if not self.pipeline:
             self._notify("Pipeline is empty", severity="warning")
             return
@@ -923,9 +1260,7 @@ class FlightDeckView(Container):
                 "No vehicle loaded. Please load a vehicle in Hangar.", severity="error"
             )
             return
-
-        for stage in self.pipeline:
-            self.run_solver(stage.descriptor, params=stage.params)
+        self.start_run(self.pipeline)
 
     def action_show_inspector(self) -> None:
         """Switch results card back to inspector view for current highlighted solver."""
@@ -963,7 +1298,8 @@ class FlightDeckView(Container):
         self, event: SolverTile.SolverRunRequested
     ) -> None:
         """Handle 'r' key on solver catalog (runs solver)."""
-        self.run_solver(event.descriptor)
+        descriptor = event.descriptor
+        self.start_run([PipelineStage(descriptor, self._resolve_params(descriptor, None))])
 
     @on(PipelineList.StageRemoved)
     def _on_stage_removed(self, event: PipelineList.StageRemoved) -> None:
