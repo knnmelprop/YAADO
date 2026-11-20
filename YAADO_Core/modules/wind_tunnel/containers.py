@@ -9,9 +9,13 @@ from YAADO_Core.Foundation.analysis_base import BaseAnalysisResults
 from YAADO_Core.Foundation.units import (
     Degrees,
     Dimensionless,
+    Kelvin,
+    KilogramsPerCubicMeter,
     Meters,
     MetersPerSecond,
+    Pascals,
     PerRadian,
+    SquareMeters,
 )
 
 
@@ -165,4 +169,52 @@ class XfoilPolarResults(BaseAnalysisResults):
     cl_alpha: PerRadian | None
     alpha_zero_lift: Degrees | None
     cm_zero_lift: Dimensionless | None
+    assumptions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SU2Case:
+    """One SU2 configuration deck.
+
+    Attributes:
+        mach: Freestream Mach number.
+        alpha: Angle of attack.
+        filename: Name of the ``.cfg`` deck.
+    """
+
+    mach: Dimensionless
+    alpha: Degrees
+    filename: str
+
+
+@dataclass(frozen=True)
+class SU2ConfigResults(BaseAnalysisResults):
+    """SU2 Euler configuration decks for a Mach and angle-of-attack grid.
+
+    Attributes:
+        cases: One deck per (Mach, angle of attack) pair, Mach-major.
+        n_configs: Number of decks.
+        altitude: ISA altitude of the freestream state.
+        freestream_temperature: Static temperature at ``altitude``.
+        freestream_pressure: Static pressure at ``altitude``.
+        freestream_density: Density at ``altitude``.
+        ref_area: Reference area of the force coefficients.
+        ref_length: Reference length of the moment coefficients.
+        moment_origin_x: Moment reference point, from the nose tip.
+        mesh_filename: Mesh every deck reads; it is not generated here.
+        assumptions: Conditions that limit how far the decks can be trusted.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = ("n_configs", "ref_area", "freestream_pressure")
+
+    cases: tuple[SU2Case, ...]
+    n_configs: int
+    altitude: Meters
+    freestream_temperature: Kelvin
+    freestream_pressure: Pascals
+    freestream_density: KilogramsPerCubicMeter
+    ref_area: SquareMeters
+    ref_length: Meters
+    moment_origin_x: Meters
+    mesh_filename: str
     assumptions: tuple[str, ...]

@@ -75,6 +75,10 @@ yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver x
          --set surface=planar_equivalent --set mach=0.3
 yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver xfoil_polar \
          --set surface=aft_control_fins --set airfoil=NACA0010 --set alpha_end_deg=20
+
+# SU2 Euler decks for a 3 x 3 Mach and angle-of-attack grid at 10 km
+yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver su2_euler_decks \
+         --set mach_list=0.8,1.5,2.5 --set alpha_list_deg=-2,0,4 --set altitude_m=10000
 ```
 
 | Option | Effect |

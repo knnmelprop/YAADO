@@ -34,7 +34,10 @@ from YAADO_Core.modules.stability_control.containers import (
     BarrowmanStabilityResults,
     DatcomStabilityResults,
 )
-from YAADO_Core.modules.wind_tunnel.containers import XfoilPolarResults
+from YAADO_Core.modules.wind_tunnel.containers import (
+    SU2ConfigResults,
+    XfoilPolarResults,
+)
 from YAADO_Core.modules.wind_tunnel.methods.xfoil import xfoil_runner
 
 HARPOON_PATH = Path("Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml")
@@ -519,3 +522,37 @@ def test_execute_xfoil_without_a_surface_on_a_multi_surface_vehicle(
         execute_solver(
             _xfoil_descriptor(), BaseVehicleConfig.from_toml(HARPOON_PATH), enable_logging=False
         )
+
+
+def _su2_descriptor() -> SolverDescriptor:
+    return next(d for d in REPAIRED_SOLVERS if d.solver_id == "su2_euler_decks")
+
+
+def test_su2_compatibility_follows_the_body() -> None:
+    is_ready, msg = check_solver_compatibility(
+        _su2_descriptor(), BaseVehicleConfig.from_toml(HARPOON_PATH)
+    )
+    assert is_ready and "fuselage" in msg
+
+    is_ready, msg = check_solver_compatibility(_su2_descriptor(), BaseVehicleConfig(name="Glider"))
+    assert is_ready and "set the reference area and length" in msg
+
+
+def test_execute_su2_writes_one_deck_per_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+
+    run = execute_solver(
+        _su2_descriptor(), vehicle, {"mach_list": (1.5, 2.5), "alpha_list_deg": (0.0, 4.0)}
+    )
+
+    assert isinstance(run.results, SU2ConfigResults)
+    assert run.results.n_configs == 4
+    assert any("Decks only" in w for w in run.warnings)
+    assert run.output_dir is not None
+    artifacts = tmp_path / run.output_dir / "artifacts"
+    assert len(list(artifacts.glob("su2_mach*.cfg"))) == 4
+    assert (artifacts / "run_manifest.json").is_file()
+    assert (tmp_path / run.output_dir / "results.json").is_file()

@@ -30,6 +30,7 @@ ANALYSIS_DISPLAY_NAMES: dict[str, str] = {
     "datcom_class_stability": "DATCOM-Class Supersonic Stability",
     "ackeret_fin_check": "Ackeret Supersonic Fin Check",
     "xfoil_polar": "XFOIL Section Polar",
+    "su2_euler_decks": "SU2 Euler Config Decks",
     "aero_polar": "Aero Polars",
     "mass_estimation": "Mass & Inertia",
 }
