@@ -12,7 +12,7 @@ from YAADO_Core.Foundation.analysis_base import (
     BaseAnalysisResults,
     FidelityLevel,
 )
-from YAADO_Core.Foundation.units import Dimensionless, Newtons
+from YAADO_Core.Foundation.units import Dimensionless, Meters, Newtons
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 
 
@@ -114,3 +114,18 @@ def test_base_analysis_validation_failure():
 
     with pytest.raises(RuntimeError, match="failed physical validation checks"):
         analysis.execute()
+
+
+@dataclass(frozen=True)
+class OptionalUnitResults(BaseAnalysisResults):
+    """Result container with an optional field that carries a unit."""
+
+    apogee: Meters | None
+    margin: Dimensionless | None = None
+
+
+def test_units_of_optional_fields_come_from_the_annotation() -> None:
+    """A set ``Meters | None`` field reports metres; an unset one is left out."""
+    res = OptionalUnitResults(name="opt", fidelity=FidelityLevel.LEVEL_0, apogee=1200.0)
+    assert res.scalars() == {"apogee": 1200.0}
+    assert res.units() == {"apogee": "m"}

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 from textual import events
-from textual.widgets import Input, OptionList, Static, TabbedContent
+from textual.widgets import Input, OptionList, Select, Static, TabbedContent
 
 from Terminal.app import YaadoApp
 from Terminal.screens.flight_deck import (
@@ -88,6 +88,7 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
         "grzywka_nozzle",
         "conical_inlet",
         "multi_shock_inlet",
+        "xfoil_polar",
         "barrowman_stability",
         "barrowman_extended",
         "datcom_class_stability",
@@ -1203,5 +1204,45 @@ def test_parameter_hints_wrap_instead_of_being_cut(tmp_path: Path, monkeypatch: 
                     needed = len(textwrap.wrap(param.description, width))
                     assert str(hint.render()) == param.description
                     assert hint.content_size.height >= needed, (desc.solver_id, param.name)
+
+    asyncio.run(_test())
+
+
+def test_xfoil_form_offers_the_vehicle_surfaces() -> None:
+    """The surface parameter is a list of the vehicle's surfaces, preset to one with an airfoil."""
+    import asyncio
+
+    from textual.app import App, ComposeResult
+
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_TOML)
+    desc = next(d for d in REPAIRED_SOLVERS if d.solver_id == "xfoil_polar")
+
+    class TestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield FlightDeckView(active_vehicle=vehicle, id="flightdeck")
+
+    async def _test() -> None:
+        app = TestApp()
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause(0.1)
+            fd = app.query_one("#flightdeck", FlightDeckView)
+            fd._current_highlighted_descriptor = desc
+            fd._active_params = dict(desc.default_params)
+            fd._render_solver_inspector(desc, True, "Ready")
+            await pilot.pause(0.3)
+
+            form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+            select = form.query_one("#param-inp-surface", Select)
+            assert select.value == "planar_equivalent"
+            assert fd._active_params["surface"] == "planar_equivalent"
+
+            select.value = "aft_control_fins"
+            await pilot.pause(0.2)
+            assert fd._active_params["surface"] == "aft_control_fins"
+
+            fd.stage_solver(desc)
+            await pilot.pause(0.1)
+            assert fd.pipeline[-1].params["surface"] == "aft_control_fins"
+            assert "surf=aft_control_fins" in format_stage_param_specs(fd.pipeline[-1])
 
     asyncio.run(_test())

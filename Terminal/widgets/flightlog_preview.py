@@ -29,6 +29,7 @@ ANALYSIS_DISPLAY_NAMES: dict[str, str] = {
     "barrowman_extended": "Extended Barrowman: Body Lift and Fin Sizing",
     "datcom_class_stability": "DATCOM-Class Supersonic Stability",
     "ackeret_fin_check": "Ackeret Supersonic Fin Check",
+    "xfoil_polar": "XFOIL Section Polar",
     "aero_polar": "Aero Polars",
     "mass_estimation": "Mass & Inertia",
 }

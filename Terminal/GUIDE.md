@@ -69,6 +69,12 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver datcom_class_stabil
 
 # Supersonic cross-check: Ackeret fins against Barrowman at Mach 2.5
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver ackeret_fin_check --set mach=2.5
+
+# XFOIL section polar of one surface; fins need an airfoil
+yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver xfoil_polar \
+         --set surface=planar_equivalent --set mach=0.3
+yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver xfoil_polar \
+         --set surface=aft_control_fins --set airfoil=NACA0010 --set alpha_end_deg=20
 ```
 
 | Option | Effect |
@@ -82,6 +88,8 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver ackeret_fin_check -
 | `--list-solvers` | List the solver catalog, then exit. |
 
 For the ramjet cycle, set real losses on the engine in the vehicle TOML (see the [module README](../YAADO_Core/modules/powerplant/cycle_methods/README.md)). `--set` overrides them, and the run warns about each loss that falls back to a placeholder.
+
+For the XFOIL polar, pick the wing or fin set with `--set surface=NAME`, unless the vehicle has only one. The `xfoil` executable must be on `PATH`; on Ubuntu and Debian the packaged build needs a wrapper (see the [module README](../YAADO_Core/modules/wind_tunnel/methods/xfoil/README.md#installing-xfoil)).
 
 For static stability, give each fin set its position with `root_le_from_nose` in the vehicle TOML (see the [module README](../YAADO_Core/modules/stability_control/methods/barrowman/README.md)). A single fin set without it is placed flush with the aft end of the body, and the run says so.
 

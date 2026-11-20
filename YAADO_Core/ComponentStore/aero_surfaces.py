@@ -158,6 +158,19 @@ class Wings(BaseModel):
         description='''Mass Properties'''
     )
 
+    @property
+    def mean_aerodynamic_chord(self) -> float:
+        """Mean aerodynamic chord of the trapezoidal planform [m]."""
+        taper = self.taper_ratio
+        area = self.span**2 / self.aspect_ratio
+        chord_root = 2.0 * area / (self.span * (1.0 + taper))
+        return 2.0 / 3.0 * chord_root * (1.0 + taper + taper**2) / (1.0 + taper)
+
+    @property
+    def section_airfoil(self) -> str:
+        """Airfoil of the representative section: the root airfoil."""
+        return self.airfoil_root
+
     @model_validator(mode="after")
     def _default_tip_airfoil(self) -> Wings:
         """If no tip airfoil is provided, default to the root airfoil."""
@@ -179,6 +192,7 @@ class Fins(BaseModel):
         chord_tip: Tip chord length in meters. Defaults to None. (>= 0)
         root_le_from_nose: Axial position of the root leading edge, measured from the nose
             tip in meters. Defaults to None: fins flush with the aft end of the body. (>= 0)
+        airfoil: Fin section: a NACA designation or a coordinate file. Defaults to None.
         control_surfaces: List of control surfaces attached to the trailing edge of these fins.
         mass: Mass Properties
     """
@@ -237,6 +251,12 @@ class Fins(BaseModel):
         description='''Axial position of the root leading edge, measured from the nose tip in meters. Defaults to None: fins flush with the aft end of the body. (>= 0)'''
     )
 
+    airfoil: str | None = Field(
+        default=None,
+        examples=['NACA0010'],
+        description='''Fin section: a NACA designation or a coordinate file. Defaults to None.'''
+    )
+
     control_surfaces: list[ControlSurface] = Field(
         default_factory=list,
         examples=[
@@ -266,6 +286,19 @@ class Fins(BaseModel):
         ],
         description='''Mass Properties'''
     )
+
+    @property
+    def mean_aerodynamic_chord(self) -> float | None:
+        """Mean aerodynamic chord of one trapezoidal fin [m], or None without both chords."""
+        if self.chord_root is None or self.chord_tip is None:
+            return None
+        root, tip = self.chord_root, self.chord_tip
+        return 2.0 / 3.0 * (root + tip - root * tip / (root + tip))
+
+    @property
+    def section_airfoil(self) -> str | None:
+        """Airfoil of the fin section, if given."""
+        return self.airfoil
 
 
 AnyAeroComponent = Annotated[

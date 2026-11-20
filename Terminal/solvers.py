@@ -6,6 +6,7 @@ single run routine that executes a solver and saves its FlightLogs artifacts.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,9 @@ from YAADO_Core.modules.stability_control.methods.datcom import datcom_class_swe
 from YAADO_Core.modules.stability_control.methods.datcom.datcom_class_sweep import (
     DatcomStabilityAnalysis,
 )
+from YAADO_Core.modules.wind_tunnel.containers import XfoilPolarResults
+from YAADO_Core.modules.wind_tunnel.methods.xfoil import xfoil_runner
+from YAADO_Core.modules.wind_tunnel.methods.xfoil.xfoil_runner import XFOILAnalysis
 
 _TRUE_STRINGS = frozenset({"true", "1", "yes"})
 _FALSE_STRINGS = frozenset({"false", "0", "no"})
@@ -104,6 +108,7 @@ class SolverParam:
         min_value: Optional minimum numerical bound.
         max_value: Optional maximum numerical bound.
         placeholder: Source of the value while an optional parameter is blank.
+        choices: Names a ``str`` parameter may take on a given vehicle, offered as a list.
     """
 
     name: str
@@ -116,6 +121,7 @@ class SolverParam:
     min_value: float | None = None
     max_value: float | None = None
     placeholder: str = ""
+    choices: Callable[[BaseVehicleConfig], tuple[str, ...]] | None = None
 
     def parse(self, raw: str) -> Any:
         """Convert text input to this parameter's type and check its bounds.
@@ -220,6 +226,12 @@ class SolverRun:
     params: dict[str, Any]
     output_dir: Path | None
     warnings: tuple[str, ...] = ()
+
+
+def aero_surface_names(vehicle: BaseVehicleConfig) -> tuple[str, ...]:
+    """Names of the vehicle's wings and fin sets, those with an airfoil first, else in TOML order."""
+    surfaces = vehicle.get_components_by_type(AERO_COMPONENTS)
+    return tuple(sorted(surfaces, key=lambda name: surfaces[name].section_airfoil is None))
 
 
 REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
@@ -880,6 +892,151 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="xfoil_polar",
+        name="XFOIL Section Polar",
+        discipline="AERODYNAMICS",
+        fidelity=XFOILAnalysis.fidelity,
+        solver_cls=XFOILAnalysis,
+        description=(
+            "Viscous 2-D polar of the section of one wing or fin set with XFOIL: lift, drag "
+            "and moment against angle of attack at the Reynolds number of the surface's mean "
+            "chord. Also runs the section at other Reynolds numbers. A finite surface has a "
+            "lower lift slope and adds induced drag."
+        ),
+        required_components_desc=(
+            "A wing (Wings) or fin set (Fins with chord_root and chord_tip), an airfoil on it "
+            "or set below, and the xfoil executable on PATH."
+        ),
+        headline_outputs=(
+            ("cl_max", "-", "Max Lift Coefficient CLmax"),
+            ("alpha_cl_max", "deg", "Angle at CLmax"),
+            ("max_lift_to_drag", "-", "Max Lift-to-Drag (L/D)max"),
+            ("alpha_max_lift_to_drag", "deg", "Angle at (L/D)max"),
+            ("cd_min", "-", "Min Drag Coefficient"),
+            ("cl_alpha", "1/rad", "Lift Slope"),
+            ("alpha_zero_lift", "deg", "Zero-Lift Angle"),
+            ("cm_zero_lift", "-", "Pitching Moment at Zero Lift"),
+            ("reynolds", "-", "Reynolds Number"),
+            ("velocity", "m/s", "Flight Speed"),
+            ("chord", "m", "Chord"),
+            ("thickness_to_chord", "-", "Thickness t/c"),
+            ("surface", "-", "Surface"),
+            ("airfoil", "-", "Airfoil"),
+            ("n_converged", "-", "Converged Angles"),
+        ),
+        parameters=(
+            SolverParam(
+                name="surface",
+                label="Surface",
+                symbol="surf",
+                unit="",
+                param_type=str,
+                default=None,
+                description="Wing or fin set to analyse. Blank works for a vehicle with one surface",
+                placeholder="only one",
+                choices=aero_surface_names,
+            ),
+            SolverParam(
+                name="mach",
+                label="Flight Mach",
+                symbol="M",
+                unit="-",
+                param_type=float,
+                default=XFOILAnalysis.DEFAULT_MACH,
+                description="Flight Mach number; 0.06 is 20 m/s at sea level",
+                min_value=0.0,
+                max_value=XFOILAnalysis.MAX_MACH,
+            ),
+            SolverParam(
+                name="altitude_m",
+                label="Flight Altitude",
+                symbol="h",
+                unit="m",
+                param_type=float,
+                default=XFOILAnalysis.DEFAULT_ALTITUDE_M,
+                description="ISA flight altitude above MSL",
+                min_value=0.0,
+                max_value=80000.0,
+            ),
+            SolverParam(
+                name="alpha_start_deg",
+                label="First Angle",
+                symbol="α₁",
+                unit="deg",
+                param_type=float,
+                default=XFOILAnalysis.DEFAULT_ALPHA_START_DEG,
+                description="First angle of attack of the sweep",
+                min_value=-XFOILAnalysis.MAX_ALPHA_DEG,
+                max_value=XFOILAnalysis.MAX_ALPHA_DEG,
+            ),
+            SolverParam(
+                name="alpha_end_deg",
+                label="Last Angle",
+                symbol="α₂",
+                unit="deg",
+                param_type=float,
+                default=XFOILAnalysis.DEFAULT_ALPHA_END_DEG,
+                description="Last angle of attack; past stall to find CLmax",
+                min_value=-XFOILAnalysis.MAX_ALPHA_DEG,
+                max_value=XFOILAnalysis.MAX_ALPHA_DEG,
+            ),
+            SolverParam(
+                name="alpha_step_deg",
+                label="Angle Step",
+                symbol="Δα",
+                unit="deg",
+                param_type=float,
+                default=XFOILAnalysis.DEFAULT_ALPHA_STEP_DEG,
+                description="Step between angles; small steps help XFOIL converge",
+                min_value=0.05,
+                max_value=5.0,
+            ),
+            SolverParam(
+                name="n_crit",
+                label="Transition Ncrit",
+                symbol="Ncrit",
+                unit="-",
+                param_type=float,
+                default=XFOILAnalysis.DEFAULT_N_CRIT,
+                description="e^n transition exponent: 9 average wind tunnel, 11-13 clean free flight, 4-8 turbulent air",
+                min_value=0.1,
+                max_value=20.0,
+            ),
+            SolverParam(
+                name="airfoil",
+                label="Airfoil",
+                symbol="foil",
+                unit="",
+                param_type=str,
+                default=None,
+                description="NACA 4/5-digit (NACA2412) or a .dat coordinate file. Blank uses the surface's airfoil",
+                placeholder="TOML",
+            ),
+            SolverParam(
+                name="chord",
+                label="Chord",
+                symbol="c",
+                unit="m",
+                param_type=float,
+                default=None,
+                description="Chord of the Reynolds number. Blank uses the mean aerodynamic chord",
+                min_value=0.0,
+                placeholder="MAC",
+            ),
+            SolverParam(
+                name="reynolds",
+                label="Reynolds Number",
+                symbol="Re",
+                unit="-",
+                param_type=float,
+                default=None,
+                description="Set for a wind tunnel case. Blank uses chord, Mach and altitude",
+                min_value=XFOILAnalysis.MIN_REYNOLDS,
+                placeholder="flight",
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="barrowman_stability",
         name="Barrowman Static Stability",
         discipline="STABILITY & CONTROL",
@@ -1210,6 +1367,14 @@ def check_solver_compatibility(
             return True, f"Ready ({ramjet_name}); no spike_half_angle, so set it below"
         return True, f"Ready ({ramjet_name}, {ramjet.spike_half_angle:g} deg spike)"
 
+    if descriptor.solver_id == "xfoil_polar":
+        surfaces = aero_surface_names(vehicle)
+        if not surfaces:
+            return False, "Missing aerodynamic surface (Wings or Fins)"
+        if xfoil_runner.xfoil_executable() is None:
+            return False, "XFOIL executable 'xfoil' not found on PATH"
+        return True, f"Ready ({', '.join(surfaces)})"
+
     if descriptor.solver_id in (
         "barrowman_stability",
         "barrowman_extended",
@@ -1306,6 +1471,8 @@ def execute_solver(
         _save_datcom_artifacts(solver.logger, results, run_sweep)
     elif isinstance(results, BarrowmanExtendedResults):
         _save_extended_artifacts(solver.logger, results, run_sweep)
+    elif isinstance(results, XfoilPolarResults):
+        _save_xfoil_artifacts(solver.logger, results, run_sweep)
     solver.logger.save_results(results)
     return SolverRun(
         results=results,
@@ -1338,6 +1505,8 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
                 "today's reaches the required margin."
             )
         return tuple(warnings)
+    if isinstance(results, XfoilPolarResults):
+        return results.assumptions
     if isinstance(results, AckeretFinResults):
         warnings = list(results.assumptions)
         if abs(results.tail_fin_cp_difference) > AckeretFinAnalysis.CP_DIFFERENCE_WARNING:
@@ -1365,6 +1534,23 @@ def _margin_warnings(
             )
         ]
     return []
+
+
+def _save_xfoil_artifacts(
+    logger: FlightLogger, results: XfoilPolarResults, run_sweep: bool
+) -> None:
+    """Save the polar figure and CSV, and optionally the Reynolds number sweep."""
+    logger.save_figure(xfoil_runner.plot_polar(results), "polar.png", show=False)
+    logger.save_artifact("polar.csv", xfoil_runner.format_polar_csv(results.polar))
+    if not run_sweep:
+        return
+    points = xfoil_runner.run_reynolds_sweep(results)
+    logger.save_figure(
+        xfoil_runner.plot_reynolds_sweep(points, results), "polar_vs_reynolds.png", show=False
+    )
+    logger.save_artifact(
+        "polar_vs_reynolds.csv", xfoil_runner.format_reynolds_sweep_csv(points)
+    )
 
 
 def _save_inlet_artifacts(

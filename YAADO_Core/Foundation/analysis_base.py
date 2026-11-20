@@ -10,6 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from enum import IntEnum
+from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -17,6 +18,7 @@ from typing import (
     ClassVar,
     Generic,
     TypeVar,
+    Union,
     get_args,
     get_origin,
     get_type_hints,
@@ -93,6 +95,9 @@ class BaseAnalysisResults:
         out: dict[str, str] = {}
         for name in scalar_keys:
             hint = hints.get(name)
+            if get_origin(hint) in (Union, UnionType):
+                # Optional fields such as ``Meters | None``: read the unit off the non-None member.
+                hint = next((arg for arg in get_args(hint) if arg is not type(None)), None)
             if hint is not None and get_origin(hint) is Annotated:
                 args = get_args(hint)
                 if len(args) > 1 and isinstance(args[1], str):

@@ -21,7 +21,7 @@ AnyComponent = Annotated[
 ]
 
 # Standard tuples for runtime isinstance() checks and CLI menu generation
-AERO_COMPONENTS = (Fins, Wings)
+AERO_COMPONENTS: tuple[type[Fins | Wings], ...] = (Fins, Wings)
 BODY_COMPONENTS = (AxisymmetricBody,)
 FIN_COMPONENTS = (Fins,)
 PROPULSION_COMPONENTS = (SolidMotor, RamjetEngine, TurbojetEngine)

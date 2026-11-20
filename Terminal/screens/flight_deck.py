@@ -544,7 +544,6 @@ class FlightDeckView(Container):
             scroll.add_class("-hidden")
 
             self._editing_stage_index = None
-            veh_name = self.active_vehicle.name if self.active_vehicle is not None else None
             params = (
                 self._active_params
                 if self._current_highlighted_descriptor == descriptor
@@ -556,7 +555,7 @@ class FlightDeckView(Container):
                 stage_index=None,
                 is_ready=is_ready,
                 compatibility_msg=message,
-                vehicle_name=veh_name,
+                vehicle=self.active_vehicle,
             )
         except NoMatches:
             pass
@@ -580,7 +579,6 @@ class FlightDeckView(Container):
 
             self._editing_stage_index = stage_idx
             is_ready, msg = check_solver_compatibility(stage.descriptor, self.active_vehicle)
-            veh_name = self.active_vehicle.name if self.active_vehicle is not None else None
 
             form.load_solver(
                 descriptor=stage.descriptor,
@@ -588,7 +586,7 @@ class FlightDeckView(Container):
                 stage_index=stage_idx,
                 is_ready=is_ready,
                 compatibility_msg=msg,
-                vehicle_name=veh_name,
+                vehicle=self.active_vehicle,
             )
         except NoMatches:
             pass
