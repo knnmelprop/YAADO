@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -10,10 +11,13 @@ import pytest
 
 from Terminal import solvers
 from Terminal.solvers import (
+    COMMON_AIRFOILS,
     REPAIRED_SOLVERS,
+    Choice,
     SolverDescriptor,
     SolverParam,
-    aero_surface_names,
+    aero_surface_choices,
+    airfoil_choices,
     check_solver_compatibility,
     execute_solver,
 )
@@ -450,33 +454,76 @@ def _fake_xfoil_run(
     return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
 
-def test_aero_surface_names_list_surfaces_with_an_airfoil_first() -> None:
-    names = aero_surface_names(BaseVehicleConfig.from_toml(HARPOON_PATH))
-    assert names == ("planar_equivalent", "mid_body_wings", "aft_control_fins")
+def test_surface_list_shows_airfoils_and_puts_them_first() -> None:
+    choices = aero_surface_choices(BaseVehicleConfig.from_toml(HARPOON_PATH))
+    assert choices == (
+        Choice("planar_equivalent", "planar_equivalent: NACA0006"),
+        Choice("mid_body_wings", "mid_body_wings: no airfoil"),
+        Choice("aft_control_fins", "aft_control_fins: no airfoil"),
+    )
+
+
+def test_airfoil_list_has_the_vehicle_sections_common_ones_and_hangar_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+    values = [choice.value for choice in airfoil_choices(vehicle)]
+    assert values[0] == "NACA0006"
+    assert values.count("NACA0006") == 1
+    assert set(COMMON_AIRFOILS) <= set(values)
+
+    library = tmp_path / "Hangar" / "airfoils"
+    library.mkdir(parents=True)
+    (library / "clarky.dat").write_text("CLARK Y\n1.0 0.0\n", encoding="utf-8")
+    (library / "notes.txt").write_text("not an airfoil", encoding="utf-8")
+    files = [c for c in airfoil_choices(vehicle) if c.label.endswith(".dat")]
+    assert files == [Choice(str(Path("Hangar/airfoils/clarky.dat")), "clarky.dat")]
 
 
 def test_xfoil_compatibility_needs_a_surface_and_the_executable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     desc = _xfoil_descriptor()
-    monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: "/usr/bin/xfoil")
+    monkeypatch.setattr(xfoil_runner, "xfoil_problem", lambda: None)
     is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig.from_toml(HARPOON_PATH))
     assert is_ready
-    assert "planar_equivalent" in msg and "aft_control_fins" in msg
+    assert "planar_equivalent" in msg
+    assert msg.endswith("pick an airfoil for mid_body_wings, aft_control_fins")
 
     is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig(name="Bare"))
     assert not is_ready and "Missing aerodynamic surface" in msg
 
+    monkeypatch.undo()
     monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: None)
     is_ready, msg = check_solver_compatibility(desc, BaseVehicleConfig.from_toml(HARPOON_PATH))
     assert not is_ready and "not found on PATH" in msg
 
 
-def test_xfoil_surface_parameter_is_a_vehicle_choice() -> None:
-    surface = next(p for p in _xfoil_descriptor().parameters if p.name == "surface")
-    assert surface.choices is aero_surface_names
-    assert surface.parse("  ") is None
-    assert surface.parse("aft_control_fins") == "aft_control_fins"
+def test_xfoil_compatibility_reports_a_crashing_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An XFOIL that dies with SIGFPE, like the Debian package, makes the solver inapplicable."""
+    monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: str(tmp_path / "xfoil"))
+    (tmp_path / "xfoil").write_text("", encoding="utf-8")
+
+    def crash(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, -signal.SIGFPE, stdout="", stderr="")
+
+    monkeypatch.setattr(xfoil_runner.subprocess, "run", crash)
+    is_ready, msg = check_solver_compatibility(
+        _xfoil_descriptor(), BaseVehicleConfig.from_toml(HARPOON_PATH)
+    )
+    assert not is_ready and "SIGFPE" in msg and "wrapper" in msg
+
+
+def test_xfoil_surface_and_airfoil_are_vehicle_choices() -> None:
+    params = {p.name: p for p in _xfoil_descriptor().parameters}
+    assert [p.name for p in _xfoil_descriptor().parameters][:2] == ["surface", "airfoil"]
+    assert params["surface"].choices is aero_surface_choices and params["surface"].preselect
+    assert params["airfoil"].choices is airfoil_choices and not params["airfoil"].preselect
+    assert params["surface"].parse("  ") is None
+    assert params["airfoil"].parse("Hangar/airfoils/clarky.dat") == "Hangar/airfoils/clarky.dat"
 
 
 def test_execute_xfoil_saves_polar_and_reynolds_sweep(
@@ -486,6 +533,8 @@ def test_execute_xfoil_saves_polar_and_reynolds_sweep(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: "xfoil")
     monkeypatch.setattr(xfoil_runner, "_run_process", _fake_xfoil_run)
+    monkeypatch.setattr(xfoil_runner, "xfoil_problem", lambda: None)
+    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil_run)
 
     run = execute_solver(
         _xfoil_descriptor(),
@@ -510,6 +559,7 @@ def test_execute_xfoil_without_a_surface_on_a_multi_surface_vehicle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(xfoil_runner, "xfoil_executable", lambda: "xfoil")
+    monkeypatch.setattr(xfoil_runner, "xfoil_problem", lambda: None)
     with pytest.raises(ValueError, match="pick one with surface=NAME"):
         execute_solver(
             _xfoil_descriptor(), BaseVehicleConfig.from_toml(HARPOON_PATH), enable_logging=False

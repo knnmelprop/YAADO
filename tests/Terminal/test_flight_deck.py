@@ -1286,7 +1286,7 @@ def test_parameter_hints_wrap_instead_of_being_cut(tmp_path: Path, monkeypatch: 
 
 
 def test_xfoil_form_offers_the_vehicle_surfaces() -> None:
-    """The surface parameter is a list of the vehicle's surfaces, preset to one with an airfoil."""
+    """Surface and airfoil are lists: the surface preset to one with an airfoil, the airfoil blank."""
     import asyncio
 
     from textual.app import App, ComposeResult
@@ -1312,15 +1312,32 @@ def test_xfoil_form_offers_the_vehicle_surfaces() -> None:
             select = form.query_one("#param-inp-surface", Select)
             assert select.value == "planar_equivalent"
             assert fd._active_params["surface"] == "planar_equivalent"
+            labels = [str(prompt) for prompt, _ in select._options]
+            assert "aft_control_fins: no airfoil" in labels
+
+            # Blank airfoil means the surface's own; it is not preselected
+            airfoil = form.query_one("#param-inp-airfoil", Select)
+            assert airfoil.value is Select.NULL
+            assert fd._active_params.get("airfoil") is None
 
             select.value = "aft_control_fins"
+            airfoil.value = "NACA0010"
             await pilot.pause(0.2)
             assert fd._active_params["surface"] == "aft_control_fins"
+            assert fd._active_params["airfoil"] == "NACA0010"
 
             fd.stage_solver(desc)
             await pilot.pause(0.1)
             assert fd.pipeline[-1].params["surface"] == "aft_control_fins"
-            assert "surf=aft_control_fins" in format_stage_param_specs(fd.pipeline[-1])
+            specs = format_stage_param_specs(fd.pipeline[-1])
+            assert "surf=aft_control_fins" in specs and "foil=NACA0010" in specs
+
+            # A stage's custom airfoil file, not in the list, is kept and shown
+            fd.pipeline[-1].params["airfoil"] = "my_foils/sd7062.dat"
+            fd._render_stage_params(1, fd.pipeline[-1])
+            await pilot.pause(0.3)
+            airfoil = form.query_one("#param-inp-airfoil", Select)
+            assert airfoil.value == "my_foils/sd7062.dat"
 
     asyncio.run(_test())
 

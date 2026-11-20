@@ -100,6 +100,19 @@ _FALSE_STRINGS = frozenset({"false", "0", "no"})
 
 
 @dataclass(frozen=True)
+class Choice:
+    """One entry of a choice parameter's list.
+
+    Attributes:
+        value: Value passed to the solver.
+        label: Text shown in the list.
+    """
+
+    value: str
+    label: str
+
+
+@dataclass(frozen=True)
 class SolverParam:
     """Metadata and validation rules for a tunable solver parameter.
 
@@ -115,7 +128,9 @@ class SolverParam:
         min_value: Optional minimum numerical bound.
         max_value: Optional maximum numerical bound.
         placeholder: Source of the value while an optional parameter is blank.
-        choices: Names a ``str`` parameter may take on a given vehicle, offered as a list.
+        choices: Values a ``str`` parameter may take on a given vehicle, offered as a list.
+        preselect: Whether the form fills a blank choice with the first entry. Otherwise
+            blank stays a valid choice that means ``placeholder``.
     """
 
     name: str
@@ -128,7 +143,8 @@ class SolverParam:
     min_value: float | None = None
     max_value: float | None = None
     placeholder: str = ""
-    choices: Callable[[BaseVehicleConfig], tuple[str, ...]] | None = None
+    choices: Callable[[BaseVehicleConfig], tuple[Choice, ...]] | None = None
+    preselect: bool = False
 
     def parse(self, raw: str) -> Any:
         """Convert text input to this parameter's type and check its bounds.
@@ -235,10 +251,35 @@ class SolverRun:
     warnings: tuple[str, ...] = ()
 
 
-def aero_surface_names(vehicle: BaseVehicleConfig) -> tuple[str, ...]:
-    """Names of the vehicle's wings and fin sets, those with an airfoil first, else in TOML order."""
+#: Folder whose ``.dat`` coordinate files the airfoil list offers.
+AIRFOIL_LIBRARY = Path("Hangar") / "airfoils"
+#: Sections the airfoil list offers for every vehicle.
+COMMON_AIRFOILS: tuple[str, ...] = (
+    "NACA0006", "NACA0008", "NACA0009", "NACA0010", "NACA0012", "NACA0015",
+    "NACA2412", "NACA2415", "NACA4412", "NACA4415", "NACA23012", "NACA23015",
+)
+
+
+def aero_surface_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
+    """The vehicle's wings and fin sets with their airfoils, those with an airfoil first."""
     surfaces = vehicle.get_components_by_type(AERO_COMPONENTS)
-    return tuple(sorted(surfaces, key=lambda name: surfaces[name].section_airfoil is None))
+    names = sorted(surfaces, key=lambda name: surfaces[name].section_airfoil is None)
+    return tuple(
+        Choice(name, f"{name}: {surfaces[name].section_airfoil or 'no airfoil'}") for name in names
+    )
+
+
+def airfoil_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
+    """Airfoils on the vehicle, common NACA sections, and coordinate files in Hangar/airfoils."""
+    surfaces = vehicle.get_components_by_type(AERO_COMPONENTS).values()
+    on_vehicle = sorted({s.section_airfoil for s in surfaces if s.section_airfoil})
+    names = [*on_vehicle, *(name for name in COMMON_AIRFOILS if name not in on_vehicle)]
+    files = (
+        sorted(p for p in AIRFOIL_LIBRARY.iterdir() if p.suffix.lower() == ".dat")
+        if AIRFOIL_LIBRARY.is_dir()
+        else []
+    )
+    return (*(Choice(name, name) for name in names), *(Choice(str(p), p.name) for p in files))
 
 
 REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
@@ -939,9 +980,24 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
                 unit="",
                 param_type=str,
                 default=None,
-                description="Wing or fin set to analyse. Blank works for a vehicle with one surface",
+                description="Wing or fin set to analyse. The list shows each one's airfoil",
                 placeholder="only one",
-                choices=aero_surface_names,
+                choices=aero_surface_choices,
+                preselect=True,
+            ),
+            SolverParam(
+                name="airfoil",
+                label="Airfoil",
+                symbol="foil",
+                unit="",
+                param_type=str,
+                default=None,
+                description=(
+                    "Blank uses the surface's airfoil; pick one for a surface without. "
+                    "Lists NACA sections and .dat files in Hangar/airfoils"
+                ),
+                placeholder="surface's own",
+                choices=airfoil_choices,
             ),
             SolverParam(
                 name="mach",
@@ -1008,16 +1064,6 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
                 description="e^n transition exponent: 9 average wind tunnel, 11-13 clean free flight, 4-8 turbulent air",
                 min_value=0.1,
                 max_value=20.0,
-            ),
-            SolverParam(
-                name="airfoil",
-                label="Airfoil",
-                symbol="foil",
-                unit="",
-                param_type=str,
-                default=None,
-                description="NACA 4/5-digit (NACA2412) or a .dat coordinate file. Blank uses the surface's airfoil",
-                placeholder="TOML",
             ),
             SolverParam(
                 name="chord",
@@ -1477,12 +1523,16 @@ def check_solver_compatibility(
         return True, f"Ready ({body_name}, diameter {body.diameter:g} m)"
 
     if descriptor.solver_id == "xfoil_polar":
-        surfaces = aero_surface_names(vehicle)
+        surfaces = vehicle.get_components_by_type(AERO_COMPONENTS)
         if not surfaces:
             return False, "Missing aerodynamic surface (Wings or Fins)"
-        if xfoil_runner.xfoil_executable() is None:
-            return False, "XFOIL executable 'xfoil' not found on PATH"
-        return True, f"Ready ({', '.join(surfaces)})"
+        problem = xfoil_runner.xfoil_problem()
+        if problem is not None:
+            return False, problem
+        bare = [name for name, surface in surfaces.items() if surface.section_airfoil is None]
+        ready = [name for name in surfaces if name not in bare]
+        listed = f"Ready ({', '.join(ready)})" if ready else "Ready"
+        return True, f"{listed}; pick an airfoil for {', '.join(bare)}" if bare else listed
 
     if descriptor.solver_id in (
         "barrowman_stability",

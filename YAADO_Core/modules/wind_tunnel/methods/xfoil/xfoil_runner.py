@@ -17,6 +17,7 @@ Reference:
 from __future__ import annotations
 
 import csv
+import functools
 import io
 import math
 import os
@@ -117,6 +118,36 @@ class XfoilRun:
 def xfoil_executable() -> str | None:
     """Path of the registered XFOIL executable, or None if it is not on PATH."""
     return shutil.which(DEFAULT_REGISTRY.get("xfoil").executable)
+
+
+@functools.lru_cache(maxsize=8)
+def _smoke_test(executable: str, modified: float) -> str | None:
+    """Solve one inviscid point; the Debian build already stops there with SIGFPE."""
+    deck = "PLOP\nG F\n\nNACA 0012\nOPER\nALFA 0\n\nQUIT\n"
+    try:
+        completed = subprocess.run(
+            [executable], input=deck, capture_output=True, text=True, timeout=10.0, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"XFOIL at {executable} does not run: {exc}"
+    if completed.returncode == -signal.SIGFPE:
+        return FPE_MESSAGE
+    return None
+
+
+def xfoil_problem() -> str | None:
+    """Why the XFOIL on PATH cannot run, or None if it works.
+
+    The check runs XFOIL once per executable and file version, then reuses the answer.
+    """
+    executable = xfoil_executable()
+    if executable is None:
+        return MISSING_MESSAGE
+    try:
+        modified = Path(executable).stat().st_mtime
+    except OSError as exc:
+        return f"XFOIL at {executable} does not run: {exc}"
+    return _smoke_test(executable, modified)
 
 
 def read_airfoil_file(path: Path) -> AirfoilSource:
@@ -658,8 +689,8 @@ class XFOILAnalysis(BaseAnalysis[XfoilPolarResults]):
         airfoil = airfoil or component.section_airfoil
         if not airfoil:
             raise ValueError(
-                f"Surface '{surface}' has no airfoil: set airfoil (e.g. NACA0010) here "
-                "or on the component"
+                f"Surface '{surface}' has no airfoil: pick one under Airfoil "
+                "(airfoil=NACA0010 in bare mode), or add airfoil to it in the TOML"
             )
         source = resolve_airfoil(airfoil)
 
