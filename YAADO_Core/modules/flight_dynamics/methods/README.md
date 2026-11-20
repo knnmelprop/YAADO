@@ -138,3 +138,41 @@ analysis.setup(
 )
 results = analysis.execute()
 ```
+
+## Parachute Descent
+
+* **Method class**: `ParachuteDescentAnalysis` in [`parachute_descent.py`](parachute_descent.py)
+* **Fidelity**: Level 0 (planar point mass)
+* **Status**: New. It is not connected to the Terminal yet.
+
+This analysis starts at the apogee of a full 3-DOF flight (`stop_at_burnout=False`) and does not change `boost_dynamics()`. The vehicle has its burnout mass. The drogue opens at apogee and the main opens at `main_deployment_altitude` above the ground. Both open instantly: there is no opening-shock or inflation model. The horizontal speed at apogee is the start speed, and drag opposes the velocity relative to the air with the ISA density (no wind).
+
+```math
+m\,\dot{\vec{v}} = -\tfrac{1}{2}\rho(h)\,\lVert\vec{v}\rVert\,C_d A\,\vec{v} + m\vec{g}
+```
+
+Inputs are the frozen `ParachuteConfig` (drag coefficient and diameter of the drogue and of the main, the main deployment altitude, and an optional landing-speed limit that you give; no limit is hardcoded). Outputs in `ParachuteDescentResults`: the speed under the drogue (just before the main opens) and under the main (at touchdown), the time from apogee to landing, `landing_x`, the peak drag deceleration (at main opening), and `landing_speed_within_limit` (`None` without a limit).
+
+Two helpers use the steady-descent balance $`v = \sqrt{2 m g / (\rho C_d A)}`$:
+
+* `steady_descent_speed(mass, cd, diameter, altitude)`
+* `size_main_diameter(mass, target_speed, cd, altitude)`, $`D = \sqrt{8 m g / (\pi \rho C_d v^2)}`$. Use the landing altitude to size for the landing speed.
+
+`plot_descent(samples)` plots $`h(t)`$ and $`v(t)`$.
+
+```python
+flight_analysis = PointMass3DOFBoostAnalysis()
+flight_analysis.setup(vehicle, stop_at_burnout=False)
+flight = flight_analysis.execute()
+
+chutes = ParachuteConfig(
+    drogue_cd=1.5, drogue_diameter=0.6,
+    main_cd=2.2, main_diameter=size_main_diameter(12.0, 6.0, 2.2),
+    main_deployment_altitude=300.0, descent_speed_limit=7.0,
+)
+analysis = ParachuteDescentAnalysis()
+analysis.setup(vehicle, flight=flight, parachutes=chutes)
+descent = analysis.execute()
+```
+
+Limits: no wind drift (see #72), no opening shock, no recovery component in the schema.
