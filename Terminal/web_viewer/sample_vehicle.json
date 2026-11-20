@@ -1,0 +1,112 @@
+{
+  "name": "ALVRJ",
+  "description": "ALVRJ (Advanced Low-Volume Ramjet) reference configuration",
+  "propulsion": {
+    "sustainer": {
+      "type": "ramjet_engine",
+      "design_mach": 2.6,
+      "fuel_type": "kerosene",
+      "combustor_temp": 2150.0,
+      "nozzle_area_ratio": 2.25,
+      "nozzle_throat_diameter": 0.25,
+      "nozzle_exit_diameter": 0.375,
+      "spike_half_angle": null,
+      "inlet_recovery": null,
+      "combustor_pressure_ratio": null,
+      "nozzle_pressure_ratio": null,
+      "combustion_efficiency": null,
+      "mass": {
+        "type": "mass",
+        "cg_from_nose": 3.4,
+        "cg_source": "Ramjet combustor liner and injector assembly",
+        "total_mass": 115.0
+      }
+    },
+    "integral_booster": {
+      "type": "solid_motor",
+      "isp_vacuum": 260.0,
+      "isp_sl": 235.0,
+      "propellant_mass": 272.0,
+      "burn_time": 5.0,
+      "thrust_mean": 125000.0,
+      "thrust_peak": 145000.0,
+      "propellant_density": 1750.0,
+      "casing_length": 2.1,
+      "casing_diameter": 0.381,
+      "mass": {
+        "type": "mass",
+        "cg_from_nose": 3.2,
+        "cg_source": "ALVRJ booster grain mass properties",
+        "total_mass": 330.0
+      }
+    }
+  },
+  "aero_surfaces": {
+    "aft_control_fins": {
+      "type": "fins",
+      "count": 4,
+      "span": 0.28,
+      "sweep": 60.0,
+      "chord_root": 0.65,
+      "chord_tip": 0.15,
+      "root_le_from_nose": null,
+      "control_surfaces": [
+        {
+          "name": "aft_elevon_actuator",
+          "function": "elevator",
+          "span_fraction_start": 0.15,
+          "span_fraction_end": 0.85,
+          "chord_fraction": 0.25,
+          "max_deflection": 25.0
+        }
+      ],
+      "mass": {
+        "type": "mass",
+        "cg_from_nose": 4.15,
+        "cg_source": "Aft tail actuator package balance",
+        "total_mass": 28.0
+      }
+    },
+    "intake_strakes": {
+      "type": "wing",
+      "aspect_ratio": 1.8,
+      "sweep": 60.0,
+      "taper_ratio": 0.25,
+      "span": 0.94,
+      "dihedral": 0.0,
+      "airfoil_root": "NACA0004",
+      "airfoil_tip": "NACA0004",
+      "control_surfaces": [],
+      "mass": {
+        "type": "mass",
+        "cg_from_nose": 2.4,
+        "cg_source": "Intake strake structural balance",
+        "total_mass": 22.0
+      }
+    }
+  },
+  "bodies": {
+    "fuselage": {
+      "type": "axisymmetric_body",
+      "length": 4.57,
+      "diameter": 0.381,
+      "nose_type": "ogive",
+      "nose_length": 0.95,
+      "nose_diameter": 0.381,
+      "total_length": 4.57,
+      "max_diameter": 0.381,
+      "mass": {
+        "type": "mass",
+        "cg_from_nose": 2.1,
+        "cg_source": "ALVRJ flight test station 82.5 in reference balance",
+        "total_mass": 1020.0
+      }
+    }
+  },
+  "mass_properties": {
+    "type": "mass",
+    "cg_from_nose": 2.1,
+    "cg_source": "ALVRJ flight test station 82.5 in reference balance",
+    "total_mass": 1020.0
+  }
+}

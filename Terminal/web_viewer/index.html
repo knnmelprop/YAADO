@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YAADO vehicle viewer</title>
+  <style>
+    :root { --bg: #f4f5f7; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #d5d9e0; --accent: #1f5fbf; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #11151c; --panel: #1a202b; --text: #e6e9ef; --muted: #98a2b3; --line: #2b3342; --accent: #6aa3ff; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text);
+           display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    aside { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow-y: auto; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 6px; }
+    #desc { color: var(--muted); margin: 0 0 8px; }
+    #drop { border: 2px dashed var(--line); border-radius: 8px; padding: 12px; text-align: center; color: var(--muted); }
+    #drop.over { border-color: var(--accent); color: var(--accent); }
+    #error { color: #c0392b; margin-top: 8px; white-space: pre-wrap; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li label { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+    li .kind { color: var(--muted); font-size: 12px; }
+    #assumptions li { color: var(--muted); font-size: 12px; padding: 2px 0; }
+    main { position: relative; min-width: 0; }
+    #view { width: 100%; height: 100%; display: block; }
+    #hint { position: absolute; left: 12px; bottom: 10px; color: var(--muted); font-size: 12px; }
+    @media (max-width: 720px) { body { grid-template-columns: 1fr; grid-template-rows: auto 60vh; height: auto; } }
+  </style>
+  <!-- Three.js, pinned to an exact version. The importmap also serves the dynamic imports in viewer.js. -->
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  } }
+  </script>
+</head>
+<body>
+  <aside>
+    <h1 id="name">No vehicle loaded</h1>
+    <p id="desc"></p>
+    <div id="drop">
+      Drop a vehicle JSON here or
+      <input id="file" type="file" accept="application/json,.json">
+    </div>
+    <div id="error" role="alert"></div>
+    <h2>Components</h2>
+    <ul id="components"></ul>
+    <h2>Assumptions</h2>
+    <ul id="assumptions"></ul>
+  </aside>
+  <main>
+    <canvas id="view"></canvas>
+    <div id="hint">Drag to rotate, wheel to zoom, right-drag to pan. Nose points to the right. Lengths in meters.</div>
+  </main>
+  <!-- Classic script: it also works when this page is opened straight from disk (file://). -->
+  <script src="viewer.js"></script>
+</body>
+</html>
