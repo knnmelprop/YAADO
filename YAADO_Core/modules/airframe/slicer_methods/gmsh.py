@@ -1,85 +1,34 @@
-"""Production STEP cross-section station sweep.
+"""Gmsh STEP cross-section station sweep.
 
-For a real STEP assembly, sweeps a series of axial (X) stations along the
-vehicle, boolean-intersects a Y-Z cutting plane against each solid volume at
-every station (the method prototyped and confirmed in ``probe_slice.py``,
-sped up ~30x in ``probe_slice_v2_timing.py`` by intersecting directly
-against the original volume instead of a full deep copy -- see
-``docs/geometry/status.md`` sections 1 and 4b), and additionally classifies
-each resulting cross-section face's boundary-curve topology into loops to
-detect internal holes/bores (``docs/geometry/status.md`` section 4, the
-concrete next step after the timing prototype).
-
-Module layout
--------------
-This module is deliberately split into two halves:
-
-- **Pure-Python helpers** (:func:`equivalent_diameter_from_area`,
-  :func:`group_curves_into_loops`, :func:`classify_face_loops`,
-  :func:`cross_check_against_vehicle_config`) have no ``gmsh``/STEP
-  dependency and are unit-tested directly with hand-built synthetic data in
-  ``tests/unit/test_geometry_station_sweep.py``.
-- **gmsh/STEP-dependent driver functions** (:func:`open_step`,
-  :func:`slice_volume_at_station`, :func:`run_station_sweep`) call into the
-  ``gmsh`` OCC kernel and require a real STEP file. ``gmsh`` is imported
-  lazily inside these functions so the pure-Python half of this module
-  stays importable in environments without ``gmsh`` installed (same
-  guarded-import convention as SUAVE imports elsewhere in this repo's
-  ``core/`` package).
-
-**No real STEP file is committed to this repo** (the actual vehicle CAD,
-``analyses/stability/su2_cross_check/case_vehicle_stability/cad/
-vehiclecfdSimplified.step``, is intentionally gitignored -- raw CAD/mesh data
-is never committed, per project convention). Running this tool against the
-real geometry, and resolving the ramjet-vs-booster solid-identity question
-it can help settle (``docs/geometry/status.md`` section 3), both require a
-local session with that file. See ``docs/geometry/status.md`` for the full
-status and next-step plan.
-
-CLI usage (from a venv with ``gmsh`` installed, e.g. ``.venv-geom``)::
-
-    .venv-geom/bin/python3 -m analyses.geometry.cad_station_sweep \\
-        path/to/model.step \\
-        --x-start-mm 0 --x-end-mm 4355 --pitch-mm 20 \\
-        --output-csv analyses/geometry/results/station_sweep.csv \\
-        --vehicle-config Hangar/generic_vehicle/vehicle_config.yaml
+Sweeps axial (X) stations along a STEP assembly, intersects a Y-Z plane with
+each solid volume and classifies each face's boundary loops to detect inner
+bores. :class:`GmshStationSweepAnalysis` wraps the sweep as a
+:class:`BaseAnalysis`. ``gmsh`` is imported lazily inside the driver
+functions, so the pure-Python helpers work without it.
 """
 
 from __future__ import annotations
 
-import argparse
-import csv
 import math
-import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
-#: Half-extent (mm) of the square cutting-plane rectangle built at each
-#: station; must exceed the largest expected cross-section radius. Matches
-#: the ``R = 400.0`` value used in ``probe_slice.py`` /
-#: ``probe_slice_v2_timing.py`` (generous vs. the observed max radius of
-#: ~296.5mm on the real vehicle assembly).
-DEFAULT_HALF_EXTENT_MM: float = 400.0
-
-#: Output CSV column order, matching ``docs/geometry/status.md`` section 4's
-#: spec exactly.
-CSV_COLUMNS: tuple[str, ...] = (
-    "x_mm",
-    "vol_tag",
-    "area_mm2",
-    "n_loops",
-    "outer_r_eq_mm",
-    "outer_bbox_r_mm",
-    "has_inner_loop",
-    "inner_area_mm2",
-    "inner_r_eq_mm",
+from YAADO_Core.ComponentStore import BODY_COMPONENTS, AnyBodyComponent
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.airframe.containers import (
+    EnvelopeCheck,
+    GmshSliceResults,
+    StationSlice,
 )
 
-#: Repository root, resolved from this file's location (matches the
-#: convention in ``analyses/geometry/openvsp_export.py``).
-REPO_ROOT: Path = Path(__file__).resolve().parents[4]
+MM_PER_M: float = 1000.0
 
+#: Half-extent (mm) of the square cutting plane built at each station; must
+#: exceed the largest expected cross-section radius.
+DEFAULT_HALF_EXTENT_MM: float = 400.0
 
 # ---------------------------------------------------------------------------
 # Pure-Python helpers -- no gmsh / STEP dependency, unit-testable directly.
@@ -241,106 +190,51 @@ def classify_face_loops(
     )
 
 
-@dataclass(frozen=True)
-class CrossCheckResult:
-    """One MATCH/MISMATCH comparison between sweep data and vehicle_config.yaml.
-
-    Attributes:
-        metric: Short name of the compared quantity.
-        extracted_mm: Value derived from the sweep rows, in mm.
-        config_mm: Corresponding value from ``vehicle_config.yaml``, in mm.
-        diff_pct: ``abs(extracted - config) / config * 100``.
-        verdict: ``"MATCH"`` if ``diff_pct <= tolerance_pct``, else
-            ``"MISMATCH"``.
-    """
-
-    metric: str
-    extracted_mm: float
-    config_mm: float
-    diff_pct: float
-    verdict: str
-
-
-def cross_check_against_vehicle_config(
-    rows: Sequence[Mapping[str, object]],
-    vehicle_config_path: str | Path,
+def cross_check_against_body(
+    stations: Sequence[StationSlice],
+    body: AnyBodyComponent,
     tolerance_pct: float = 10.0,
-) -> list[CrossCheckResult]:
-    """Compare sweep-derived envelope numbers against ``vehicle_config.yaml``.
+) -> tuple[EnvelopeCheck, ...]:
+    """Compare sweep-derived envelope lengths against a vehicle body component.
 
-    Report-only, per explicit instruction: this never modifies the YAML or
-    the sweep rows, it only flags MATCH/MISMATCH for a human to act on.
-    Three checks, each skipped if the relevant config field is absent:
-
-    - Max ``outer_bbox_r_mm`` across all rows vs. half of
-      ``body.max_diameter_m``.
-    - Axial extent (``max(x_mm) - min(x_mm)``) vs.
-      ``body.total_length_m`` (falling back to ``body.length_m``).
-    - Median ``outer_bbox_r_mm`` among rows aft of the nose (``x_mm >
-      nose_length_mm``) vs. half of ``body.diameter_m`` (the cylindrical
-      body section's nominal radius).
+    Report-only: flags MATCH/MISMATCH, never modifies anything. Checks are
+    skipped when the relevant body field is unset.
 
     Args:
-        rows: Sweep rows as produced by :func:`run_station_sweep` (or any
-            mapping sequence with at least ``x_mm`` and ``outer_bbox_r_mm``
-            keys).
-        vehicle_config_path: Path to a ``Any`` YAML (Generic Vehicle's
-            ``Hangar/generic_vehicle/vehicle_config.yaml``).
-        tolerance_pct: Max allowed percent deviation before a check is
-            flagged MISMATCH.
+        stations: Sweep slices (SI units).
+        body: Body component from the vehicle config.
+        tolerance_pct: Max percent deviation before a check is a MISMATCH.
 
     Returns:
-        One :class:`CrossCheckResult` per check that had data to compare
-        (empty list if ``rows`` is empty).
-
-    Raises:
-        TypeError: If ``vehicle_config_path`` does not load as a
-            ``Any`` (e.g. the generic_uav drone config was passed).
+        One :class:`EnvelopeCheck` per check with data (empty if no stations).
     """
-        from pydantic import ValidationError
+    if not stations:
+        return ()
 
-    try:
-        config = Any.from_yaml(vehicle_config_path)
-    except ValidationError as e:
-        raise TypeError(
-            f"{vehicle_config_path} did not load as a Any "
-            f"({e}); this cross-check is for Generic Vehicle only"
-        )
+    checks: list[EnvelopeCheck] = []
 
-    if not rows:
-        return []
-
-    results: list[CrossCheckResult] = []
-
-    def _check(metric: str, extracted_mm: float, config_mm: float | None) -> None:
-        if config_mm is None or config_mm <= 0.0:
+    def _check(metric: str, extracted: float, reference: float | None) -> None:
+        if reference is None or reference <= 0.0:
             return
-        diff_pct = abs(extracted_mm - config_mm) / config_mm * 100.0
+        diff_pct = abs(extracted - reference) / reference * 100.0
         verdict = "MATCH" if diff_pct <= tolerance_pct else "MISMATCH"
-        results.append(CrossCheckResult(metric, extracted_mm, config_mm, diff_pct, verdict))
+        checks.append(EnvelopeCheck(metric, extracted, reference, diff_pct, verdict))
 
-    body = config.body
-    max_bbox_r_mm = max(float(row["outer_bbox_r_mm"]) for row in rows)
-    config_max_r_mm = body.max_diameter_m * 1000.0 / 2.0 if body.max_diameter_m else None
-    _check("max_radius_mm", max_bbox_r_mm, config_max_r_mm)
+    max_diameter = body.max_diameter
+    _check(
+        "max_radius",
+        max(s.outer_bbox_radius for s in stations),
+        max_diameter / 2.0 if max_diameter else None,
+    )
+    xs = [s.x for s in stations]
+    _check("axial_extent", max(xs) - min(xs), body.total_length or body.length)
 
-    x_values_mm = [float(row["x_mm"]) for row in rows]
-    sweep_length_mm = max(x_values_mm) - min(x_values_mm)
-    total_length_m = body.total_length_m or body.length_m
-    _check("axial_extent_mm", sweep_length_mm, total_length_m * 1000.0)
+    nose_length = body.nose_length or 0.0
+    aft_radii = sorted(s.outer_bbox_radius for s in stations if s.x > nose_length)
+    if aft_radii:
+        _check("cylindrical_body_radius", aft_radii[len(aft_radii) // 2], body.diameter / 2.0)
 
-    nose_length_mm = (body.nose_length_m or 0.0) * 1000.0
-    cylindrical_rows = [row for row in rows if float(row["x_mm"]) > nose_length_mm]
-    if cylindrical_rows:
-        body_radii_mm = sorted(float(row["outer_bbox_r_mm"]) for row in cylindrical_rows)
-        median_body_r_mm = body_radii_mm[len(body_radii_mm) // 2]
-        _check(
-            "cylindrical_body_radius_mm",
-            median_body_r_mm,
-            body.diameter_m * 1000.0 / 2.0,
-        )
-
-    return results
+    return tuple(checks)
 
 
 # ---------------------------------------------------------------------------
@@ -415,22 +309,13 @@ def slice_volume_at_station(
     vol_tag: int,
     x_mm: float,
     half_extent_mm: float = DEFAULT_HALF_EXTENT_MM,
-) -> list[dict]:
+) -> list[StationSlice]:
     """Cut ``vol_tag`` with a Y-Z plane at ``x_mm`` and analyze each face.
 
-    Reuses the plane-intersection method confirmed in ``probe_slice.py``
-    (build a rectangle, rotate into the Y-Z plane, translate to the
-    station, intersect against the solid), with the ~30x-faster variant
-    from ``probe_slice_v2_timing.py``: only the cutting plane is copied
-    (``gmsh.model.occ.copy``); the intersect runs directly against the
-    original volume with ``removeObject=False`` instead of deep-copying
-    the full solid's B-Rep every station. Adds the loop/hole topology
-    classification (``docs/geometry/status.md`` section 4's next step) on
-    top of that confirmed method.
-
-    Produced faces and the cutting plane are removed before returning so
-    gmsh entity tags do not accumulate across stations, matching both
-    prototype scripts' cleanup behavior.
+    Only the cutting plane is copied; the intersect runs against the
+    original volume with ``removeObject=False`` (much faster than copying
+    the solid). Produced faces and the plane are removed before returning
+    so gmsh tags do not accumulate across stations.
 
     Args:
         vol_tag: A gmsh 3D (volume) entity tag from :func:`open_step`.
@@ -440,9 +325,8 @@ def slice_volume_at_station(
             exceed the largest expected cross-section radius.
 
     Returns:
-        One dict (``{"area_mm2": float, "topology": LoopTopology}``) per
-        cross-section face produced at this station for this volume.
-        Empty if the station is outside the volume's axial extent.
+        One :class:`StationSlice` (SI units) per cross-section face at this
+        station. Empty if the station is outside the volume's axial extent.
     """
     import gmsh
 
@@ -461,12 +345,12 @@ def slice_volume_at_station(
     gmsh.model.occ.synchronize()
 
     faces = [tag for dim, tag in produced if dim == 2]
-    results: list[dict] = []
+    results: list[StationSlice] = []
     for face_tag in faces:
         area_mm2 = gmsh.model.occ.getMass(2, face_tag)
         curve_edges, point_coords = _face_boundary_graph(face_tag)
         topology = classify_face_loops(curve_edges, point_coords)
-        results.append({"area_mm2": area_mm2, "topology": topology})
+        results.append(build_station_slice(x_mm, vol_tag, area_mm2, topology))
 
     if produced:
         gmsh.model.occ.remove(produced, recursive=True)
@@ -475,156 +359,205 @@ def slice_volume_at_station(
     return results
 
 
-def _build_row(x_mm: float, vol_tag: int, area_mm2: float, topology: LoopTopology) -> dict:
-    """Assemble one CSV-ready row from a sliced face's area + topology.
+def build_station_slice(
+    x_mm: float, vol_tag: int, area_mm2: float, topology: LoopTopology
+) -> StationSlice:
+    """Convert one sliced face (mm, mm^2) into an SI :class:`StationSlice`.
 
-    ``outer_r_eq_mm`` is the equivalent radius of the face's own measured
-    (net) area -- the same quantity ``probe_slice.py`` printed as ``r_eq``,
-    disambiguated here from the new ``inner_r_eq_mm`` column.
-    ``inner_r_eq_mm``/``inner_area_mm2`` are estimated by treating the
-    largest inner loop's own point-extent as the bore radius directly (see
-    :class:`LoopTopology`'s ``inner_bbox_r_mm`` docstring) since no separate
-    inner face is available to measure area from.
+    The inner area/radius are estimated from the largest inner loop's extent
+    (see :class:`LoopTopology`), since no separate inner face is measurable.
     """
     outer_r_eq_mm = equivalent_diameter_from_area(area_mm2) / 2.0
-    inner_r_eq_mm = topology.inner_bbox_r_mm if topology.has_inner_loop else 0.0
-    inner_area_mm2 = math.pi * inner_r_eq_mm**2 if topology.has_inner_loop else 0.0
-    return {
-        "x_mm": x_mm,
-        "vol_tag": vol_tag,
-        "area_mm2": area_mm2,
-        "n_loops": topology.n_loops,
-        "outer_r_eq_mm": outer_r_eq_mm,
-        "outer_bbox_r_mm": topology.outer_bbox_r_mm,
-        "has_inner_loop": topology.has_inner_loop,
-        "inner_area_mm2": inner_area_mm2,
-        "inner_r_eq_mm": inner_r_eq_mm,
-    }
+    inner_r_mm = topology.inner_bbox_r_mm if topology.has_inner_loop else 0.0
+    return StationSlice(
+        x=x_mm / MM_PER_M,
+        volume_tag=vol_tag,
+        area=area_mm2 / MM_PER_M**2,
+        n_loops=topology.n_loops,
+        outer_equivalent_radius=outer_r_eq_mm / MM_PER_M,
+        outer_bbox_radius=topology.outer_bbox_r_mm / MM_PER_M,
+        has_inner_loop=topology.has_inner_loop,
+        inner_area=math.pi * (inner_r_mm / MM_PER_M) ** 2,
+        inner_equivalent_radius=inner_r_mm / MM_PER_M,
+    )
 
 
 def run_station_sweep(
     step_path: str | Path,
-    x_start_mm: float,
-    x_end_mm: float,
-    pitch_mm: float,
-    half_extent_mm: float = DEFAULT_HALF_EXTENT_MM,
-) -> list[dict]:
-    """Run the full station sweep against a real STEP file.
+    x_start: float,
+    x_end: float,
+    pitch: float,
+    half_extent: float = DEFAULT_HALF_EXTENT_MM / MM_PER_M,
+) -> list[StationSlice]:
+    """Run the full station sweep against a STEP file.
 
-    Opens the STEP file once, walks every station in
-    ``[x_start_mm, x_end_mm]`` at ``pitch_mm`` spacing for every solid
-    volume, and always finalizes the gmsh session (even on error).
+    Opens the STEP file once, walks every station in ``[x_start, x_end]`` at
+    ``pitch`` spacing for every solid volume, and always finalizes gmsh.
 
     Args:
-        step_path: Path to the ``.step``/``.stp`` CAD file.
-        x_start_mm: First station's axial position, mm.
-        x_end_mm: Last station's axial position, mm (inclusive, subject to
-            rounding to a whole number of ``pitch_mm`` steps).
-        pitch_mm: Spacing between consecutive stations, mm (> 0).
-        half_extent_mm: Half-extent of the square cutting plane; must
-            exceed the largest expected cross-section radius.
+        step_path: Path to the ``.step``/``.stp`` file (assumed in mm).
+        x_start: First station's axial position, m.
+        x_end: Last station's axial position, m (inclusive, rounded to a
+            whole number of ``pitch`` steps).
+        pitch: Station spacing, m (> 0).
+        half_extent: Half-extent of the square cutting plane, m; must exceed
+            the largest expected cross-section radius.
 
     Returns:
-        One row (dict, keys matching :data:`CSV_COLUMNS`) per
-        station x volume x face.
+        One :class:`StationSlice` per station x volume x face.
 
     Raises:
-        ValueError: If ``pitch_mm <= 0`` or ``x_end_mm < x_start_mm``.
+        ValueError: If ``pitch <= 0`` or ``x_end < x_start``.
     """
-    if pitch_mm <= 0.0:
-        raise ValueError("pitch_mm must be > 0")
-    if x_end_mm < x_start_mm:
-        raise ValueError("x_end_mm must be >= x_start_mm")
+    if pitch <= 0.0:
+        raise ValueError("pitch must be > 0")
+    if x_end < x_start:
+        raise ValueError("x_end must be >= x_start")
 
     import gmsh
 
     vol_tags = open_step(step_path)
-    rows: list[dict] = []
+    slices: list[StationSlice] = []
     try:
-        n_stations = int(round((x_end_mm - x_start_mm) / pitch_mm)) + 1
+        n_stations = round((x_end - x_start) / pitch) + 1
         for i in range(n_stations):
-            x_mm = x_start_mm + i * pitch_mm
+            x_mm = (x_start + i * pitch) * MM_PER_M
             for vol_tag in vol_tags:
-                for face in slice_volume_at_station(vol_tag, x_mm, half_extent_mm):
-                    rows.append(_build_row(x_mm, vol_tag, face["area_mm2"], face["topology"]))
+                slices.extend(
+                    slice_volume_at_station(vol_tag, x_mm, half_extent * MM_PER_M)
+                )
     finally:
         gmsh.finalize()
-    return rows
+    return slices
 
 
-def write_csv(rows: Sequence[Mapping[str, object]], output_path: str | Path) -> Path:
-    """Write sweep rows to CSV using the :data:`CSV_COLUMNS` order.
+class GmshStationSweepAnalysis(BaseAnalysis[GmshSliceResults]):
+    """Gmsh STEP cross-section station sweep.
 
-    Args:
-        rows: Rows as produced by :func:`run_station_sweep`.
-        output_path: Destination CSV path (parent directories created).
+    Slices a STEP assembly at axial stations and reports area, equivalent
+    radius and inner-bore estimates per station. Geometry-derived, no
+    physics solver -> ``FidelityLevel.LEVEL_0``. Requires ``gmsh`` at
+    :meth:`execute` time only.
 
-    Returns:
-        The resolved output path.
+    Example:
+        analysis = GmshStationSweepAnalysis()
+        analysis.setup(vehicle, step_path="model.step", x_start=0.0, x_end=4.0, pitch=0.02)
+        results = analysis.execute()
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row[column] for column in CSV_COLUMNS})
-    return output_path
 
+    fidelity = FidelityLevel.LEVEL_0
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """CLI entry point: run a station sweep and write it to CSV.
+    DEFAULT_TOLERANCE_PCT: float = 10.0
 
-    Args:
-        argv: Argument vector (``sys.argv[1:]`` if omitted).
+    def __init__(self, name: str = "gmsh_station_sweep") -> None:
+        super().__init__(name)
+        self._step_path: Path | None = None
+        self._x_start: float = 0.0
+        self._x_end: float = 0.0
+        self._pitch: float = 0.0
+        self._half_extent: float = DEFAULT_HALF_EXTENT_MM / MM_PER_M
+        self._tolerance_pct: float = self.DEFAULT_TOLERANCE_PCT
+        self._body: AnyBodyComponent | None = None
 
-    Returns:
-        Process exit code (``0`` on success).
-    """
-    parser = argparse.ArgumentParser(
-        description=(
-            "Sweep a STEP CAD file's cross-section area + loop/hole "
-            "topology at axial stations."
+    def _setup(
+        self,
+        vehicle: BaseVehicleConfig,
+        *,
+        step_path: str | Path | None = None,
+        x_start: float = 0.0,
+        x_end: float | None = None,
+        pitch: float | None = None,
+        half_extent: float = DEFAULT_HALF_EXTENT_MM / MM_PER_M,
+        body_name: str | None = None,
+        tolerance_pct: float = DEFAULT_TOLERANCE_PCT,
+        **kwargs: Any,
+    ) -> None:
+        """Bind the sweep range and, if the vehicle has one, a body for cross-checks.
+
+        Args:
+            vehicle: Vehicle config; its body (if any) is used for the envelope check.
+            step_path: Path to the STEP file (required).
+            x_start: First station, m.
+            x_end: Last station, m (required).
+            pitch: Station spacing, m (required, > 0).
+            half_extent: Cutting-plane half-extent, m.
+            body_name: Body to check against when the vehicle has several.
+            tolerance_pct: MATCH/MISMATCH tolerance in percent.
+
+        Raises:
+            ValueError: If a required argument is missing, ``pitch <= 0`` or
+                ``x_end < x_start``.
+        """
+        if step_path is None or x_end is None or pitch is None:
+            raise ValueError("step_path, x_end and pitch are required")
+        if pitch <= 0.0:
+            raise ValueError("pitch must be > 0")
+        if x_end < x_start:
+            raise ValueError("x_end must be >= x_start")
+
+        self._step_path = Path(step_path)
+        self._x_start, self._x_end, self._pitch = x_start, x_end, pitch
+        self._half_extent = half_extent
+        self._tolerance_pct = tolerance_pct
+
+        if body_name is not None or vehicle.get_components_by_type(BODY_COMPONENTS):
+            self._body = vehicle.find_single_component(BODY_COMPONENTS, body_name)
+        else:
+            self._body = None
+
+        self.logger.info(
+            "Configured Gmsh station sweep for '%s': x=[%.3f, %.3f] m, pitch=%.4f m",
+            vehicle.name,
+            x_start,
+            x_end,
+            pitch,
         )
-    )
-    parser.add_argument("step_path", type=Path, help="Path to the .step CAD file")
-    parser.add_argument("--x-start-mm", type=float, required=True)
-    parser.add_argument("--x-end-mm", type=float, required=True)
-    parser.add_argument("--pitch-mm", type=float, required=True)
-    parser.add_argument(
-        "--half-extent-mm", type=float, default=DEFAULT_HALF_EXTENT_MM
-    )
-    parser.add_argument("--output-csv", type=Path, required=True)
-    parser.add_argument(
-        "--vehicle-config",
-        type=Path,
-        default=None,
-        help="Optional vehicle_config.yaml for a MATCH/MISMATCH cross-check",
-    )
-    parser.add_argument("--tolerance-pct", type=float, default=10.0)
-    args = parser.parse_args(argv)
 
-    if not args.step_path.is_file():
-        parser.error(f"STEP file not found: {args.step_path}")
+    def _compute(self) -> GmshSliceResults:
+        """Run the sweep and assemble typed results."""
+        if self._step_path is None:
+            raise RuntimeError(
+                f"Analysis '{self.name}' must be setup before computation. Call setup() first."
+            )
+        if not self._step_path.is_file():
+            raise FileNotFoundError(f"STEP file not found: {self._step_path}")
 
-    rows = run_station_sweep(
-        args.step_path, args.x_start_mm, args.x_end_mm, args.pitch_mm, args.half_extent_mm
-    )
-    output_path = write_csv(rows, args.output_csv)
-    print(f"Wrote {len(rows)} rows to {output_path}")
-
-    if args.vehicle_config is not None:
-        checks = cross_check_against_vehicle_config(rows, args.vehicle_config, args.tolerance_pct)
+        stations = tuple(
+            run_station_sweep(
+                self._step_path, self._x_start, self._x_end, self._pitch, self._half_extent
+            )
+        )
+        checks = (
+            cross_check_against_body(stations, self._body, self._tolerance_pct)
+            if self._body is not None
+            else ()
+        )
         for check in checks:
-            print(
-                f"[{check.verdict}] {check.metric}: "
-                f"extracted={check.extracted_mm:.2f}mm "
-                f"config={check.config_mm:.2f}mm "
-                f"diff={check.diff_pct:.1f}%"
+            self.logger.info(
+                "[%s] %s: extracted=%.4f m reference=%.4f m diff=%.1f%%",
+                check.verdict,
+                check.metric,
+                check.extracted,
+                check.reference,
+                check.diff_pct,
             )
 
-    return 0
+        return GmshSliceResults(
+            name=self.name,
+            fidelity=self.fidelity,
+            max_outer_radius=max((s.outer_bbox_radius for s in stations), default=0.0),
+            max_area=max((s.area for s in stations), default=0.0),
+            axial_extent=(
+                max(s.x for s in stations) - min(s.x for s in stations) if stations else 0.0
+            ),
+            station_count=len({s.x for s in stations}),
+            has_inner_loops=any(s.has_inner_loop for s in stations),
+            stations=stations,
+            envelope_checks=checks,
+        )
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    def validate_results(self, results: GmshSliceResults) -> bool:
+        """Require at least one slice with finite, non-negative geometry."""
+        return bool(results.stations) and all(
+            math.isfinite(s.area) and s.area >= 0.0 for s in results.stations
+        )
