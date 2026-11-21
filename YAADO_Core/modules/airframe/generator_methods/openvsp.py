@@ -1,93 +1,38 @@
 """OpenVSP AngelScript (``.vspscript``) export stub.
 
 **EXPORT STUB -- this module never invokes the ``vsp`` / ``vspscript``
-binary.** OpenVSP is not installed in this environment (see project rule
-"NIE uruchamiaj AVL/XFOIL/SU2 binariow" -- the same constraint applies
-here to OpenVSP). :class:`OpenVSPExporter` only *writes* an AngelScript
-text file that encodes the OpenVSP scripting API calls
-(``AddGeom("FUSELAGE")`` / ``AddGeom("WING")`` plus the associated
-``SetParmValUpdate`` calls) needed to reconstruct the current YAML
-geometry inside OpenVSP; a human (or a future CI job with OpenVSP
-installed) must actually run it with ``vsp -script <file>``.
+binary.** :class:`OpenVSPExporter` only *writes* an AngelScript text file
+(``AddGeom("FUSELAGE")`` / ``AddGeom("WING")`` plus ``SetParmValUpdate``
+calls) that reconstructs the vehicle geometry inside OpenVSP; run it
+manually with ``vsp -script <file>``.
 
-Geometry source
-----------------
-All dimensions are read from the committed vehicle configuration
-(``Hangar/generic_vehicle/vehicle_config.yaml``) via
-:class:`~src.schemas.vehicle_schema.Any`
-(:meth:`~src.schemas.vehicle_schema.BaseVehicleConfig.from_yaml`), never
-hard-coded, so the generated script stays in sync with the vehicle
-definition:
+Geometry is resolved from the vehicle via the ``BODY_COMPONENTS`` and
+``AERO_COMPONENTS`` registries of the ComponentStore, never hard-coded.
+Only a conical nose is supported; other nose shapes are rejected.
 
-- ``body.total_length_m`` (4.35501 m) -- total rocket length used for the
-  fuselage geom.
-- ``body.diameter_m`` (0.200 m) -- cylindrical body diameter (drawing-verified
-  as of 2026-07-10; was 0.250 m, Fusion).
-- ``body.nose_length_m`` (0.293 m) and ``body.nose_diameter_m`` -- conical
-  nose section (a ``BodyConfig.nose_type == "conical"`` is required; other
-  nose types are rejected in :meth:`OpenVSPExporter.setup`, see
-  ``TODO_PHYSICAL_PARAM`` note below for ogive/hemispherical support).
-- ``fins.count`` (4), ``fins.span_m`` (0.550 m), ``fins.chord_root_m`` /
-  ``fins.chord_tip_m`` (0.1768 m, rectangular planform) and
-  ``fins.sweep_deg`` (29.98 deg) -- the 4-fin WING geom set.
+HUMAN_REVIEW (HR-1): the fin span is flagged for human CAD/drawing
+verification because it may be a layout-inferred reading rather than a
+labeled dimension. Regenerate the script once it is confirmed.
 
-HUMAN_REVIEW (HR-1) -- fin span layout-inferred, not a labeled callout
-------------------------------------------------------------------------
-``fins.span_m = 0.550`` m is flagged for human CAD/drawing verification: it
-is this project's best-effort reading of the "CFD Simplified Single Rocket
-Model" drawing (Aleks Czernicki, DWG 10/07/2026)'s tail-area "550"
-dimension, inferred from layout position (near the tail fin, alongside a
-"127" value and the "29.98deg" sweep callout) rather than a clearly labeled
-dimension line -- see ``Hangar/generic_vehicle/vehicle_config.yaml``
-provenance comments and ``docs/decision-log.md``. A 2026-07-11 independent
-DATCOM/Ackeret stability rerun flagged the resulting semi-span/diameter
-ratio (2.75) as physically extreme, corroborating the concern. **This
-script encodes the current YAML value as-is and must be regenerated once
-the drawing dimension is confirmed against the source PDF.**
-
-AngelScript API reference (OpenVSP scripting):
-    OpenVSP API documentation, ``AddGeom``, ``SetParmValUpdate``,
-    ``SetParmVal`` (http://openvsp.org/api_docs/, "Custom Scripts"
-    section); Fuselage/Wing geom parameter naming per the OpenVSP
-    "Geometry -> Fuselage" and "Geometry -> Wing" GUI parameter groups.
+AngelScript API reference: OpenVSP scripting API, ``AddGeom`` /
+``SetParmValUpdate`` (http://openvsp.org/api_docs/).
 """
 
 from __future__ import annotations
 
 import datetime
-import json
-import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if __name__ in ("__main__",) and __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-
-from YAADO_Core.ComponentStore.aero_surfaces import Fins  # noqa: E402
-from YAADO_Core.ComponentStore.body import AxisymmetricBody  # noqa: E402
-from YAADO_Core.Foundation.analysis_base import (  # noqa: E402
-    BaseAnalysis,
-    BaseAnalysisResults,
-    FidelityLevel,
+from YAADO_Core.ComponentStore import AERO_COMPONENTS, BODY_COMPONENTS
+from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
+from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.airframe.containers import (
+    OpenVSPExportResults,
+    OpenVSPGeometry,
+    OpenVSPHumanReview,
+    OpenVSPManifest,
 )
-
-if TYPE_CHECKING:
-    from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-
-#: Repository root, resolved from this file's location.
-REPO_ROOT: Path = Path(__file__).resolve().parents[4]
-
-#: Default vehicle config this generator reads geometry from.
-VEHICLE_CONFIG_PATH: Path = (
-    REPO_ROOT / "Hangar" / "generic_vehicle" / "vehicle_config.yaml"
-)
-
-#: Directory generated ``.vspscript`` + manifest artifacts are written into
-#: (repo-root ``runs/<tool>/`` convention, gitignored -- see
-#: ``analyses/aero/su2_config_template.py::RUNS_OUTPUT_DIR`` for the
-#: sibling convention this mirrors).
-RUNS_OUTPUT_DIR: Path = REPO_ROOT / "runs" / "openvsp"
 
 #: Filename of the generated AngelScript file.
 SCRIPT_FILENAME: str = "vehicle.vspscript"
@@ -95,428 +40,274 @@ SCRIPT_FILENAME: str = "vehicle.vspscript"
 #: Filename of the companion JSON manifest.
 MANIFEST_FILENAME: str = "vehicle_manifest.json"
 
-#: HUMAN_REVIEW tag propagated into the manifest for the layout-inferred
-#: fin-span reading (HR-1).
+#: HUMAN_REVIEW tag for the fin-span reading.
+HR1_TAG: str = "HR-1"
+
+#: Reason for the fin-span human review.
 HR1_FIN_SPAN_NOTE: str = (
-    "HUMAN_REVIEW (HR-1): fins.span_m=0.550 is a layout-inferred drawing "
+    "HUMAN_REVIEW (HR-1): the fin span may be a layout-inferred drawing "
     "reading, not a labeled dimension callout; regenerate this script "
-    "after the drawing dimension is confirmed."
+    "after the dimension is confirmed."
+)
+
+_EXPORT_NOTE: str = (
+    "EXPORT STUB: OpenVSP binary was NOT invoked. Run manually with the "
+    "`to_run` command once available; regenerate after CAD verification of HR-1."
 )
 
 
-@dataclass
-class _VehicleGeometryAdapter:
-    """Adapts a generic ``BaseVehicleConfig`` to this exporter's body/fins pair.
+def resolve_geometry(
+    vehicle: BaseVehicleConfig,
+    *,
+    body_name: str | None = None,
+    fins_name: str | None = None,
+) -> OpenVSPGeometry:
+    """Resolve body and fin dimensions from a vehicle config.
 
-    :func:`build_vspscript` and :func:`build_manifest` were written against
-    a bespoke rocket schema exposing single ``body``/``fins`` attributes;
-    this adapter lets :meth:`OpenVSPExporter.setup` bind the generic,
-    dict-based :class:`~YAADO_Core.Foundation.vehicle_base.BaseVehicleConfig`
-    (``vehicle.bodies`` / ``vehicle.aero_surfaces``) without touching that
-    downstream rendering logic.
-
-    Attributes:
-        name: Vehicle name, forwarded from the source ``BaseVehicleConfig``.
-        body: The vehicle's axisymmetric body geometry.
-        fins: The vehicle's fin-set geometry.
-    """
-
-    name: str
-    body: AxisymmetricBody
-    fins: Fins
-
-
-def load_rocket_config(path: Path | str = VEHICLE_CONFIG_PATH) -> Any:
-    """Load and validate the ramjet-rocket vehicle configuration.
+    Components are found through :data:`~YAADO_Core.ComponentStore.BODY_COMPONENTS`
+    and :data:`~YAADO_Core.ComponentStore.AERO_COMPONENTS`.
 
     Args:
-        path: Path to a ``vehicle_config.yaml`` for Generic Vehicle.
+        vehicle: Validated vehicle configuration.
+        body_name: Explicit body name; required if several bodies exist.
+        fins_name: Explicit fin-set name; required if several aero surfaces exist.
 
     Returns:
-        Validated :class:`Any`.
+        Resolved :class:`OpenVSPGeometry` in SI units.
 
     Raises:
-        TypeError: If the YAML at ``path`` is not a rocket config (e.g.
-            the generic_uav drone config was passed by mistake).
+        ValueError: If a component is missing or ambiguous, the aero surface
+            is not a fin set (lacks ``count``), or a dimension is non-physical.
+        TypeError: If a named component has the wrong type.
     """
-    config = Any.from_yaml(path)
-    if not isinstance(config, Any):
-        raise TypeError(
-            f"{path} did not load as a Any (got {type(config).__name__}); "
-            "this generator is for Generic Vehicle (generic_vehicle) only"
+    body = vehicle.find_single_component(BODY_COMPONENTS, name=body_name)
+    fins: Any = vehicle.find_single_component(AERO_COMPONENTS, name=fins_name)
+
+    fin_count = getattr(fins, "count", None)
+    if fin_count is None:
+        raise ValueError(
+            f"Aero surface '{type(fins).__name__}' has no 'count'; the OpenVSP "
+            "exporter needs a radial fin set"
         )
-    return config
 
+    body_length: float = body.length
+    body_diameter: float = body.diameter
+    fin_span: float = fins.span
+    fin_chord_root: float = getattr(fins, "chord_root", None) or fin_span
+    fin_chord_tip: float = getattr(fins, "chord_tip", None) or fin_chord_root
 
-def build_vspscript(config: Any) -> str:
-    """Render the OpenVSP AngelScript (``.vspscript``) text.
-
-    Emits ``AddGeom("FUSELAGE", ...)`` calls for a nose-cone + cylinder
-    body of revolution, and a single ``AddGeom("WING", ...)`` call
-    parameterised as a 4-panel symmetric fin set (rectangular planform),
-    with ``SetParmValUpdate`` calls carrying every geometric dimension
-    read from ``config``.
-
-    Reference: OpenVSP scripting API (AngelScript), ``AddGeom`` /
-    ``SetParmValUpdate`` (http://openvsp.org/api_docs/); Barrowman 1967
-    (nose-cone + cylindrical body-of-revolution idealisation used
-    elsewhere in this project for the same geometry, e.g.
-    ``analyses/aero/barrowman_extended.py``).
-
-    Args:
-        config: Validated two-stage rocket configuration (Generic Vehicle).
-
-    Returns:
-        AngelScript source text, ready to write to a ``.vspscript`` file
-        (never executed by this function).
-
-    Raises:
-        ValueError: If required geometry fields are missing/non-physical,
-            or ``body.nose_type`` is not ``"conical"`` (only the conical
-            nose case is implemented; see ``TODO_PHYSICAL_PARAM`` note
-            below for other nose shapes).
-    """
-    body = config.body
-    fins = config.fins
-
-    body_length_m = body.length
-    body_total_length_m = body.total_length or body_length_m
-    body_diameter_m = body.diameter
-    nose_length_m = body.nose_length or 0.0
-    nose_diameter_m = body.nose_diameter or body_diameter_m
-
-    fin_span_m = fins.span
-    fin_chord_root_m = fins.chord_root or fin_span_m
-    fin_chord_tip_m = fins.chord_tip or fin_chord_root_m
-    fin_sweep_deg = fins.sweep
-
-    if body_diameter_m <= 0.0:
+    if body_diameter <= 0.0:
         raise ValueError("body.diameter must be > 0")
-    if fin_span_m <= 0.0:
+    if fin_span <= 0.0:
         raise ValueError("fins.span must be > 0")
     if body.nose_type != "conical":
         # TODO_PHYSICAL_PARAM [geometry_data]: ogive/hemispherical nose
-        # cross-section profiles are not yet encoded as AngelScript
-        # XSec calls; only the conical case (straight-line profile,
-        # nose_diameter_m at the base) is implemented.
+        # profiles are not yet encoded as AngelScript XSec calls.
         raise ValueError(
             f"nose_type={body.nose_type!r} not yet supported by the OpenVSP "
             "exporter (only 'conical' is implemented)"
         )
 
-    total_length_m = body_total_length_m
-    cylinder_length_m = body_length_m
+    return OpenVSPGeometry(
+        body_length=body_length,
+        body_total_length=body.total_length or body_length,
+        body_diameter=body_diameter,
+        nose_length=body.nose_length or 0.0,
+        nose_diameter=body.nose_diameter or body_diameter,
+        nose_type=body.nose_type,
+        fin_count=fin_count,
+        fin_span=fin_span,
+        fin_chord_root=fin_chord_root,
+        fin_chord_tip=fin_chord_tip,
+        fin_sweep=fins.sweep,
+    )
 
-    fin_count = fins.count
 
+def build_vspscript(geometry: OpenVSPGeometry, vehicle_name: str) -> str:
+    """Render the OpenVSP AngelScript (``.vspscript``) text.
+
+    Emits a nose-cone + cylinder ``FUSELAGE`` and a symmetric ``WING`` geom
+    parameterised as the radial fin set.
+
+    Args:
+        geometry: Resolved body and fin dimensions [m, deg].
+        vehicle_name: Vehicle name written into the script header.
+
+    Returns:
+        AngelScript source text (never executed by this function).
+    """
+    g = geometry
+    nose_frac = g.nose_length / g.body_total_length
     lines: list[str] = [
-        f"// YAADO vehicle -- OpenVSP AngelScript export (vehicle={config.name!r})",
-        "// TO RUN: vsp -script " + SCRIPT_FILENAME,
+        f"// YAADO vehicle -- OpenVSP AngelScript export (vehicle={vehicle_name!r})",
+        f"// TO RUN: vsp -script {SCRIPT_FILENAME}",
         "// EXPORT STUB: never executed by this repo's Python code.",
         f"// {HR1_FIN_SPAN_NOTE}",
         "//",
-        "// --- Geometry source: Hangar/generic_vehicle/vehicle_config.yaml ---",
-        f"//   body.total_length_m   = {total_length_m:.4f}",
-        f"//   body.length_m (cyl.)  = {cylinder_length_m:.4f}",
-        f"//   body.diameter_m       = {body_diameter_m:.4f}",
-        f"//   body.nose_length_m    = {nose_length_m:.4f}",
-        f"//   body.nose_diameter_m  = {nose_diameter_m:.4f}",
-        f"//   fins.count            = {fin_count}",
-        f"//   fins.span_m           = {fin_span_m:.4f}  <-- HR-1",
-        f"//   fins.chord_root_m     = {fin_chord_root_m:.4f}",
-        f"//   fins.chord_tip_m      = {fin_chord_tip_m:.4f}",
-        f"//   fins.sweep_deg        = {fin_sweep_deg:.2f}",
+        "// --- Geometry source: vehicle configuration ---",
+        f"//   body.total_length_m   = {g.body_total_length:.4f}",
+        f"//   body.length_m (cyl.)  = {g.body_length:.4f}",
+        f"//   body.diameter_m       = {g.body_diameter:.4f}",
+        f"//   body.nose_length_m    = {g.nose_length:.4f}",
+        f"//   body.nose_diameter_m  = {g.nose_diameter:.4f}",
+        f"//   fins.count            = {g.fin_count}",
+        f"//   fins.span_m           = {g.fin_span:.4f}  <-- HR-1",
+        f"//   fins.chord_root_m     = {g.fin_chord_root:.4f}",
+        f"//   fins.chord_tip_m      = {g.fin_chord_tip:.4f}",
+        f"//   fins.sweep_deg        = {g.fin_sweep:.2f}",
         "",
         "void main()",
         "{",
         "    // --- Body of revolution: nose cone + cylindrical afterbody ---",
         '    string fuse_id = AddGeom( "FUSELAGE", "" );',
         '    SetGeomName( fuse_id, "vehicle_body" );',
-        f'    SetParmValUpdate( fuse_id, "Length", "Design", {total_length_m:.6f} );',
+        f'    SetParmValUpdate( fuse_id, "Length", "Design", {g.body_total_length:.6f} );',
         "    // XSec 0: nose tip (zero diameter)",
-        f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_0", 0.0 );',
+        '    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_0", 0.0 );',
         "    // XSec 1: nose-cylinder junction (conical nose base diameter)",
-        f'    SetParmValUpdate( fuse_id, "XLocPercent", "XSec_1", '
-        f"{(nose_length_m / total_length_m):.6f} );",
-        f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_1", {nose_diameter_m:.6f} );',
+        f'    SetParmValUpdate( fuse_id, "XLocPercent", "XSec_1", {nose_frac:.6f} );',
+        f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_1", {g.nose_diameter:.6f} );',
         "    // XSec 2: max body diameter (start of cylindrical afterbody)",
-        f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_2", {body_diameter_m:.6f} );',
+        f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_2", {g.body_diameter:.6f} );',
         "    // XSec 3: tail (cylindrical afterbody end, constant diameter)",
-        f'    SetParmValUpdate( fuse_id, "XLocPercent", "XSec_3", 1.0 );',
-        f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_3", {body_diameter_m:.6f} );',
+        '    SetParmValUpdate( fuse_id, "XLocPercent", "XSec_3", 1.0 );',
+        f'    SetParmValUpdate( fuse_id, "Diameter", "XSecCurve_3", {g.body_diameter:.6f} );',
         "",
-        "    // --- 4-fin set: rectangular planform, symmetric about body axis ---",
+        "    // --- Fin set: rectangular planform, symmetric about body axis ---",
         '    string fin_id = AddGeom( "WING", fuse_id );',
         '    SetGeomName( fin_id, "vehicle_fins" );',
-        f'    SetParmValUpdate( fin_id, "Sym_Planar_Flag", "Sym", 1.0 );',
-        f'    SetParmValUpdate( fin_id, "Sym_Attach_Flag", "Sym", 1.0 );',
-        f'    SetParmValUpdate( fin_id, "TotalSpan", "WingGeom", {fin_span_m:.6f} );',
-        f'    SetParmValUpdate( fin_id, "Root_Chord", "XSec_1", {fin_chord_root_m:.6f} );',
-        f'    SetParmValUpdate( fin_id, "Tip_Chord", "XSec_1", {fin_chord_tip_m:.6f} );',
-        f'    SetParmValUpdate( fin_id, "Sweep", "XSec_1", {fin_sweep_deg:.4f} );',
-        f'    // fins.count = {fin_count}: OpenVSP WING geom is bilaterally symmetric '
-        "(2 panels); the remaining panels are duplicated via 4x rotational",
-        '    // symmetry about the body axis (RotationalAboutAxis) below.',
-        f'    SetParmValUpdate( fin_id, "RotationalCount", "Sym", {float(fin_count)} );',
-        f'    SetParmValUpdate( fin_id, "RotationalAboutAxis", "Sym", 0.0 );  // X-axis (body axis)',
+        '    SetParmValUpdate( fin_id, "Sym_Planar_Flag", "Sym", 1.0 );',
+        '    SetParmValUpdate( fin_id, "Sym_Attach_Flag", "Sym", 1.0 );',
+        f'    SetParmValUpdate( fin_id, "TotalSpan", "WingGeom", {g.fin_span:.6f} );',
+        f'    SetParmValUpdate( fin_id, "Root_Chord", "XSec_1", {g.fin_chord_root:.6f} );',
+        f'    SetParmValUpdate( fin_id, "Tip_Chord", "XSec_1", {g.fin_chord_tip:.6f} );',
+        f'    SetParmValUpdate( fin_id, "Sweep", "XSec_1", {g.fin_sweep:.4f} );',
+        f"    // fins.count = {g.fin_count}: extra panels via rotational symmetry",
+        f'    SetParmValUpdate( fin_id, "RotationalCount", "Sym", {float(g.fin_count)} );',
+        '    SetParmValUpdate( fin_id, "RotationalAboutAxis", "Sym", 0.0 );  // X-axis (body axis)',
         "",
         "    Update();",
-        f'    WriteVSPFile( "vehicle.vsp3", SET_ALL );',
+        '    WriteVSPFile( "vehicle.vsp3", SET_ALL );',
         "}",
         "",
     ]
     return "\n".join(lines)
 
 
-def build_manifest(config: Any, script_path: Path) -> dict[str, Any]:
-    """Build the JSON-serialisable manifest for a generated ``.vspscript``.
+def build_manifest(
+    geometry: OpenVSPGeometry,
+    vehicle_name: str,
+    script_path: str | None,
+) -> OpenVSPManifest:
+    """Build the manifest for a generated ``.vspscript``.
 
     Args:
-        config: Validated two-stage rocket configuration (Generic Vehicle).
-        script_path: Path the AngelScript file was (or will be) written
-            to; recorded verbatim in the manifest.
+        geometry: Resolved body and fin dimensions.
+        vehicle_name: Name of the source vehicle.
+        script_path: Path the script was written to, or None if not saved.
 
     Returns:
-        Manifest dict with keys ``script_path``, ``vehicle_name``,
-        ``generated_at_utc``, ``geometry_m`` (dimensions used),
-        ``human_review`` (HR-1 note) and ``to_run`` (execution hint).
+        Frozen :class:`OpenVSPManifest`.
     """
-    body = config.body
-    fins = config.fins
-    body_total_length_m = body.total_length or body.length
-    body_diameter_m = body.diameter
-    nose_length_m = body.nose_length or 0.0
-    nose_diameter_m = body.nose_diameter or body_diameter_m
-    fin_span_m = fins.span
-    fin_chord_root_m = fins.chord_root or fin_span_m
-    fin_chord_tip_m = fins.chord_tip or fin_chord_root_m
-    fin_sweep_deg = fins.sweep
-
-    return {
-        "script_path": str(script_path),
-        "vehicle_name": config.name,
-        "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "geometry_m": {
-            "body_total_length_m": body_total_length_m,
-            "body_length_m": body.length,
-            "body_diameter_m": body_diameter_m,
-            "body_nose_length_m": nose_length_m,
-            "body_nose_diameter_m": nose_diameter_m,
-            "body_nose_type": body.nose_type,
-            "fin_count": fins.count,
-            "fin_span_m": fin_span_m,
-            "fin_chord_root_m": fin_chord_root_m,
-            "fin_chord_tip_m": fin_chord_tip_m,
-            "fin_sweep_deg": fin_sweep_deg,
-        },
-        "human_review": {
-            "HR-1": HR1_FIN_SPAN_NOTE,
-            "field": "fins.span_m",
-            "value_m": fin_span_m,
-        },
-        "to_run": f"vsp -script {script_path.name}",
-        "note": (
-            "EXPORT STUB: OpenVSP binary was NOT invoked (not installed in "
-            "this environment). Run manually with the `to_run` command "
-            "once available; regenerate after CAD verification of HR-1."
+    return OpenVSPManifest(
+        script_path=script_path,
+        vehicle_name=vehicle_name,
+        generated_at_utc=datetime.datetime.now(datetime.UTC).isoformat(),
+        geometry=geometry,
+        human_review=OpenVSPHumanReview(
+            tag=HR1_TAG,
+            field="fins.span",
+            value=geometry.fin_span,
+            note=HR1_FIN_SPAN_NOTE,
         ),
-    }
+        to_run=f"vsp -script {SCRIPT_FILENAME}",
+        note=_EXPORT_NOTE,
+    )
 
 
-def write_openvsp_export(
-    config: Any | None = None,
-    output_dir: Path | str = RUNS_OUTPUT_DIR,
-) -> tuple[Path, Path]:
-    """Write the ``.vspscript`` and its JSON manifest, overwriting cleanly.
+class OpenVSPExporter(BaseAnalysis[OpenVSPExportResults]):
+    """Generates an OpenVSP AngelScript export of the vehicle body and fins.
 
-    Idempotent: calling this twice with the same ``config``/``output_dir``
-    overwrites both files with byte-identical script content (the
-    manifest's ``generated_at_utc`` timestamp will differ between calls,
-    by design).
-
-    Args:
-        config: Rocket configuration; loaded from
-            :data:`VEHICLE_CONFIG_PATH` if omitted.
-        output_dir: Directory the ``.vspscript`` and manifest are written
-            into (created if missing).
-
-    Returns:
-        Tuple ``(script_path, manifest_path)``.
-    """
-    if config is None:
-        config = load_rocket_config()
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    script_path = output_dir / SCRIPT_FILENAME
-    manifest_path = output_dir / MANIFEST_FILENAME
-
-    script_text = build_vspscript(config)
-    script_path.write_text(script_text, encoding="utf-8")
-
-    manifest = build_manifest(config, script_path)
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-
-    return script_path, manifest_path
-
-
-
-
-@dataclass(frozen=True)
-class AnalysisResults(BaseAnalysisResults):
-    """Result container for generated OpenVSP export artifacts."""
-
-    data: dict[str, float]
-    metadata: dict[str, Any]
-
-    def scalars(self) -> dict[str, float]:
-        """Return the numeric export metrics."""
-        return {key: float(value) for key, value in self.data.items()}
-
-
-class OpenVSPExporter(BaseAnalysis):
-    """Generates an OpenVSP AngelScript export for the vehicle rocket geometry.
-
-    Level-0 (analytical/handbook-geometry) analysis: it only *writes* a
-    ``.vspscript`` text file plus a JSON manifest -- OpenVSP itself is
-    never invoked (not installed in this environment). See the module
-    docstring for the HR-1 (fin span) human-review flag.
+    Writes a ``.vspscript`` and a JSON manifest through the
+    :class:`~YAADO_Core.Foundation.flight_logger.FlightLogger` artifacts
+    directory; OpenVSP itself is never invoked.
 
     Example:
-        >>> analysis = OpenVSPExporter()
-        >>> analysis.setup(vehicle)
-        >>> results = analysis.execute()
-        >>> results.metadata["script_path"]  # doctest: +SKIP
+        analysis = OpenVSPExporter()
+        analysis.setup(vehicle)
+        results = analysis.execute()
+        script_text = results.script
     """
 
-    fidelity = FidelityLevel.LEVEL_0
+    fidelity = FidelityLevel.LEVEL_1
 
     def __init__(self, name: str = "openvsp_vehicle_export") -> None:
         super().__init__(name)
-        self._config: _VehicleGeometryAdapter | None = None
-        self._output_dir: Path = RUNS_OUTPUT_DIR
+        self._vehicle_name: str = ""
+        self._geometry: OpenVSPGeometry | None = None
 
-    def setup(
+    def _setup(
         self,
-        vehicle: "BaseVehicleConfig",
-        operating_state: dict | None = None,
+        vehicle: BaseVehicleConfig,
+        *,
+        body_name: str | None = None,
+        fins_name: str | None = None,
+        **kwargs: Any,
     ) -> None:
-        """Bind the analysis to a validated vehicle configuration.
-
-        Geometry is read exclusively from ``vehicle``: the first entry of
-        ``vehicle.bodies`` (an
-        :class:`~YAADO_Core.ComponentStore.body.AxisymmetricBody`) and the
-        first :class:`~YAADO_Core.ComponentStore.aero_surfaces.Fins`
-        aero surface found in ``vehicle.aero_surfaces``.
+        """Resolve body and fin geometry from the vehicle.
 
         Args:
-            vehicle: Validated, vehicle-agnostic configuration providing
-                the body and fin-set geometry this exporter needs.
-            operating_state: Optional SI-unit operating conditions. This
-                geometry-only exporter has no operating-state dependence,
-                except that an ``"output_dir"`` key (``str`` or
-                :class:`~pathlib.Path`) overrides the directory the
-                ``.vspscript`` and manifest are written into (default:
-                the constructor's :data:`RUNS_OUTPUT_DIR`, injectable so
-                tests can point it at ``tmp_path``).
-
-        Raises:
-            ValueError: If ``vehicle`` defines no body, or no ``Fins``
-                aero surface.
+            vehicle: Validated vehicle configuration.
+            body_name: Explicit body name if the vehicle has several bodies.
+            fins_name: Explicit fin-set name if the vehicle has several aero surfaces.
+            **kwargs: Unused solver settings.
         """
-        body = next(iter(vehicle.bodies.values()), None)
-        if body is None:
-            raise ValueError("vehicle must define at least one body (vehicle.bodies)")
-
-        fins = next(
-            (
-                surface
-                for surface in vehicle.aero_surfaces.values()
-                if isinstance(surface, Fins)
-            ),
-            None,
+        self._vehicle_name = vehicle.name
+        self._geometry = resolve_geometry(
+            vehicle, body_name=body_name, fins_name=fins_name
         )
-        if fins is None:
-            raise ValueError(
-                "vehicle must define at least one Fins aero surface "
-                "(vehicle.aero_surfaces)"
+        self.logger.info(
+            "Configured OpenVSPExporter for vehicle '%s' (L=%.3f m, D=%.3f m, %d fins)",
+            vehicle.name,
+            self._geometry.body_total_length,
+            self._geometry.body_diameter,
+            self._geometry.fin_count,
+        )
+
+    def _compute(self) -> OpenVSPExportResults:
+        """Render the script, save script and manifest, and return typed results."""
+        if self._geometry is None:
+            raise RuntimeError(
+                f"Analysis '{self.name}' must be setup before computation. Call setup() first."
             )
+        geometry = self._geometry
 
-        self._config = _VehicleGeometryAdapter(name=vehicle.name, body=body, fins=fins)
+        script = build_vspscript(geometry, self._vehicle_name)
+        script_path = self.logger.save_text(script, SCRIPT_FILENAME)
+        script_path_str = str(script_path) if script_path is not None else None
 
-        if operating_state is not None and "output_dir" in operating_state:
-            self._output_dir = Path(operating_state["output_dir"])
+        manifest = build_manifest(geometry, self._vehicle_name, script_path_str)
+        manifest_path = self.logger.save_json(manifest, MANIFEST_FILENAME)
+        manifest_path_str = str(manifest_path) if manifest_path is not None else None
 
-        self._is_setup = True
+        self.logger.info("Generated OpenVSP script (%d bytes)", len(script))
 
-    def execute(self) -> AnalysisResults:
-        """Write the ``.vspscript`` + manifest and report their paths.
-
-        Returns:
-            AnalysisResults with ``n_files`` (float, always 2.0) in
-            ``data`` and ``script_path``/``manifest_path``/geometry echo
-            in ``metadata``.
-
-        Raises:
-            RuntimeError: If called before :meth:`setup`.
-        """
-        if not self._is_setup or self._config is None:
-            raise RuntimeError("OpenVSPExporter.execute() called before setup()")
-
-        script_path, manifest_path = write_openvsp_export(
-            self._config, output_dir=self._output_dir
-        )
-
-        return AnalysisResults(
+        return OpenVSPExportResults(
             name=self.name,
             fidelity=self.fidelity,
-            data={"n_files": 2.0},
-            metadata={
-                "method": "openvsp_angelscript_export_stub",
-                "script_path": str(script_path),
-                "manifest_path": str(manifest_path),
-                "human_review": "HR-1: fins.span_m=0.550 is a layout-inferred drawing reading",
-                "note": (
-                    "OpenVSP binary was NOT invoked (not installed in this "
-                    "environment); run manually with `vsp -script "
-                    f"{script_path.name}` once available"
-                ),
-            },
+            body_total_length=geometry.body_total_length,
+            body_diameter=geometry.body_diameter,
+            fin_span=geometry.fin_span,
+            fin_count=geometry.fin_count,
+            script=script,
+            manifest=manifest,
+            script_path=script_path_str,
+            manifest_path=manifest_path_str,
         )
 
-    def validate_results(self, results: AnalysisResults) -> bool:
-        """Check both the script and manifest files were written."""
-        script_path = Path(results.metadata.get("script_path", ""))
-        manifest_path = Path(results.metadata.get("manifest_path", ""))
-        return script_path.is_file() and manifest_path.is_file()
-
-
-def main(
-    config_path: Path | str = VEHICLE_CONFIG_PATH,
-    output_dir: Path | str = RUNS_OUTPUT_DIR,
-) -> dict[str, Any]:
-    """Generate the OpenVSP export for the default vehicle config.
-
-    Args:
-        config_path: Path to the ramjet-rocket ``vehicle_config.yaml``.
-        output_dir: Directory the ``.vspscript`` and manifest are
-            written into.
-
-    Returns:
-        The manifest dict (also written to ``<output_dir>/{}``).
-    """.format(MANIFEST_FILENAME)
-    config = load_rocket_config(config_path)
-    analysis = OpenVSPExporter()
-    analysis.setup(config, output_dir=output_dir)
-    results = analysis.execute()
-    assert analysis.validate_results(results), "OpenVSP export files were not written"
-
-    manifest_path = Path(results.metadata["manifest_path"])
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    return manifest
-
-
-if __name__ == "__main__":
-    manifest = main()
-    print(json.dumps(manifest, indent=2))
-    print(f"\nScript written to: {manifest['script_path']}")
+    def validate_results(self, results: OpenVSPExportResults) -> bool:
+        """Check the script is non-empty and any saved files exist on disk."""
+        if not results.script.strip():
+            return False
+        saved = (results.script_path, results.manifest_path)
+        return all(Path(p).is_file() for p in saved if p is not None)
