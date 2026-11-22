@@ -9,6 +9,9 @@ from __future__ import annotations
 import math
 import signal
 import subprocess
+import sys
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -17,6 +20,7 @@ import numpy as np
 import pytest
 
 from YAADO_Core.ComponentStore import Fins, Wings
+from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.wind_tunnel.containers import SectionPolar
 from YAADO_Core.modules.wind_tunnel.methods.xfoil import xfoil_runner
@@ -74,7 +78,7 @@ def _fake_xfoil(
     returncode: int = 0,
     save_geometry: bool = True,
 ) -> Callable[..., subprocess.CompletedProcess[str]]:
-    """Stand-in for ``subprocess.run`` that writes XFOIL's geometry and polar files.
+    """Stand-in for ``xfoil_runner._run_process`` that writes XFOIL's geometry and polar files.
 
     Args:
         converges: Whether an angle converges, given the polar file of the pass.
@@ -282,7 +286,7 @@ def test_run_xfoil_retries_angles_that_fail_the_first_pass(monkeypatch: pytest.M
     def converges(alpha: float, polar_file: str) -> bool:
         return alpha != 4.0 or polar_file == "polar_retry.txt"
 
-    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil(converges))
+    monkeypatch.setattr(xfoil_runner, "_run_process", _fake_xfoil(converges))
     run = run_xfoil("xfoil", resolve_airfoil("NACA0012"), 1e6, 0.0, 9.0,
                     alpha_schedule(-2.0, 6.0, 1.0), 100, 10.0)
     assert run.polar.alpha == tuple(float(a) for a in range(-2, 7))
@@ -309,7 +313,7 @@ def test_run_xfoil_keeps_the_points_of_a_sweep_stopped_at_the_time_limit(
             raise subprocess.TimeoutExpired(args, kwargs["timeout"], output=b"partial")
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(xfoil_runner.subprocess, "run", run)
+    monkeypatch.setattr(xfoil_runner, "_run_process", run)
     result = run_xfoil("xfoil", resolve_airfoil("NACA0012"), 1e6, 0.0, 9.0,
                        alpha_schedule(-2.0, 6.0, 1.0), 100, 10.0)
     assert result.stopped == ("upward",)
@@ -319,7 +323,7 @@ def test_run_xfoil_keeps_the_points_of_a_sweep_stopped_at_the_time_limit(
 
 
 def test_run_xfoil_reports_angles_that_never_converge(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil(lambda a, _: a not in (-1.0, 4.0)))
+    monkeypatch.setattr(xfoil_runner, "_run_process", _fake_xfoil(lambda a, _: a not in (-1.0, 4.0)))
     run = run_xfoil("xfoil", resolve_airfoil("NACA0012"), 1e6, 0.0, 9.0,
                     alpha_schedule(-2.0, 6.0, 1.0), 100, 10.0)
     assert run.missed == (-1.0, 4.0)
@@ -328,7 +332,7 @@ def test_run_xfoil_reports_angles_that_never_converge(monkeypatch: pytest.Monkey
 
 def test_run_xfoil_explains_the_debian_floating_point_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        xfoil_runner.subprocess, "run", _fake_xfoil(lambda a, _: True, returncode=-signal.SIGFPE)
+        xfoil_runner, "_run_process", _fake_xfoil(lambda a, _: True, returncode=-signal.SIGFPE)
     )
     with pytest.raises(RuntimeError, match="SIGFPE.*wrapper on PATH"):
         run_xfoil("xfoil", resolve_airfoil("NACA0012"), 1e6, 0.0, 9.0, (0.0,), 100, 10.0)
@@ -336,16 +340,50 @@ def test_run_xfoil_explains_the_debian_floating_point_crash(monkeypatch: pytest.
 
 def test_run_xfoil_fails_when_the_airfoil_cannot_be_built(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        xfoil_runner.subprocess, "run", _fake_xfoil(lambda a, _: True, save_geometry=False)
+        xfoil_runner, "_run_process", _fake_xfoil(lambda a, _: True, save_geometry=False)
     )
     with pytest.raises(RuntimeError, match="could not build"):
         run_xfoil("xfoil", resolve_airfoil("NACA99999"), 1e6, 0.0, 9.0, (0.0,), 100, 10.0)
 
 
 def test_run_xfoil_fails_when_nothing_converges(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil(lambda a, _: False))
+    monkeypatch.setattr(xfoil_runner, "_run_process", _fake_xfoil(lambda a, _: False))
     with pytest.raises(XfoilConvergenceError, match="none of the 3 angles"):
         run_xfoil("xfoil", resolve_airfoil("NACA0012"), 1e6, 0.0, 9.0, (0.0, 1.0, 2.0), 100, 10.0)
+
+
+# A child process that holds the output pipe open, as XFOIL started by a wrapper script does.
+_SLEEPING_CHILD = (
+    "import subprocess, sys\n"
+    "subprocess.run([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX only")
+def test_run_deck_kills_the_process_group_when_cancelled(tmp_path: Path) -> None:
+    """A cancel kills the running process and its children within a second."""
+    token = CancelToken()
+    timer = threading.Timer(0.3, token.cancel)
+    start = time.monotonic()
+    timer.start()
+    with pytest.raises(RunCancelledError):
+        xfoil_runner._run_deck(sys.executable, _SLEEPING_CHILD, tmp_path, 60.0, token)
+    assert time.monotonic() - start < 3.0
+
+    # An already cancelled run starts no process.
+    with pytest.raises(RunCancelledError):
+        xfoil_runner._run_deck("no-such-executable", "", tmp_path, 60.0, token)
+
+
+def test_run_deck_keeps_the_output_of_a_process_stopped_at_the_time_limit(
+    tmp_path: Path,
+) -> None:
+    script = "print('first point', flush=True)\nimport time\ntime.sleep(60)\n"
+    start = time.monotonic()
+    output, stopped = xfoil_runner._run_deck(sys.executable, script, tmp_path, 0.5)
+    assert stopped
+    assert "first point" in output
+    assert time.monotonic() - start < 3.0
 
 
 # --- Analysis setup ---------------------------------------------------------------------
@@ -403,7 +441,7 @@ def test_analysis_on_the_harpoon_wing(
     harpoon: BaseVehicleConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reynolds number by hand at sea level: rho 1.225, a 340.294 m/s, mu 1.7894e-5 Pa s."""
-    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil(lambda a, _: True))
+    monkeypatch.setattr(xfoil_runner, "_run_process", _fake_xfoil(lambda a, _: True))
     analysis = XFOILAnalysis()
     analysis.setup(harpoon, enable_logging=False, surface="planar_equivalent",
                    alpha_start_deg=-2.0, alpha_end_deg=6.0, alpha_step_deg=1.0)
@@ -430,7 +468,7 @@ def test_analysis_on_the_harpoon_wing(
 def test_overrides_replace_the_surface_values(
     harpoon: BaseVehicleConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(xfoil_runner.subprocess, "run", _fake_xfoil(lambda a, _: True))
+    monkeypatch.setattr(xfoil_runner, "_run_process", _fake_xfoil(lambda a, _: True))
     analysis = XFOILAnalysis()
     analysis.setup(harpoon, enable_logging=False, surface="aft_control_fins",
                    airfoil="NACA0010", chord=0.3, reynolds=2.0e5, mach=0.0,
@@ -493,3 +531,19 @@ def test_real_analysis_on_every_harpoon_surface(harpoon: BaseVehicleConfig) -> N
         assert results.surface == surface
         assert results.n_converged >= 30
         assert 0.5 < results.cl_max < 2.0
+
+
+@pytest.mark.usefixtures("real_xfoil")
+def test_real_diverging_run_stops_when_cancelled(harpoon: BaseVehicleConfig) -> None:
+    """The Harpoon wing at Mach 0.3 diverges for about 30 s; a cancel stops it at once."""
+    analysis = XFOILAnalysis()
+    token = CancelToken()
+    analysis.setup(
+        harpoon, enable_logging=False, cancel_token=token, surface="planar_equivalent", mach=0.3
+    )
+    timer = threading.Timer(1.0, token.cancel)
+    start = time.monotonic()
+    timer.start()
+    with pytest.raises(RunCancelledError):
+        analysis.execute()
+    assert time.monotonic() - start < 3.0

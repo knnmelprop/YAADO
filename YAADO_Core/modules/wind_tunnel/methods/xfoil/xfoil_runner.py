@@ -20,10 +20,12 @@ import csv
 import functools
 import io
 import math
+import os
 import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -37,6 +39,7 @@ if TYPE_CHECKING:
 from YAADO_Core.ComponentStore import AERO_COMPONENTS
 from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
 from YAADO_Core.Foundation.atmosphere import isa_atmosphere
+from YAADO_Core.Foundation.cancellation import CancelToken
 from YAADO_Core.Foundation.solver_registry import DEFAULT_REGISTRY, SolverInfo
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.wind_tunnel.containers import (
@@ -353,7 +356,63 @@ def parse_geometry(text: str) -> AirfoilGeometry:
     )
 
 
-def _run_deck(executable: str, commands: str, workdir: Path, timeout_s: float) -> tuple[str, bool]:
+def _kill(process: subprocess.Popen[str]) -> None:
+    """Kill XFOIL and anything a wrapper script started with it."""
+    if process.poll() is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            process.kill()
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _run_process(
+    args: list[str], *, input: str, cwd: Path, timeout: float, cancel_token: CancelToken
+) -> subprocess.CompletedProcess[str]:
+    """Like ``subprocess.run``, but the process is also killed when the run is cancelled.
+
+    The process runs in its own process group, so a wrapper script's child dies with it.
+
+    Raises:
+        subprocess.TimeoutExpired: At the time limit, with the output so far.
+        RunCancelledError: If the run was cancelled.
+    """
+    cancel_token.raise_if_cancelled()
+    process = subprocess.Popen(
+        args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=cwd,
+        start_new_session=sys.platform != "win32",
+    )
+    try:
+        with cancel_token.on_cancel(lambda: _kill(process)):
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _kill(process)
+                stdout, stderr = process.communicate()
+                raise subprocess.TimeoutExpired(args, timeout, stdout, stderr) from None
+    except BaseException:
+        _kill(process)
+        process.wait()
+        raise
+    cancel_token.raise_if_cancelled()
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
+def _run_deck(
+    executable: str,
+    commands: str,
+    workdir: Path,
+    timeout_s: float,
+    cancel_token: CancelToken | None = None,
+) -> tuple[str, bool]:
     """Feed a command deck to XFOIL.
 
     Returns:
@@ -362,16 +421,15 @@ def _run_deck(executable: str, commands: str, workdir: Path, timeout_s: float) -
 
     Raises:
         RuntimeError: If XFOIL crashes.
+        RunCancelledError: If the run was cancelled; XFOIL is killed.
     """
     try:
-        completed = subprocess.run(
+        completed = _run_process(
             [executable],
             input=commands,
-            capture_output=True,
-            text=True,
             cwd=workdir,
             timeout=timeout_s,
-            check=False,
+            cancel_token=cancel_token or CancelToken(),
         )
     except subprocess.TimeoutExpired as exc:
         partial = exc.stdout or b""
@@ -395,6 +453,7 @@ def run_xfoil(
     max_iter: int,
     timeout_s: float,
     retry: bool = True,
+    cancel_token: CancelToken | None = None,
 ) -> XfoilRun:
     """Run one XFOIL polar in a temporary directory, retrying angles that fail.
 
@@ -411,6 +470,7 @@ def run_xfoil(
         max_iter: Viscous Newton iterations allowed per angle.
         timeout_s: Wall-clock limit of each XFOIL call [s].
         retry: Whether to retry the angles that fail, from a fresh boundary layer.
+        cancel_token: Kills the running XFOIL call when cancelled.
 
     Returns:
         The polar at the requested angles that converged, the paneled geometry and
@@ -419,6 +479,7 @@ def run_xfoil(
     Raises:
         RuntimeError: If XFOIL crashes or cannot build the airfoil.
         XfoilConvergenceError: If no angle converges.
+        RunCancelledError: If the run was cancelled.
     """
     calls = [(name, [run]) for name, run in zip(("upward", "downward"), _sweep_order(alphas), strict=False)]
     rows: dict[float, list[float]] = {}
@@ -442,7 +503,7 @@ def run_xfoil(
                 source, reynolds, mach, n_crit, runs, max_iter,
                 polar_file=polar_file, save_geometry=index == 0,
             )
-            call_output, timed_out = _run_deck(executable, deck, workdir, timeout_s)
+            call_output, timed_out = _run_deck(executable, deck, workdir, timeout_s, cancel_token)
             commands += deck
             output += call_output
             if timed_out:
@@ -700,6 +761,7 @@ class XFOILAnalysis(BaseAnalysis[XfoilPolarResults]):
             self._alphas,
             self.MAX_ITER,
             self.TIMEOUT_S,
+            cancel_token=self.cancel_token,
         )
         self.logger.save_artifact("xfoil_input.txt", run.commands)
         self.logger.save_artifact("xfoil_output.log", run.output)
@@ -792,6 +854,7 @@ class XFOILAnalysis(BaseAnalysis[XfoilPolarResults]):
 def run_reynolds_sweep(
     results: XfoilPolarResults,
     factors: tuple[float, ...] = XFOILAnalysis.SWEEP_REYNOLDS_FACTORS,
+    cancel_token: CancelToken | None = None,
 ) -> list[ReynoldsSweepPoint]:
     """Polars of the same section at multiples of the run's Reynolds number.
 
@@ -801,12 +864,14 @@ def run_reynolds_sweep(
     Args:
         results: Results of the run; it is included at its own Reynolds number.
         factors: Multiples of ``results.reynolds`` to run.
+        cancel_token: Kills the running XFOIL call when cancelled.
 
     Returns:
         Points in ascending Reynolds number.
 
     Raises:
         RuntimeError: If no XFOIL executable is on PATH or XFOIL crashes.
+        RunCancelledError: If the sweep was cancelled.
     """
     executable = xfoil_executable()
     if executable is None:
@@ -827,6 +892,7 @@ def run_reynolds_sweep(
                 XFOILAnalysis.MAX_ITER,
                 XFOILAnalysis.SWEEP_TIMEOUT_S,
                 retry=False,
+                cancel_token=cancel_token,
             )
         except XfoilConvergenceError:
             continue

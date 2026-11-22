@@ -22,6 +22,7 @@ from YAADO_Core.Foundation.analysis_base import (
     BaseAnalysisResults,
     FidelityLevel,
 )
+from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.constants import LHV_KEROSENE
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
@@ -1574,6 +1575,7 @@ def execute_solver(
     *,
     enable_logging: bool = True,
     run_sweep: bool = True,
+    cancel_token: CancelToken | None = None,
 ) -> SolverRun:
     """Execute a solver on a vehicle and save its FlightLogs artifacts.
 
@@ -1584,12 +1586,15 @@ def execute_solver(
         enable_logging: Whether FlightLogger writes results, figures and artifacts to disk.
         run_sweep: Whether a logged run also computes and saves the solver's sweep (launch
             angle, Mach number).
+        cancel_token: Lets another thread stop the run. A cancelled run deletes its
+            FlightLogs directory.
 
     Returns:
         The typed results, the parameters used, and the run directory.
 
     Raises:
         ValueError: If the vehicle does not satisfy the solver's prerequisites.
+        RunCancelledError: If the run was cancelled.
     """
     is_ready, msg = check_solver_compatibility(descriptor, vehicle)
     if not is_ready:
@@ -1601,43 +1606,61 @@ def execute_solver(
         if fins_name:
             exec_params["fins_name"] = fins_name
 
+    token = cancel_token or CancelToken()
     solver = descriptor.solver_cls(descriptor.solver_id)
-    solver.setup(vehicle, enable_logging=enable_logging, **exec_params)
-    results = solver.execute()
-
-    warnings = _run_warnings(results)
-    if not solver.logger.enabled:
-        return SolverRun(results=results, params=exec_params, output_dir=None, warnings=warnings)
-
-    if isinstance(results, PointMassBoostResults):
-        _save_point_mass_artifacts(solver.logger, vehicle, results, exec_params, run_sweep)
-    elif isinstance(results, HeiserPrattResults):
-        _save_ramjet_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, ConicalInletResults):
-        _save_inlet_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, MultiShockInletResults):
-        _save_multi_shock_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, RamjetCycleResults):
-        _save_cycle_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, GrzywkaCycleResults):
-        _save_nozzle_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, BarrowmanStabilityResults):
-        _save_stability_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, AckeretFinResults):
-        _save_ackeret_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, DatcomStabilityResults):
-        _save_datcom_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, BarrowmanExtendedResults):
-        _save_extended_artifacts(solver.logger, results, run_sweep)
-    elif isinstance(results, XfoilPolarResults):
-        _save_xfoil_artifacts(solver.logger, results, run_sweep)
-    solver.logger.save_results(results)
+    solver.setup(vehicle, enable_logging=enable_logging, cancel_token=token, **exec_params)
+    try:
+        results = solver.execute()
+        warnings = _run_warnings(results)
+        if not solver.logger.enabled:
+            return SolverRun(
+                results=results, params=exec_params, output_dir=None, warnings=warnings
+            )
+        _save_run_artifacts(solver.logger, vehicle, results, exec_params, run_sweep, token)
+        token.raise_if_cancelled()
+        solver.logger.save_results(results)
+    except RunCancelledError:
+        solver.logger.discard()
+        raise
     return SolverRun(
         results=results,
         params=exec_params,
         output_dir=solver.logger.output_dir,
         warnings=warnings,
     )
+
+
+def _save_run_artifacts(
+    logger: FlightLogger,
+    vehicle: BaseVehicleConfig,
+    results: BaseAnalysisResults,
+    exec_params: dict[str, Any],
+    run_sweep: bool,
+    cancel_token: CancelToken,
+) -> None:
+    """Save the figures, CSVs and sweeps of one solver's results."""
+    if isinstance(results, PointMassBoostResults):
+        _save_point_mass_artifacts(logger, vehicle, results, exec_params, run_sweep)
+    elif isinstance(results, HeiserPrattResults):
+        _save_ramjet_artifacts(logger, results, run_sweep)
+    elif isinstance(results, ConicalInletResults):
+        _save_inlet_artifacts(logger, results, run_sweep)
+    elif isinstance(results, MultiShockInletResults):
+        _save_multi_shock_artifacts(logger, results, run_sweep)
+    elif isinstance(results, RamjetCycleResults):
+        _save_cycle_artifacts(logger, results, run_sweep)
+    elif isinstance(results, GrzywkaCycleResults):
+        _save_nozzle_artifacts(logger, results, run_sweep)
+    elif isinstance(results, BarrowmanStabilityResults):
+        _save_stability_artifacts(logger, results, run_sweep)
+    elif isinstance(results, AckeretFinResults):
+        _save_ackeret_artifacts(logger, results, run_sweep)
+    elif isinstance(results, DatcomStabilityResults):
+        _save_datcom_artifacts(logger, results, run_sweep)
+    elif isinstance(results, BarrowmanExtendedResults):
+        _save_extended_artifacts(logger, results, run_sweep)
+    elif isinstance(results, XfoilPolarResults):
+        _save_xfoil_artifacts(logger, results, run_sweep, cancel_token)
 
 
 def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
@@ -1695,14 +1718,17 @@ def _margin_warnings(
 
 
 def _save_xfoil_artifacts(
-    logger: FlightLogger, results: XfoilPolarResults, run_sweep: bool
+    logger: FlightLogger,
+    results: XfoilPolarResults,
+    run_sweep: bool,
+    cancel_token: CancelToken,
 ) -> None:
     """Save the polar figure and CSV, and optionally the Reynolds number sweep."""
     logger.save_figure(xfoil_runner.plot_polar(results), "polar.png", show=False)
     logger.save_artifact("polar.csv", xfoil_runner.format_polar_csv(results.polar))
     if not run_sweep:
         return
-    points = xfoil_runner.run_reynolds_sweep(results)
+    points = xfoil_runner.run_reynolds_sweep(results, cancel_token=cancel_token)
     logger.save_figure(
         xfoil_runner.plot_reynolds_sweep(points, results), "polar_vs_reynolds.png", show=False
     )

@@ -7,9 +7,11 @@ hierarchy.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import json
 import logging
+import shutil
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import date, datetime
 from enum import Enum
@@ -444,6 +446,20 @@ class FlightLogger:
 
         self.info("Saved results checkpoint to %s", target_path)
         return target_path
+
+    def discard(self) -> None:
+        """Delete this run's directory, e.g. after the run was cancelled.
+
+        Closes the run's log file first. The vehicle folder is removed too if the run
+        left it empty.
+        """
+        if not self.enabled:
+            return
+        self._file_handler.close()
+        self.logger.removeHandler(self._file_handler)
+        shutil.rmtree(self.output_dir, ignore_errors=True)
+        with contextlib.suppress(OSError):
+            self.output_dir.parent.rmdir()
 
     def load_checkpoint(
         self,
