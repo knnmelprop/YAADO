@@ -117,3 +117,68 @@ class GmshSliceResults(BaseAnalysisResults):
     stations: tuple[StationSection, ...]
     checks: tuple[EnvelopeCheck, ...]
     assumptions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MarkerMesh:
+    """Boundary marker of a volume mesh.
+
+    Attributes:
+        name: Marker name.
+        n_triangles: Triangles on the marker.
+        area: Area of those triangles, of the meshed half if only half is meshed.
+    """
+
+    name: str
+    n_triangles: int
+    area: SquareMeters
+
+
+@dataclass(frozen=True)
+class GmshMeshResults(BaseAnalysisResults):
+    """Volume mesh around a vehicle for an inviscid flow solver.
+
+    Attributes:
+        mesh_file: SU2 mesh among the run's artifacts.
+        step_file: STEP file of the meshed vehicle among the run's artifacts.
+        is_half: Whether only the half at y > 0 is meshed.
+        surfaces: Fin sets and wings in the mesh.
+        left_out: Lifting surfaces that are not in the mesh.
+        cells_per_diameter: Cells across the body diameter.
+        n_nodes: Mesh nodes.
+        n_tetrahedra: Volume cells.
+        n_wall_triangles: Triangles on the vehicle.
+        markers: Boundary markers.
+        min_quality: Smallest signed inverse condition number of the cells (1 is ideal).
+        n_poor: Cells with a poor quality.
+        farfield_radius: Radius of the far field.
+        volume: Volume of the whole vehicle.
+        wetted_area: Surface area of the whole vehicle without its base.
+        base_area: Area of the base.
+        assumptions: Choices made where the vehicle leaves the shape open.
+    """
+
+    HEADLINE_METRICS: ClassVar[tuple[str, ...]] = (
+        "n_tetrahedra",
+        "n_nodes",
+        "min_quality",
+        "wetted_area",
+    )
+
+    mesh_file: str
+    step_file: str
+    is_half: bool
+    surfaces: tuple[str, ...]
+    left_out: tuple[str, ...]
+    cells_per_diameter: int
+    n_nodes: int
+    n_tetrahedra: int
+    n_wall_triangles: int
+    markers: tuple[MarkerMesh, ...]
+    min_quality: Dimensionless
+    n_poor: int
+    farfield_radius: Meters
+    volume: CubicMeters
+    wetted_area: SquareMeters
+    base_area: SquareMeters
+    assumptions: tuple[str, ...]
