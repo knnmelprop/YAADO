@@ -26,3 +26,17 @@ For example:
 4. The optimized parameters are returned to the user.
 
 In short: **OpenMDAO provides the horsepower, SUAVE provides the pilot, and YAADO provides the steering wheel.**
+
+## Launch Angle Optimizer
+
+* **Module**: [`launch_angle_optimizer.py`](launch_angle_optimizer.py)
+* **Status**: First OpenMDAO loop in FlightDeck.
+
+`optimize_launch_angle(vehicle, ...)` finds the launch angle that maximizes the ground range of the 3-DOF point-mass flight (`PointMass3DOFBoostAnalysis` with `stop_at_burnout=False`). It returns a frozen `LaunchAngleOptimum` with the optimal angle, the maximum range and the number of simulations. The OpenMDAO `Problem` is hidden: the caller never builds one.
+
+* One design variable (`launch_angle_deg`, default bounds 5-85 deg) and one objective (`flight_range`, maximized).
+* The simulation has no analytic derivatives, so the component uses finite differences with a 0.5 deg step, and the driver is SciPy SLSQP. SLSQP needs fewer simulations than a gradient-free method such as COBYLA for one smooth variable.
+* `om.Problem(reports=False)`: no `reports/` folder is written.
+* Each simulation takes a few seconds, so a run takes about 20 simulations (a minute or two).
+
+The optimum is flat: the range changes by less than 0.1% within about 1 deg of the optimum, so the angle is known to roughly 0.1 deg, not better.

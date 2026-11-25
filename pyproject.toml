@@ -11,6 +11,7 @@ dependencies = [
     "scipy",
     "matplotlib",
     "om-pycycle==4.1.2",
+    "openmdao",
     "pytest",
     "gmsh==4.15.1",
     "toml>=0.10.2",
