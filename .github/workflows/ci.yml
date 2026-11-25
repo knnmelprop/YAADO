@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install system libraries for Gmsh
+        run: sudo apt-get update && sudo apt-get install -y libglu1-mesa
+
       - name: Install core runtime deps
         run: uv sync
 
