@@ -98,3 +98,6 @@ class PointMassBoostResults(BaseAnalysisResults):
     impact_velocity: MetersPerSecond = 0.0
     samples: TrajectorySamples | None = None
     boost_samples: TrajectorySamples | None = None
+    rail_departure_time: Seconds = 0.0
+    rail_departure_velocity: MetersPerSecond = 0.0
+    left_rail: bool = True
