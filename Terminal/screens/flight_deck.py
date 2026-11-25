@@ -269,6 +269,7 @@ class SolversStoreView(VerticalScroll):
     DISCIPLINES: ClassVar[tuple[str, ...]] = (
         "FLIGHT DYNAMICS",
         "PROPULSION",
+        "AIRFRAME",
         "AERODYNAMICS",
         "STABILITY & CONTROL",
         "STRUCTURES & MASS",

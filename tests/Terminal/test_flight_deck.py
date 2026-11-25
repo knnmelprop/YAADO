@@ -166,6 +166,7 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
         "multi_shock_inlet",
         "xfoil_polar",
         "su2_euler_decks",
+        "gmsh_step_slicer",
         "barrowman_stability",
         "barrowman_extended",
         "datcom_class_stability",

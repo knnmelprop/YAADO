@@ -26,6 +26,10 @@ from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.constants import LHV_KEROSENE
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.airframe.containers import GmshSliceResults
+from YAADO_Core.modules.airframe.gmsh_process import gmsh_problem
+from YAADO_Core.modules.airframe.slicer_methods import gmsh as gmsh_slicer
+from YAADO_Core.modules.airframe.slicer_methods.gmsh import GmshSliceAnalysis
 from YAADO_Core.modules.flight_dynamics.containers import (
     LaunchAngleSweepPoint,
     PointMassBoostResults,
@@ -253,6 +257,8 @@ class SolverRun:
 
 #: Folder whose ``.dat`` coordinate files the airfoil list offers.
 AIRFOIL_LIBRARY = Path("Hangar") / "airfoils"
+#: STEP file endings the STEP file list offers.
+STEP_SUFFIXES = frozenset({".step", ".stp"})
 #: Sections the airfoil list offers for every vehicle.
 COMMON_AIRFOILS: tuple[str, ...] = (
     "NACA0006", "NACA0008", "NACA0009", "NACA0010", "NACA0012", "NACA0015",
@@ -280,6 +286,22 @@ def airfoil_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
         else []
     )
     return (*(Choice(name, name) for name in names), *(Choice(str(p), p.name) for p in files))
+
+
+def step_file_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
+    """STEP files in the Hangar, and those saved by the vehicle's runs, newest run first."""
+    hangar = sorted(p for p in Path("Hangar").rglob("*") if p.suffix.lower() in STEP_SUFFIXES)
+    logs = Path("FlightLogs") / vehicle.name
+    runs = sorted(logs.glob("*/artifacts/*.step"), reverse=True) if logs.is_dir() else []
+    return (
+        *(Choice(str(p), str(p.relative_to("Hangar"))) for p in hangar),
+        *(Choice(str(p), str(p.relative_to(logs))) for p in runs),
+    )
+
+
+def slice_axis_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
+    """CAD axes a vehicle can lie along."""
+    return tuple(Choice(axis, f"{axis} axis") for axis in gmsh_slicer.AXES)
 
 
 REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
@@ -1183,6 +1205,86 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         ),
     ),
     SolverDescriptor(
+        solver_id="gmsh_step_slicer",
+        name="STEP Cross-Section Slicer",
+        discipline="AIRFRAME",
+        fidelity=GmshSliceAnalysis.fidelity,
+        solver_cls=GmshSliceAnalysis,
+        description=(
+            "Cuts a STEP model of the vehicle with planes along its axis and measures each "
+            "section: material area, area inside the outline, and largest radius. Compares "
+            "the model's length, diameter and span with the vehicle."
+        ),
+        required_components_desc=(
+            "A STEP file with solid bodies in Hangar/geometry (or any Hangar folder)."
+        ),
+        headline_outputs=(
+            ("length", "m", "Length"),
+            ("max_radius", "m", "Largest Radius"),
+            ("equivalent_diameter", "m", "Largest Equivalent Diameter"),
+            ("max_outline_area", "m^2", "Largest Section Area"),
+            ("volume", "m^3", "Material Volume"),
+            ("outline_volume", "m^3", "Outline Volume"),
+            ("n_solids", "-", "Solids"),
+        ),
+        parameters=(
+            SolverParam(
+                name="step_file",
+                label="STEP File",
+                symbol="file",
+                unit="",
+                param_type=str,
+                default=None,
+                description="STEP model in the Hangar, or saved by a mesher run of this vehicle",
+                placeholder="none found",
+                choices=step_file_choices,
+                preselect=True,
+            ),
+            SolverParam(
+                name="axis",
+                label="Vehicle Axis",
+                symbol="axis",
+                unit="",
+                param_type=str,
+                default=GmshSliceAnalysis.DEFAULT_AXIS,
+                description="CAD axis that runs along the vehicle",
+                choices=slice_axis_choices,
+                preselect=True,
+            ),
+            SolverParam(
+                name="reverse",
+                label="Nose at Positive End",
+                symbol="rev",
+                unit="bool",
+                param_type=bool,
+                default=False,
+                description="Set if the CAD axis points from the tail to the nose",
+            ),
+            SolverParam(
+                name="n_stations",
+                label="Stations",
+                symbol="N",
+                unit="-",
+                param_type=int,
+                default=GmshSliceAnalysis.DEFAULT_N_STATIONS,
+                description="Number of sections along the model",
+                min_value=2,
+                max_value=GmshSliceAnalysis.MAX_STATIONS,
+            ),
+            SolverParam(
+                name="tolerance",
+                label="Tolerance",
+                symbol="tol",
+                unit="-",
+                param_type=float,
+                default=GmshSliceAnalysis.DEFAULT_TOLERANCE,
+                description="Relative difference from the vehicle that is still accepted",
+                min_value=0.001,
+                max_value=0.999,
+            ),
+        ),
+    ),
+    SolverDescriptor(
         solver_id="barrowman_stability",
         name="Barrowman Static Stability",
         discipline="STABILITY & CONTROL",
@@ -1522,6 +1624,15 @@ def check_solver_compatibility(
         body_name, body = next(iter(bodies.items()))
         return True, f"Ready ({body_name}, diameter {body.diameter:g} m)"
 
+    if descriptor.solver_id == "gmsh_step_slicer":
+        problem = gmsh_problem()
+        if problem is not None:
+            return False, problem
+        n_files = len(step_file_choices(vehicle))
+        if not n_files:
+            return True, "Ready; no STEP file found, so put one in Hangar/geometry"
+        return True, f"Ready ({n_files} STEP file{'s' if n_files > 1 else ''})"
+
     if descriptor.solver_id == "xfoil_polar":
         surfaces = vehicle.get_components_by_type(AERO_COMPONENTS)
         if not surfaces:
@@ -1661,6 +1772,9 @@ def _save_run_artifacts(
         _save_extended_artifacts(logger, results, run_sweep)
     elif isinstance(results, XfoilPolarResults):
         _save_xfoil_artifacts(logger, results, run_sweep, cancel_token)
+    elif isinstance(results, GmshSliceResults):
+        logger.save_figure(gmsh_slicer.plot_sections(results), "sections.png", show=False)
+        logger.save_artifact("sections.csv", gmsh_slicer.format_sections_csv(results))
 
 
 def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
@@ -1686,7 +1800,7 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
                 "today's reaches the required margin."
             )
         return tuple(warnings)
-    if isinstance(results, (XfoilPolarResults, SU2ConfigResults)):
+    if isinstance(results, (XfoilPolarResults, SU2ConfigResults, GmshSliceResults)):
         return results.assumptions
     if isinstance(results, AckeretFinResults):
         warnings = list(results.assumptions)
