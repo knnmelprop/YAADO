@@ -20,12 +20,10 @@ import csv
 import functools
 import io
 import math
-import os
 import re
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -40,6 +38,7 @@ from YAADO_Core.ComponentStore import AERO_COMPONENTS
 from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
 from YAADO_Core.Foundation.atmosphere import isa_atmosphere
 from YAADO_Core.Foundation.cancellation import CancelToken
+from YAADO_Core.Foundation.processes import run_process as _run_process
 from YAADO_Core.Foundation.solver_registry import DEFAULT_REGISTRY, SolverInfo
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.wind_tunnel.containers import (
@@ -354,56 +353,6 @@ def parse_geometry(text: str) -> AirfoilGeometry:
     return AirfoilGeometry(
         name=lines[0].strip(), x=x, y=y, thickness_to_chord=thickness_to_chord(x, y)
     )
-
-
-def _kill(process: subprocess.Popen[str]) -> None:
-    """Kill XFOIL and anything a wrapper script started with it."""
-    if process.poll() is not None:
-        return
-    try:
-        if sys.platform == "win32":
-            process.kill()
-        else:
-            os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-
-
-def _run_process(
-    args: list[str], *, input: str, cwd: Path, timeout: float, cancel_token: CancelToken
-) -> subprocess.CompletedProcess[str]:
-    """Like ``subprocess.run``, but the process is also killed when the run is cancelled.
-
-    The process runs in its own process group, so a wrapper script's child dies with it.
-
-    Raises:
-        subprocess.TimeoutExpired: At the time limit, with the output so far.
-        RunCancelledError: If the run was cancelled.
-    """
-    cancel_token.raise_if_cancelled()
-    process = subprocess.Popen(
-        args,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=cwd,
-        start_new_session=sys.platform != "win32",
-    )
-    try:
-        with cancel_token.on_cancel(lambda: _kill(process)):
-            try:
-                stdout, stderr = process.communicate(input, timeout=timeout)
-            except subprocess.TimeoutExpired:
-                _kill(process)
-                stdout, stderr = process.communicate()
-                raise subprocess.TimeoutExpired(args, timeout, stdout, stderr) from None
-    except BaseException:
-        _kill(process)
-        process.wait()
-        raise
-    cancel_token.raise_if_cancelled()
-    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def _run_deck(
