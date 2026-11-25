@@ -51,8 +51,6 @@ STEP_FILENAME = "airframe.step"
 
 AIRFRAME, BASE, FARFIELD, SYMMETRY = "airframe", "base", "farfield", "symmetry"
 
-#: Gmsh labels STEP coordinates as millimeters whatever the model's unit.
-_STEP_SCALE = 1000.0
 #: A fin's root section lies this far below the body surface, over the body radius.
 _ROOT_DEPTH = 0.01
 #: A fin reaches into the body down to this fraction of the body radius.
@@ -62,8 +60,11 @@ _ROOT_REACH = 0.8
 _EDGE_SIZE, _CORNER_SIZE, _TIP_SIZE = 1.0 / 3.0, 1.0 / 2.0, 1.0 / 6.0
 #: Cells along the mean chord of a panel, over the cells across the body.
 _CHORD_CELLS = 1.25
-#: Growth of the cell size per distance from a refined edge and from the vehicle.
-_EDGE_GROWTH, _VOLUME_GROWTH = 0.25, 0.2
+#: Growth of the cell size per distance from a refined edge.
+_EDGE_GROWTH = 0.25
+#: Growth away from the vehicle at 16 cells per diameter, and its limit. It falls with the
+#: cell size, so that more cells per diameter refine the whole volume alike.
+_VOLUME_GROWTH, _MAX_VOLUME_GROWTH = 0.2, 0.3
 #: Accepted relative difference of the meshed from the CAD surface area.
 _AREA_TOLERANCE = 0.05
 _LENGTH_TOLERANCE = 1e-5
@@ -126,7 +127,7 @@ class MeshedVehicle:
 # ---------------------------------------------------------------------------
 
 
-def _body_halves(gmsh: ModuleType, body: BodyShape, scale: float) -> list[tuple[int, int]]:
+def _body_halves(gmsh: ModuleType, body: BodyShape) -> list[tuple[int, int]]:
     """Revolve the body profile to both sides of y = 0.
 
     A full revolution would have a seam, along which Gmsh repeats triangles at the nose tip.
@@ -134,7 +135,7 @@ def _body_halves(gmsh: ModuleType, body: BodyShape, scale: float) -> list[tuple[
     occ = gmsh.model.occ
 
     def point(x: float, r: float) -> int:
-        return int(occ.addPoint(scale * x, 0.0, scale * r))
+        return int(occ.addPoint(x, 0.0, r))
 
     tip, nose_base = point(0.0, 0.0), point(body.nose_length, body.nose_radius)
     if body.nose_type == "conical":
@@ -168,13 +169,7 @@ def _body_halves(gmsh: ModuleType, body: BodyShape, scale: float) -> list[tuple[
 
 
 def _section_wire(
-    gmsh: ModuleType,
-    panel: Panel,
-    section: Section,
-    le: float,
-    offset: float,
-    chord: float,
-    scale: float,
+    gmsh: ModuleType, panel: Panel, section: Section, le: float, offset: float, chord: float
 ) -> int:
     """Closed wire of a section at a distance from the axis."""
     occ = gmsh.model.occ
@@ -183,9 +178,9 @@ def _section_wire(
     def point(x: float, z: float) -> int:
         return int(
             occ.addPoint(
-                scale * (le + x * chord),
-                scale * (offset * span[1] + z * chord * normal[1]),
-                scale * (offset * span[2] + z * chord * normal[2]),
+                le + x * chord,
+                offset * span[1] + z * chord * normal[1],
+                offset * span[2] + z * chord * normal[2],
             )
         )
 
@@ -240,31 +235,30 @@ def root_section(panel: Panel, body: BodyShape) -> _RootSection:
     return _RootSection(offset, inner, le, te - le)
 
 
-def _panel_solid(gmsh: ModuleType, panel: Panel, body: BodyShape, scale: float) -> int:
+def _panel_solid(gmsh: ModuleType, panel: Panel, body: BodyShape) -> int:
     """Solid of a fin or wing half."""
     occ = gmsh.model.occ
     root = root_section(panel, body)
     offsets = (root.offset,) if panel.is_wing else (root.inner_offset, root.offset)
     wires = [
-        _section_wire(gmsh, panel, panel.root_section, root.le, offset, root.chord, scale)
+        _section_wire(gmsh, panel, panel.root_section, root.le, offset, root.chord)
         for offset in offsets
     ]
     wires.append(
         _section_wire(
-            gmsh, panel, panel.tip_section, panel.tip_le, panel.tip_offset, panel.tip_chord, scale
+            gmsh, panel, panel.tip_section, panel.tip_le, panel.tip_offset, panel.tip_chord
         )
     )
     lofted = occ.addThruSections(wires, makeSolid=True, makeRuled=True)
     return next(tag for dim, tag in lofted if dim == 3)
 
 
-def build_vehicle(gmsh: ModuleType, shape: OuterShape, scale: float = 1.0) -> int:
+def build_vehicle(gmsh: ModuleType, shape: OuterShape) -> int:
     """Build the vehicle in the current Gmsh model.
 
     Args:
         gmsh: The ``gmsh`` module with an open model.
         shape: Vehicle shape.
-        scale: Factor on every length.
 
     Returns:
         Volume tag of the vehicle as one solid.
@@ -275,8 +269,8 @@ def build_vehicle(gmsh: ModuleType, shape: OuterShape, scale: float = 1.0) -> in
     occ = gmsh.model.occ
     # Joining the two halves of the body into one face would bring the seam back.
     gmsh.option.setNumber("Geometry.OCCUnionUnify", 0)
-    first, *rest = _body_halves(gmsh, shape.body, scale)
-    rest += [(3, _panel_solid(gmsh, panel, shape.body, scale)) for panel in shape.panels]
+    first, *rest = _body_halves(gmsh, shape.body)
+    rest += [(3, _panel_solid(gmsh, panel, shape.body)) for panel in shape.panels]
     solids, _ = occ.fuse([first], rest)
     solids = [entity for entity in solids if entity[0] == 3]
     if len(solids) != 1:
@@ -287,13 +281,14 @@ def build_vehicle(gmsh: ModuleType, shape: OuterShape, scale: float = 1.0) -> in
     return int(solids[0][1])
 
 
-def write_step(gmsh: ModuleType, shape: OuterShape, path: str) -> None:
-    """Save the vehicle as a STEP file in millimeters, in a model of its own."""
-    gmsh.model.add("step")
-    build_vehicle(gmsh, shape, _STEP_SCALE)
+def write_step(gmsh: ModuleType, vehicle: int, path: str) -> None:
+    """Save the vehicle solid, without the curves it was built from, as a STEP file."""
     gmsh.model.occ.synchronize()
+    gmsh.model.setVisibility(gmsh.model.getEntities(), 0)
+    gmsh.model.setVisibility([(3, vehicle)], 1, recursive=True)
+    gmsh.option.setNumber("Geometry.OCCExportOnlyVisible", 1)
     gmsh.write(path)
-    gmsh.model.remove()
+    gmsh.model.setVisibility(gmsh.model.getEntities(), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +459,8 @@ def _set_cell_sizes(
     body = shape.body
     walls = [*boundary.airframe, *boundary.base]
     body_size = 2.0 * body.radius / job.cells_per_diameter
-    fields = _SizeFields(gmsh, walls, _VOLUME_GROWTH * farfield_radius)
+    growth = _VOLUME_GROWTH * GmshMeshAnalysis.DEFAULT_CELLS_PER_DIAMETER / job.cells_per_diameter
+    fields = _SizeFields(gmsh, walls, min(growth, _MAX_VOLUME_GROWTH) * farfield_radius)
     fields.on_surfaces(walls, body_size)
 
     panel_sizes = {
@@ -583,10 +579,9 @@ def mesh_vehicle(job: MeshJob) -> MeshedVehicle:
     """
     shape, body = job.shape, job.shape.body
     with gmsh_session("mesh") as gmsh:
-        write_step(gmsh, shape, job.step_path)
-
         occ = gmsh.model.occ
         vehicle = build_vehicle(gmsh, shape)
+        write_step(gmsh, vehicle, job.step_path)
         volume = occ.getMass(3, vehicle)
         radius = job.farfield_lengths * body.length
         domain = [(3, occ.addSphere(body.length / 2.0, 0, 0, radius))]

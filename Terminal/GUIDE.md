@@ -82,6 +82,10 @@ yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver x
 yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver su2_euler_decks \
          --set mach_list=0.8,1.5,2.5 --set alpha_list_deg=-2,0,4 --set altitude_m=10000
 
+# Euler mesh of the vehicle for SU2, and a STEP file of it
+yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver gmsh_euler_mesh \
+         --set cells_per_diameter=12 --set fin_thickness_ratio=0.05
+
 # Cross-sections of a STEP model, compared with the vehicle
 yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver gmsh_step_slicer \
          --set step_file=Hangar/geometry/airframe.step --set axis=x
@@ -100,6 +104,8 @@ yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver gmsh_step_slicer \
 For the ramjet cycle, set real losses on the engine in the vehicle TOML (see the [module README](../YAADO_Core/modules/powerplant/cycle_methods/README.md)). `--set` overrides them, and the run warns about each loss that falls back to a placeholder.
 
 For the XFOIL polar, pick the wing or fin set with `--set surface=NAME`, unless the vehicle has only one. The `xfoil` executable must be on `PATH`; on Ubuntu and Debian the packaged build needs a wrapper (see the [module README](../YAADO_Core/modules/wind_tunnel/methods/xfoil/README.md#installing-xfoil)).
+
+For the Euler mesh, give each wing its position with `root_le_from_nose`, and fins an `airfoil` or a `thickness_ratio`, in the vehicle TOML (see the [module README](../YAADO_Core/modules/airframe/mesher_methods/README.md)). An unplaced wing is left out, and fins without a thickness get `fin_thickness_ratio`; the run says so. The SU2 decks for the mesh are for half a vehicle unless you set `half_model=false`.
 
 For the STEP slicer, put the CAD model in `Hangar/geometry` or any other `Hangar` folder, exported as solid bodies (see the [module README](../YAADO_Core/modules/airframe/slicer_methods/README.md)).
 

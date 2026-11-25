@@ -26,8 +26,10 @@ from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.constants import LHV_KEROSENE
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-from YAADO_Core.modules.airframe.containers import GmshSliceResults
+from YAADO_Core.modules.airframe.containers import GmshMeshResults, GmshSliceResults
 from YAADO_Core.modules.airframe.gmsh_process import gmsh_problem
+from YAADO_Core.modules.airframe.mesher_methods.gmsh_euler import GmshMeshAnalysis
+from YAADO_Core.modules.airframe.outer_shape import outer_shape_from_vehicle
 from YAADO_Core.modules.airframe.slicer_methods import gmsh as gmsh_slicer
 from YAADO_Core.modules.airframe.slicer_methods.gmsh import GmshSliceAnalysis
 from YAADO_Core.modules.flight_dynamics.containers import (
@@ -297,6 +299,18 @@ def step_file_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
         *(Choice(str(p), str(p.relative_to("Hangar"))) for p in hangar),
         *(Choice(str(p), str(p.relative_to(logs))) for p in runs),
     )
+
+
+def mesh_surface_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
+    """The body alone, or the body with one lifting surface."""
+    names = vehicle.get_components_by_type(AERO_COMPONENTS)
+    return (Choice("none", "body only"), *(Choice(name, f"body + {name}") for name in names))
+
+
+def mesh_domain_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
+    """How much of the vehicle to mesh."""
+    labels = {"auto": "auto: half if symmetric", "half": "half vehicle", "full": "full vehicle"}
+    return tuple(Choice(domain, labels[domain]) for domain in GmshMeshAnalysis.DOMAINS)
 
 
 def slice_axis_choices(vehicle: BaseVehicleConfig) -> tuple[Choice, ...]:
@@ -1120,7 +1134,7 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
         description=(
             "Writes one SU2 Euler deck per Mach number and angle of attack, with the ISA "
             "freestream and the body's frontal area and diameter as references. Decks only: "
-            "mesh the vehicle and run SU2_CFD on each deck yourself."
+            "mesh the vehicle with the Gmsh mesher and run SU2_CFD on each deck yourself."
         ),
         required_components_desc=(
             "One axisymmetric body (AxisymmetricBody), or a reference area and length set below."
@@ -1170,6 +1184,15 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
                 max_value=80000.0,
             ),
             SolverParam(
+                name="half_model",
+                label="Half Model",
+                symbol="half",
+                unit="bool",
+                param_type=bool,
+                default=SU2ConfigGeneration.DEFAULT_HALF_MODEL,
+                description="Whether the mesh holds half of the vehicle, as for a symmetric one",
+            ),
+            SolverParam(
                 name="ref_area",
                 label="Reference Area",
                 symbol="A_ref",
@@ -1201,6 +1224,101 @@ REPAIRED_SOLVERS: tuple[SolverDescriptor, ...] = (
                 description="Moment point from the nose tip. Blank uses the vehicle CG",
                 min_value=0.0,
                 placeholder="TOML",
+            ),
+        ),
+    ),
+    SolverDescriptor(
+        solver_id="gmsh_euler_mesh",
+        name="Gmsh Euler Mesh",
+        discipline="AIRFRAME",
+        fidelity=GmshMeshAnalysis.fidelity,
+        solver_cls=GmshMeshAnalysis,
+        description=(
+            "Builds the body, fins and wings from the vehicle as one solid and fills the air "
+            "around it with tetrahedra for inviscid flow. Saves the mesh in SU2 format with "
+            "the markers the SU2 decks use, and a STEP file of the vehicle."
+        ),
+        required_components_desc=(
+            "One axisymmetric body (AxisymmetricBody) with nose_length. Fins need chord_root and "
+            "chord_tip; wings need root_le_from_nose to be meshed."
+        ),
+        headline_outputs=(
+            ("n_tetrahedra", "-", "Tetrahedra"),
+            ("n_nodes", "-", "Nodes"),
+            ("n_wall_triangles", "-", "Triangles on the Vehicle"),
+            ("min_quality", "-", "Worst Cell Quality"),
+            ("wetted_area", "m^2", "Wetted Area"),
+            ("base_area", "m^2", "Base Area"),
+            ("volume", "m^3", "Vehicle Volume"),
+            ("farfield_radius", "m", "Far-Field Radius"),
+        ),
+        parameters=(
+            SolverParam(
+                name="cells_per_diameter",
+                label="Cells per Diameter",
+                symbol="N",
+                unit="-",
+                param_type=int,
+                default=GmshMeshAnalysis.DEFAULT_CELLS_PER_DIAMETER,
+                description="Cells across the body; sets the whole mesh (12 coarse, 16 medium, 24 fine)",
+                min_value=GmshMeshAnalysis.MIN_CELLS_PER_DIAMETER,
+                max_value=GmshMeshAnalysis.MAX_CELLS_PER_DIAMETER,
+            ),
+            SolverParam(
+                name="surfaces",
+                label="Surfaces",
+                symbol="surf",
+                unit="",
+                param_type=str,
+                default=None,
+                description="Lifting surfaces to mesh. Blank takes every placed one; bare mode takes a list",
+                placeholder="all placed",
+                choices=mesh_surface_choices,
+            ),
+            SolverParam(
+                name="domain",
+                label="Domain",
+                symbol="dom",
+                unit="",
+                param_type=str,
+                default=GmshMeshAnalysis.DEFAULT_DOMAIN,
+                description="A half vehicle needs half the cells but allows no sideslip",
+                choices=mesh_domain_choices,
+                preselect=True,
+            ),
+            SolverParam(
+                name="fin_roll_deg",
+                label="Fin Roll",
+                symbol="φ",
+                unit="deg",
+                param_type=float,
+                default=None,
+                description="First fin of every set from straight up. Blank: a cross for an even set",
+                min_value=-360.0,
+                max_value=360.0,
+                placeholder="auto",
+            ),
+            SolverParam(
+                name="fin_thickness_ratio",
+                label="Fin Thickness Ratio",
+                symbol="t/c",
+                unit="-",
+                param_type=float,
+                default=GmshMeshAnalysis.DEFAULT_FIN_THICKNESS_RATIO,
+                description="Double wedge for fins without airfoil or thickness_ratio in the TOML",
+                min_value=0.005,
+                max_value=0.49,
+            ),
+            SolverParam(
+                name="farfield_lengths",
+                label="Far-Field Radius",
+                symbol="R_far",
+                unit="L",
+                param_type=float,
+                default=GmshMeshAnalysis.DEFAULT_FARFIELD_LENGTHS,
+                description="Radius of the far field in body lengths",
+                min_value=GmshMeshAnalysis.MIN_FARFIELD_LENGTHS,
+                max_value=100.0,
             ),
         ),
     ),
@@ -1624,6 +1742,18 @@ def check_solver_compatibility(
         body_name, body = next(iter(bodies.items()))
         return True, f"Ready ({body_name}, diameter {body.diameter:g} m)"
 
+    if descriptor.solver_id == "gmsh_euler_mesh":
+        problem = gmsh_problem()
+        if problem is not None:
+            return False, problem
+        try:
+            shape = outer_shape_from_vehicle(vehicle)
+        except (KeyError, TypeError, ValueError) as exc:
+            return False, str(exc)
+        meshed = sorted({panel.surface for panel in shape.panels})
+        listed = f"Ready ({', '.join([shape.body.name, *meshed])})"
+        return True, f"{listed}; not placed: {', '.join(shape.left_out)}" if shape.left_out else listed
+
     if descriptor.solver_id == "gmsh_step_slicer":
         problem = gmsh_problem()
         if problem is not None:
@@ -1800,7 +1930,9 @@ def _run_warnings(results: BaseAnalysisResults) -> tuple[str, ...]:
                 "today's reaches the required margin."
             )
         return tuple(warnings)
-    if isinstance(results, (XfoilPolarResults, SU2ConfigResults, GmshSliceResults)):
+    if isinstance(
+        results, (XfoilPolarResults, SU2ConfigResults, GmshSliceResults, GmshMeshResults)
+    ):
         return results.assumptions
     if isinstance(results, AckeretFinResults):
         warnings = list(results.assumptions)

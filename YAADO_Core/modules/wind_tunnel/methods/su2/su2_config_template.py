@@ -4,8 +4,8 @@ Writes one SU2 ``.cfg`` deck per (Mach, angle of attack) pair for SU2's compress
 Euler solver. The freestream state comes from the ISA atmosphere at the chosen altitude,
 and the force and moment references from the vehicle: the body's frontal area and
 diameter, about the vehicle CG, unless overridden (for example with a wing area and
-mean chord). The decks name a mesh with the markers ``airframe`` and ``farfield``. This
-module does not mesh or run SU2; that is tracked in issue #44.
+mean chord). The decks name the mesh and the markers that the Gmsh mesher writes. This
+module does not run SU2; that is tracked in issue #44.
 
 Reference:
     Economon, T. D. et al., "SU2: An Open-Source Suite for Multiphysics Simulation and
@@ -21,9 +21,15 @@ from YAADO_Core.ComponentStore import AERO_COMPONENTS, BODY_COMPONENTS
 from YAADO_Core.Foundation.analysis_base import BaseAnalysis, FidelityLevel
 from YAADO_Core.Foundation.atmosphere import AtmosphereState, isa_atmosphere
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.airframe.mesher_methods.gmsh_euler import (
+    AIRFRAME,
+    BASE,
+    FARFIELD,
+    MESH_FILENAME,
+    SYMMETRY,
+)
 from YAADO_Core.modules.wind_tunnel.containers import SU2Case, SU2ConfigResults
 
-MESH_FILENAME = "airframe.su2"
 MANIFEST_FILENAME = "run_manifest.json"
 
 #: Solver numerics shared by every deck (Euler, JST scheme, residual convergence).
@@ -32,10 +38,10 @@ SOLVER_SETTINGS: tuple[tuple[str, str], ...] = (
     ("SOLVER", "EULER"),
     ("MATH_PROBLEM", "DIRECT"),
     ("REF_DIMENSIONALIZATION", "DIMENSIONAL"),
-    ("MARKER_EULER", "( airframe )"),
-    ("MARKER_FAR", "( farfield )"),
-    ("MARKER_MONITORING", "( airframe )"),
-    ("MARKER_PLOTTING", "( airframe )"),
+    ("MARKER_EULER", f"( {AIRFRAME}, {BASE} )"),
+    ("MARKER_FAR", f"( {FARFIELD} )"),
+    ("MARKER_MONITORING", f"( {AIRFRAME}, {BASE} )"),
+    ("MARKER_PLOTTING", f"( {AIRFRAME}, {BASE} )"),
     ("CONV_NUM_METHOD_FLOW", "JST"),
     ("NUM_METHOD_GRAD", "WEIGHTED_LEAST_SQUARES"),
     ("CFL_NUMBER", "5.0"),
@@ -43,7 +49,7 @@ SOLVER_SETTINGS: tuple[tuple[str, str], ...] = (
     ("CONV_RESIDUAL_MINVAL", "-8"),
     ("ITER", "5000"),
     ("OUTPUT_FILES", "(RESTART, PARAVIEW, SURFACE_CSV)"),
-    ("HISTORY_OUTPUT", "(ITER, RMS_RES, AERO_COEFF)"),
+    ("HISTORY_OUTPUT", "(ITER, RMS_RES, AERO_COEFF, AERO_COEFF_SURF)"),
 )
 
 
@@ -66,6 +72,7 @@ def build_su2_config(
     moment_origin_x: float,
     filename: str,
     geometry_notes: tuple[str, ...] = (),
+    half_model: bool = False,
 ) -> str:
     """Render the SU2 deck of one Euler case.
 
@@ -80,6 +87,9 @@ def build_su2_config(
         moment_origin_x: Moment reference point, from the nose tip [m].
         filename: Name the deck is saved under; sets the restart and history names.
         geometry_notes: Lines describing the vehicle, written as comments.
+        half_model: Whether the mesh holds half of the vehicle. SU2 then integrates half of
+            the forces, so half of the reference area keeps the coefficients of the whole
+            vehicle.
 
     Returns:
         The deck text.
@@ -92,6 +102,7 @@ def build_su2_config(
         *(f"% {note}" for note in geometry_notes),
         "%",
         *(f"{key}= {value}" for key, value in SOLVER_SETTINGS),
+        *([f"MARKER_SYM= ( {SYMMETRY} )"] if half_model else []),
         "%",
         f"MACH_NUMBER= {mach:g}",
         f"AOA= {alpha_deg:g}",
@@ -101,7 +112,7 @@ def build_su2_config(
         f"REF_ORIGIN_MOMENT_X= {moment_origin_x:.4f}",
         "REF_ORIGIN_MOMENT_Y= 0.0",
         "REF_ORIGIN_MOMENT_Z= 0.0",
-        f"REF_AREA= {ref_area:.6g}",
+        f"REF_AREA= {ref_area / 2.0 if half_model else ref_area:.6g}",
         f"REF_LENGTH= {ref_length:.6g}",
         "%",
         f"MESH_FILENAME= {MESH_FILENAME}",
@@ -128,6 +139,7 @@ class SU2ConfigGeneration(BaseAnalysis[SU2ConfigResults]):
     DEFAULT_MACH_LIST: ClassVar[tuple[float, ...]] = (0.8, 1.5, 2.0, 2.5, 3.0)
     DEFAULT_ALPHA_LIST_DEG: ClassVar[tuple[float, ...]] = (0.0,)
     DEFAULT_ALTITUDE_M: ClassVar[float] = 0.0
+    DEFAULT_HALF_MODEL: ClassVar[bool] = True
     MAX_CASES: ClassVar[int] = 400
 
     def __init__(self, name: str = "su2_euler_decks") -> None:
@@ -139,6 +151,7 @@ class SU2ConfigGeneration(BaseAnalysis[SU2ConfigResults]):
         self._ref_area = 0.0
         self._ref_length = 0.0
         self._moment_origin_x = 0.0
+        self._half_model = self.DEFAULT_HALF_MODEL
         self._notes: tuple[str, ...] = ()
         self._assumptions: tuple[str, ...] = ()
 
@@ -152,6 +165,7 @@ class SU2ConfigGeneration(BaseAnalysis[SU2ConfigResults]):
         ref_area: float | None = None,
         ref_length: float | None = None,
         cg_from_nose: float | None = None,
+        half_model: bool = DEFAULT_HALF_MODEL,
         body_name: str | None = None,
         **kwargs: Any,
     ) -> None:
@@ -165,6 +179,8 @@ class SU2ConfigGeneration(BaseAnalysis[SU2ConfigResults]):
             ref_area: Force reference area [m^2]. Defaults to the body's frontal area.
             ref_length: Moment reference length [m]. Defaults to the body diameter.
             cg_from_nose: Moment reference point [m]. Defaults to the vehicle CG.
+            half_model: Whether the mesh holds the half of the vehicle at y > 0, as the
+                mesher makes for a symmetric vehicle.
             body_name: Body to use if the vehicle has more than one.
             **kwargs: Not accepted; present for the ``BaseAnalysis`` signature.
 
@@ -215,10 +231,11 @@ class SU2ConfigGeneration(BaseAnalysis[SU2ConfigResults]):
         self._ref_area = ref_area
         self._ref_length = ref_length
         self._moment_origin_x = cg_from_nose
+        self._half_model = half_model
         self._notes = tuple(notes)
         decks_only = (
-            f"Decks only: mesh the vehicle as {MESH_FILENAME} with the markers airframe and "
-            "farfield, then run SU2_CFD on each deck."
+            f"Decks only, for a {'half' if half_model else 'full'} model: make {MESH_FILENAME} "
+            "with the Gmsh mesher, then run SU2_CFD on each deck next to it."
         )
         self._assumptions = (decks_only, *assumptions)
         self.logger.info(
@@ -244,6 +261,7 @@ class SU2ConfigGeneration(BaseAnalysis[SU2ConfigResults]):
                 self._moment_origin_x,
                 case.filename,
                 self._notes,
+                self._half_model,
             )
             self.logger.save_artifact(case.filename, deck)
         self.logger.save_json(self._cases, MANIFEST_FILENAME)
@@ -260,6 +278,7 @@ class SU2ConfigGeneration(BaseAnalysis[SU2ConfigResults]):
             ref_length=self._ref_length,
             moment_origin_x=self._moment_origin_x,
             mesh_filename=MESH_FILENAME,
+            is_half=self._half_model,
             assumptions=self._assumptions,
         )
 

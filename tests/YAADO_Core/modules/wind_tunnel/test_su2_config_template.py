@@ -64,6 +64,23 @@ def test_every_deck_option_exists_in_su2() -> None:
     assert set(_deck_values(_deck())) <= declared
 
 
+def test_a_half_model_halves_the_reference_area_and_adds_the_symmetry_plane() -> None:
+    def deck(half: bool) -> dict[str, str]:
+        return _deck_values(
+            build_su2_config(
+                "Test", 2.0, 0.0, 0.0, isa_atmosphere(0.0), ref_area=0.1, ref_length=0.3,
+                moment_origin_x=1.0, filename="case.cfg", half_model=half,
+            )
+        )
+
+    assert deck(True)["MARKER_SYM"] == "( symmetry )"
+    assert float(deck(True)["REF_AREA"]) == pytest.approx(0.05)
+    assert "MARKER_SYM" not in deck(False)
+    assert float(deck(False)["REF_AREA"]) == pytest.approx(0.1)
+    if SU2_CONFIG_SOURCE.is_file():
+        assert '"MARKER_SYM"' in SU2_CONFIG_SOURCE.read_text(encoding="utf-8", errors="replace")
+
+
 def test_filenames_encode_mach_and_signed_angle() -> None:
     assert su2_config_filename(2.5, 0.0) == "su2_mach2p50_aoa0p00.cfg"
     assert su2_config_filename(0.8, -2.0) == "su2_mach0p80_aoam2p00.cfg"
@@ -72,7 +89,7 @@ def test_filenames_encode_mach_and_signed_angle() -> None:
 def test_solver_settings_are_an_euler_case() -> None:
     settings = dict(SOLVER_SETTINGS)
     assert settings["SOLVER"] == "EULER"
-    assert settings["MARKER_EULER"] == "( airframe )"
+    assert settings["MARKER_EULER"] == "( airframe, base )"
     assert settings["MARKER_FAR"] == "( farfield )"
 
 
