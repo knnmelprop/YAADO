@@ -20,10 +20,13 @@ from Terminal.solvers import (
     airfoil_choices,
     check_solver_compatibility,
     execute_solver,
+    step_file_choices,
 )
 from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
+from YAADO_Core.modules.airframe.containers import GmshSliceResults
+from YAADO_Core.modules.airframe.gmsh_process import gmsh_problem
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
@@ -598,3 +601,71 @@ def test_execute_su2_writes_one_deck_per_case(
     assert len(list(artifacts.glob("su2_mach*.cfg"))) == 4
     assert (artifacts / "run_manifest.json").is_file()
     assert (tmp_path / run.output_dir / "results.json").is_file()
+
+
+def _slicer_descriptor() -> SolverDescriptor:
+    return next(d for d in REPAIRED_SOLVERS if d.solver_id == "gmsh_step_slicer")
+
+
+def test_slicer_lists_hangar_and_run_step_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig(name="Rocket")
+    monkeypatch.chdir(tmp_path)
+    assert step_file_choices(vehicle) == ()
+
+    files = ("Hangar/geometry/b.STP", "Hangar/a.step", "FlightLogs/Rocket/mesh_2/artifacts/hull.step",
+             "FlightLogs/Rocket/mesh_1/artifacts/hull.step", "FlightLogs/Other/mesh_1/artifacts/o.step",
+             "Hangar/notes.txt")
+    for name in files:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).touch()
+    assert [choice.label for choice in step_file_choices(vehicle)] == [
+        "a.step", str(Path("geometry/b.STP")),
+        str(Path("mesh_2/artifacts/hull.step")), str(Path("mesh_1/artifacts/hull.step")),
+    ]
+
+
+def test_slicer_compatibility_needs_gmsh_and_mentions_the_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig(name="Rocket")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(solvers, "gmsh_problem", lambda: "Gmsh does not load")
+    assert check_solver_compatibility(_slicer_descriptor(), vehicle) == (False, "Gmsh does not load")
+
+    monkeypatch.setattr(solvers, "gmsh_problem", lambda: None)
+    is_ready, msg = check_solver_compatibility(_slicer_descriptor(), vehicle)
+    assert is_ready and "no STEP file" in msg
+
+    (tmp_path / "Hangar").mkdir()
+    (tmp_path / "Hangar" / "a.step").touch()
+    assert check_solver_compatibility(_slicer_descriptor(), vehicle) == (True, "Ready (1 STEP file)")
+
+
+@pytest.mark.skipif(gmsh_problem() is not None, reason="Gmsh does not load here")
+def test_execute_slicer_saves_sections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import gmsh
+
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Hangar").mkdir()
+    gmsh.initialize(readConfigFiles=False, interruptible=False)
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.model.occ.addCylinder(0, 0, 0, 3840, 0, 0, 171.5)
+        gmsh.model.occ.synchronize()
+        gmsh.write("Hangar/body.step")
+    finally:
+        gmsh.finalize()
+
+    run = execute_solver(
+        _slicer_descriptor(), vehicle, {"step_file": "Hangar/body.step", "n_stations": 10}
+    )
+
+    assert isinstance(run.results, GmshSliceResults)
+    assert run.results.length == pytest.approx(3.84, abs=1e-5)
+    assert len(run.warnings) == 1 and "max radius" in run.warnings[0]
+    assert run.output_dir is not None
+    for name in ("figures/sections.png", "artifacts/sections.csv", "artifacts/gmsh.log", "results.json"):
+        assert (tmp_path / run.output_dir / name).is_file(), name

@@ -24,7 +24,7 @@ The cockpit has three tabs, and the footer always shows the keys available in th
 - **Hangar**: browse vehicles in `Hangar/`, fork the read-only references in `Hangar/examples/`, and assemble or edit vehicles from the Component Store.
 - **Flight Deck**: tune solver parameters, stage and run pipelines, and review past runs in `FlightLogs/`.
 
-Flight Deck solvers run in the background, so you can keep using the cockpit while a slow solver such as XFOIL runs. The results card shows the solver that is running, and the results replace it when the solver finishes. Only one run at a time is possible: the run buttons are disabled until it finishes. To cancel the run, press `k` or `Esc` on the Flight Deck. XFOIL is stopped at once; the other solvers are quick and stop when their calculation ends. A cancelled solver saves no FlightLogs run, and the later stages of a pipeline do not run. If you quit during a run, YAADO cancels it and exits at once.
+Flight Deck solvers run in the background, so you can keep using the cockpit while a slow solver such as XFOIL runs. The results card shows the solver that is running, and the results replace it when the solver finishes. Only one run at a time is possible: the run buttons are disabled until it finishes. To cancel the run, press `k` or `Esc` on the Flight Deck. XFOIL and Gmsh are stopped at once; the other solvers are quick and stop when their calculation ends. A cancelled solver saves no FlightLogs run, and the later stages of a pipeline do not run. If you quit during a run, YAADO cancels it and exits at once.
 
 ## Bare Mode (`-b`)
 
@@ -81,6 +81,10 @@ yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver x
 # SU2 Euler decks for a 3 x 3 Mach and angle-of-attack grid at 10 km
 yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver su2_euler_decks \
          --set mach_list=0.8,1.5,2.5 --set alpha_list_deg=-2,0,4 --set altitude_m=10000
+
+# Cross-sections of a STEP model, compared with the vehicle
+yaado -b --vehicle Hangar/examples/ALVRJ/ALVRJ.toml --solver gmsh_step_slicer \
+         --set step_file=Hangar/geometry/airframe.step --set axis=x
 ```
 
 | Option | Effect |
@@ -96,6 +100,8 @@ yaado -b --vehicle Hangar/examples/AGM-84_HARPOON/AGM-84_HARPOON.toml --solver s
 For the ramjet cycle, set real losses on the engine in the vehicle TOML (see the [module README](../YAADO_Core/modules/powerplant/cycle_methods/README.md)). `--set` overrides them, and the run warns about each loss that falls back to a placeholder.
 
 For the XFOIL polar, pick the wing or fin set with `--set surface=NAME`, unless the vehicle has only one. The `xfoil` executable must be on `PATH`; on Ubuntu and Debian the packaged build needs a wrapper (see the [module README](../YAADO_Core/modules/wind_tunnel/methods/xfoil/README.md#installing-xfoil)).
+
+For the STEP slicer, put the CAD model in `Hangar/geometry` or any other `Hangar` folder, exported as solid bodies (see the [module README](../YAADO_Core/modules/airframe/slicer_methods/README.md)).
 
 For static stability, give each fin set its position with `root_le_from_nose` in the vehicle TOML (see the [module README](../YAADO_Core/modules/stability_control/methods/barrowman/README.md)). A single fin set without it is placed flush with the aft end of the body, and the run says so.
 
