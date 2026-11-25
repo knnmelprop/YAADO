@@ -104,6 +104,16 @@ async def _wait_for_run(pilot: Pilot[None], fd: FlightDeckView, timeout: float =
     await pilot.pause()
 
 
+async def _wait_until(
+    pilot: Pilot[None], condition: Callable[[], bool], timeout: float = 30.0
+) -> None:
+    """Wait for a UI state that takes longer on a slow machine than a fixed pause allows."""
+    deadline = time.monotonic() + timeout
+    while not condition():
+        assert time.monotonic() < deadline, "the expected UI state was not reached"
+        await pilot.pause(0.05)
+
+
 def _blocking_execute(
     release: threading.Event, calls: list[tuple[str, bool]]
 ) -> Callable[..., SolverRun]:
@@ -166,6 +176,7 @@ def test_repaired_solvers_catalog_contains_only_repaired() -> None:
         "multi_shock_inlet",
         "xfoil_polar",
         "su2_euler_decks",
+        "gmsh_euler_mesh",
         "gmsh_step_slicer",
         "barrowman_stability",
         "barrowman_extended",
@@ -1307,12 +1318,19 @@ def test_xfoil_form_offers_the_vehicle_surfaces() -> None:
             fd._current_highlighted_descriptor = desc
             fd._active_params = dict(desc.default_params)
             fd._render_solver_inspector(desc, True, "Ready")
-            await pilot.pause(0.3)
-
             form = fd.query_one("#flightdeck-params-form", SolverParamsForm)
+
+            def shown(name: str) -> object:
+                """Value of a choice in the form, or None before the form is mounted."""
+                selects = form.query(f"#param-inp-{name}").results(Select)
+                return next((s.value for s in selects if form._widgets_mounted), None)
+
+            await _wait_until(
+                pilot,
+                lambda: shown("surface") == "planar_equivalent"
+                and fd._active_params.get("surface") == "planar_equivalent",
+            )
             select = form.query_one("#param-inp-surface", Select)
-            assert select.value == "planar_equivalent"
-            assert fd._active_params["surface"] == "planar_equivalent"
             labels = [str(prompt) for prompt, _ in select._options]
             assert "aft_control_fins: no airfoil" in labels
 
@@ -1323,9 +1341,11 @@ def test_xfoil_form_offers_the_vehicle_surfaces() -> None:
 
             select.value = "aft_control_fins"
             airfoil.value = "NACA0010"
-            await pilot.pause(0.2)
-            assert fd._active_params["surface"] == "aft_control_fins"
-            assert fd._active_params["airfoil"] == "NACA0010"
+            await _wait_until(
+                pilot,
+                lambda: fd._active_params.get("surface") == "aft_control_fins"
+                and fd._active_params.get("airfoil") == "NACA0010",
+            )
 
             fd.stage_solver(desc)
             await pilot.pause(0.1)
@@ -1336,9 +1356,7 @@ def test_xfoil_form_offers_the_vehicle_surfaces() -> None:
             # A stage's custom airfoil file, not in the list, is kept and shown
             fd.pipeline[-1].params["airfoil"] = "my_foils/sd7062.dat"
             fd._render_stage_params(1, fd.pipeline[-1])
-            await pilot.pause(0.3)
-            airfoil = form.query_one("#param-inp-airfoil", Select)
-            assert airfoil.value == "my_foils/sd7062.dat"
+            await _wait_until(pilot, lambda: shown("airfoil") == "my_foils/sd7062.dat")
 
     asyncio.run(_test())
 

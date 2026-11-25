@@ -78,6 +78,8 @@ class Wings(BaseModel):
         dihedral: Dihedral angle in degrees. (Range: -20 to 20)
         airfoil_root: Root airfoil designation (e.g. "NACA2412").
         airfoil_tip: Tip airfoil designation. Defaults to root airfoil if omitted.
+        root_le_from_nose: Axial position of the root leading edge at the centerline, measured
+            from the nose tip in meters. Defaults to None: not placed on the vehicle. (>= 0)
         control_surfaces: List of control surfaces attached to the wing.
         mass: Mass Properties
     """
@@ -88,6 +90,7 @@ class Wings(BaseModel):
         "span": "m",
         "sweep": "deg",
         "dihedral": "deg",
+        "root_le_from_nose": "m",
     }
     HEADLINE_FIELDS: ClassVar[tuple[str, ...]] = ("span", "aspect_ratio", "sweep")
 
@@ -137,6 +140,13 @@ class Wings(BaseModel):
         default=None,
         examples=['NACA0006'],
         description='''Tip airfoil designation. Defaults to root airfoil if omitted.'''
+    )
+
+    root_le_from_nose: float | None = Field(
+        default=None,
+        ge=0.0,
+        examples=[1.55],
+        description='''Axial position of the root leading edge at the centerline, measured from the nose tip in meters. Defaults to None: not placed on the vehicle. (>= 0)'''
     )
     
     control_surfaces: list[ControlSurface] = Field(
@@ -193,6 +203,8 @@ class Fins(BaseModel):
         root_le_from_nose: Axial position of the root leading edge, measured from the nose
             tip in meters. Defaults to None: fins flush with the aft end of the body. (>= 0)
         airfoil: Fin section: a NACA designation or a coordinate file. Defaults to None.
+        thickness_ratio: Largest thickness over chord of a fin without an airfoil. Defaults to
+            None if unmeasured. (Range: 0 to 0.5)
         control_surfaces: List of control surfaces attached to the trailing edge of these fins.
         mass: Mass Properties
     """
@@ -255,6 +267,14 @@ class Fins(BaseModel):
         default=None,
         examples=['NACA0010'],
         description='''Fin section: a NACA designation or a coordinate file. Defaults to None.'''
+    )
+
+    thickness_ratio: float | None = Field(
+        default=None,
+        gt=0.0,
+        lt=0.5,
+        examples=[0.04],
+        description='''Largest thickness over chord of a fin without an airfoil. Defaults to None if unmeasured. (Range: 0 to 0.5)'''
     )
 
     control_surfaces: list[ControlSurface] = Field(

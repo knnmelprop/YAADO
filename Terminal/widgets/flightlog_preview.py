@@ -31,6 +31,7 @@ ANALYSIS_DISPLAY_NAMES: dict[str, str] = {
     "ackeret_fin_check": "Ackeret Supersonic Fin Check",
     "xfoil_polar": "XFOIL Section Polar",
     "su2_euler_decks": "SU2 Euler Config Decks",
+    "gmsh_euler_mesh": "Gmsh Euler Mesh",
     "gmsh_step_slicer": "STEP Cross-Section Slicer",
     "aero_polar": "Aero Polars",
     "mass_estimation": "Mass & Inertia",

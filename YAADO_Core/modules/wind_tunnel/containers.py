@@ -202,6 +202,7 @@ class SU2ConfigResults(BaseAnalysisResults):
         ref_length: Reference length of the moment coefficients.
         moment_origin_x: Moment reference point, from the nose tip.
         mesh_filename: Mesh every deck reads; it is not generated here.
+        is_half: Whether the decks are for a mesh of half of the vehicle.
         assumptions: Conditions that limit how far the decks can be trusted.
     """
 
@@ -217,4 +218,5 @@ class SU2ConfigResults(BaseAnalysisResults):
     ref_length: Meters
     moment_origin_x: Meters
     mesh_filename: str
+    is_half: bool
     assumptions: tuple[str, ...]

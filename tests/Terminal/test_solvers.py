@@ -20,13 +20,16 @@ from Terminal.solvers import (
     airfoil_choices,
     check_solver_compatibility,
     execute_solver,
+    mesh_domain_choices,
+    mesh_surface_choices,
     step_file_choices,
 )
 from YAADO_Core.Foundation.cancellation import CancelToken, RunCancelledError
 from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
-from YAADO_Core.modules.airframe.containers import GmshSliceResults
+from YAADO_Core.modules.airframe.containers import GmshMeshResults, GmshSliceResults
 from YAADO_Core.modules.airframe.gmsh_process import gmsh_problem
+from YAADO_Core.modules.airframe.mesher_methods import gmsh_euler
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
@@ -669,3 +672,65 @@ def test_execute_slicer_saves_sections(tmp_path: Path, monkeypatch: pytest.Monke
     assert run.output_dir is not None
     for name in ("figures/sections.png", "artifacts/sections.csv", "artifacts/gmsh.log", "results.json"):
         assert (tmp_path / run.output_dir / name).is_file(), name
+
+
+def _mesher_descriptor() -> SolverDescriptor:
+    return next(d for d in REPAIRED_SOLVERS if d.solver_id == "gmsh_euler_mesh")
+
+
+def test_mesher_compatibility_lists_what_it_meshes(monkeypatch: pytest.MonkeyPatch) -> None:
+    harpoon = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.setattr(solvers, "gmsh_problem", lambda: None)
+    assert check_solver_compatibility(_mesher_descriptor(), harpoon) == (
+        True, "Ready (fuselage, aft_control_fins, mid_body_wings); not placed: planar_equivalent",
+    )
+    is_ready, msg = check_solver_compatibility(_mesher_descriptor(), BaseVehicleConfig(name="Empty"))
+    assert not is_ready and "no component matching" in msg
+
+    monkeypatch.setattr(solvers, "gmsh_problem", lambda: "Gmsh does not load")
+    assert check_solver_compatibility(_mesher_descriptor(), harpoon) == (False, "Gmsh does not load")
+
+
+def test_mesher_offers_surfaces_and_domains() -> None:
+    harpoon = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    assert [choice.value for choice in mesh_surface_choices(harpoon)] == [
+        "none", "mid_body_wings", "aft_control_fins", "planar_equivalent",
+    ]
+    assert [choice.value for choice in mesh_domain_choices(harpoon)] == ["auto", "half", "full"]
+
+
+@pytest.mark.skipif(gmsh_problem() is not None, reason="Gmsh does not load here")
+def test_execute_mesher_saves_the_mesh_and_a_step_file_the_slicer_lists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+
+    run = execute_solver(
+        _mesher_descriptor(), vehicle, {"cells_per_diameter": 6, "farfield_lengths": 3.0}
+    )
+
+    assert isinstance(run.results, GmshMeshResults)
+    assert any("planar_equivalent" in warning for warning in run.warnings)
+    assert run.output_dir is not None
+    for name in ("artifacts/airframe.su2", "artifacts/airframe.step", "artifacts/gmsh.log",
+                 "figures/mesh.png", "results.json"):
+        assert (tmp_path / run.output_dir / name).is_file(), name
+    assert [choice.value for choice in step_file_choices(vehicle)] == [
+        str(run.output_dir / "artifacts/airframe.step")
+    ]
+
+
+def test_a_cancelled_mesher_run_leaves_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
+    monkeypatch.chdir(tmp_path)
+    # The run is cancelled before it needs Gmsh, so this also runs where Gmsh does not load.
+    for module in (solvers, gmsh_euler):
+        monkeypatch.setattr(module, "gmsh_problem", lambda: None)
+    token = CancelToken()
+    token.cancel()
+    with pytest.raises(RunCancelledError):
+        execute_solver(_mesher_descriptor(), vehicle, cancel_token=token)
+    assert list(tmp_path.glob("FlightLogs/*/*")) == []

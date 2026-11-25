@@ -27,4 +27,6 @@ Put STEP files in `Hangar/geometry` (any `Hangar` folder works); the Flight Deck
 
 A logged run saves `sections.csv`, a figure of the areas and radii, and Gmsh's output.
 
-**Gmsh:** the `gmsh` Python package is installed by `uv sync`. On Ubuntu and Debian it also needs `sudo apt install libglu1-mesa`. Gmsh runs in a child process ([`gmsh_process.py`](../gmsh_process.py)), so a run can be cancelled at once and a Gmsh crash does not take YAADO with it.
+## Installing Gmsh
+
+The `gmsh` Python package is installed by `uv sync`. On Ubuntu and Debian it also needs `sudo apt install libglu1-mesa`. Gmsh runs in a child process ([`gmsh_process.py`](../gmsh_process.py)), so a run can be cancelled at once and a Gmsh crash does not take YAADO with it.

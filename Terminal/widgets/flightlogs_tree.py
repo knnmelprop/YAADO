@@ -81,6 +81,7 @@ class FlightLogsTree(Tree[Path | None]):
         "ackeret_fin_check": "Ackeret Fin Check",
         "xfoil_polar": "XFOIL Polar",
         "su2_euler_decks": "SU2 Euler Decks",
+        "gmsh_euler_mesh": "Euler Mesh",
         "gmsh_step_slicer": "STEP Slicer",
         "aero_polar": "Aero Polars",
         "mass_estimation": "Mass & Inertia",
