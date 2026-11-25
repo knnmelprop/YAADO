@@ -29,6 +29,7 @@ from YAADO_Core.Foundation.flight_logger import FlightLogger
 from YAADO_Core.Foundation.vehicle_base import BaseVehicleConfig
 from YAADO_Core.modules.airframe.containers import GmshMeshResults, GmshSliceResults
 from YAADO_Core.modules.airframe.gmsh_process import gmsh_problem
+from YAADO_Core.modules.airframe.mesher_methods import gmsh_euler
 from YAADO_Core.modules.flight_dynamics.containers import PointMassBoostResults
 from YAADO_Core.modules.powerplant.containers import (
     ConicalInletResults,
@@ -725,7 +726,9 @@ def test_a_cancelled_mesher_run_leaves_nothing(
 ) -> None:
     vehicle = BaseVehicleConfig.from_toml(HARPOON_PATH.resolve())
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(solvers, "gmsh_problem", lambda: None)
+    # The run is cancelled before it needs Gmsh, so this also runs where Gmsh does not load.
+    for module in (solvers, gmsh_euler):
+        monkeypatch.setattr(module, "gmsh_problem", lambda: None)
     token = CancelToken()
     token.cancel()
     with pytest.raises(RunCancelledError):
